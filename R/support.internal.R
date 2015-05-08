@@ -1,0 +1,121 @@
+# Construct Design Matrices for \code{brms} models
+# 
+# @param formula An object of class "formula"
+# @param data A data frame created with \code{model.frame}. If another sort of object, \code{model.frame} is called first.
+# @param rm.int Flag indicating if the intercept column should be removed from the model.matrix. 
+#   Primarily useful for ordinal models.
+# 
+# @return The design matrix for a regression-like model with the specified formula and data. 
+#   For details see the documentation of \code{model.matrix}.
+brm.model.matrix = function(formula, data = environment(formula), rm.int = FALSE) {
+  if (!is(formula, "formula")) return(NULL) 
+  X <- model.matrix(formula,data)
+  cn.new <- gsub("\\.","",colnames(X))
+  cn.new <- gsub(":","__",cn.new)
+  cn.new <- gsub("\\(|\\)","",cn.new)
+  cn.new <- gsub("/","",cn.new)
+  if (rm.int & is.element("Intercept", cn.new)) {
+    X <- as.matrix(X[,-(1)])
+    if (ncol(X)) colnames(X) <- cn.new[2:length(cn.new)]
+  } 
+  else colnames(X) <- cn.new
+  X   
+}
+
+# Extract fixed and random effects from a formula
+# 
+# @param formula An object of class "formula" using mostly the syntax of the \code{lme4} package
+# @param ... Additional objects of class "formula"
+# 
+# @return A named list of the following six objects: \cr
+#   \code{fixed}:    An object of class "formula" that contains the fixed effects including the dependent variable. \cr
+#   \code{random}:   A list of formulas containing the random effects per grouping variable. \cr
+#   \code{group}:    A list of names of the grouping variables. \cr
+#   \code{add}:      A one sided formula containing the \code{add} part of \code{formula = y | add ~ predictors} if present. \cr
+#   \code{weights}:  A one sided formula containing the \code{weights} part of \code{formula = y || weights ~ predictors} if present. \cr
+#   \code{all}:      A formula that contains every variable mentioned in \code{formula} and \code{...} 
+# 
+# @examples
+# \dontrun{ 
+# # fixed effects model
+# extract.effects(response ~ I(1/a) + b)
+# 
+# # mixed effects model
+# extract.effects(response ~ I(1/a) + b + (1 + c | d))
+# 
+# # mixed effects model with additional information on the response variable 
+# # (e.g., standard errors in a gaussian linear model)
+# extract.effects(response | se ~ I(1/a) + b + (1 + c | d))
+# }
+extract.effects <- function(formula, ...) {
+  formula <- gsub(" ","",Reduce(paste, deparse(formula)))  
+  fixed <- gsub(paste0("\\([^(\\||~)]*\\|[^\\)]*\\)\\+|\\+\\([^(\\||~)]*\\|[^\\)]*\\)",
+                       "|\\([^(\\||~)]*\\|[^\\)]*\\)"),"",formula)
+  fixed <- gsub("\\|+[^~]*~", "~", fixed)
+  if (substr(fixed, nchar(fixed), nchar(fixed)) == "~") fixed <- paste0(fixed, "1")
+  fixed <- formula(fixed)
+  if (length(fixed) < 3) stop("invalid formula: response variable is missing")
+  
+  add <- unlist(regmatches(formula,gregexpr("[^\\|]\\|[^~|\\|]*~",formula)))[1]
+  add <- substr(add, 3, nchar(add)-1)
+  if (is.na(add)) add <- NULL
+  else if (is.na(suppressWarnings(as.numeric(add)))) add <- as.formula(paste0("~", add))
+  else add <- as.numeric(add)
+  
+  weights <- unlist(regmatches(formula, gregexpr("\\|\\|[^~]*~", formula)))[1]
+  if (is.na(weights)) weights <- NULL
+  else weights <- as.formula(paste0("~", substr(weights, 3, nchar(weights) - 1)))
+  
+  rg <- unlist(regmatches(formula, gregexpr("\\([^\\|\\)]*\\|[^\\)]*\\)", formula)))
+  random <- lapply(regmatches(rg, gregexpr("\\([^\\|]*", rg)), function(r) 
+    formula(paste0("~ ",substr(r, 2, nchar(r)))))
+  group <- lapply(regmatches(rg, gregexpr("\\|[^\\)]*", rg)), function(g) 
+    substr(g, 2, nchar(g)))
+  out <- list(fixed = fixed, random = random, group = group, add = add, weights = weights)
+  
+  if (length(group)) group <- lapply(paste("~",group),"formula") 
+  if (is.numeric(add)) add <- NULL
+  up.formula <- unlist(lapply(c(add, weights, random, group, ...), 
+                              function(x) paste0("+", Reduce(paste, deparse(x[[2]])))))
+  up.formula <- paste0("update(",Reduce(paste, deparse(fixed)),", . ~ .",paste0(up.formula, collapse=""),")")
+  return(c(out, all = eval(parse(text = up.formula))))
+} 
+
+# Links for \code{brms} families
+# 
+# @param family A vector of one or two character strings. The first string indicates the distribution of the dependent variable (the 'family'). Currently, the following distributions are supported:
+#  \code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"poisson"}, \code{"binomial"}, \code{"categorical"}, 
+#  \code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \cr
+#  \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
+#  The second string indicates the link function, which must supported by the distribution of the dependent variable. If not specified, default link functions are used (see 'Details').
+# @return The second element of \code{family} (if present) or else the default link of the specified family
+#   
+# @details The families \code{gaussian}, \code{student}, and \code{cauchy} accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
+# the \code{poisson} family the links \code{log}, \code{identity}, and \code{sqrt}; 
+# families \code{binomial}, \code{cumulative}, \code{cratio}, \code{sratio}, and \code{acat} the links \code{logit}, \code{probit}, \code{probit_approx}, and \code{cloglog};
+# family  \code{categorical} the link \code{logit}; families \code{gamma}, \code{weibull}, and \code{exponential} the links \code{log}, \code{identity}, and \code{inverse}. 
+# The first link mentioned for each family is the default.     
+# 
+# @examples brm.link("gaussian")
+# brm.link(c("gaussian","log"))
+brm.link <- function(family) {
+  link <- family[2]
+  family <- family[1]
+  is.lin <- family %in% c("gaussian", "student", "cauchy")
+  is.skew <- family %in% c("gamma", "weibull", "exponential")
+  is.bin <- family %in% c("cumulative", "cratio", "sratio", "acat","binomial", "bernoulli")                    
+  if (is.na(link)) {
+    if (is.lin) link <- "identity"
+    else if (is.skew | family == "poisson") link <- "log"
+    else if (is.bin | family == "categorical") link <- "logit"
+  }
+  else if (is.lin & !is.element(link, c("identity", "log", "inverse")) |
+             family == "poisson" & !link %in% c("log", "identity", "sqrt") |
+             is.bin & !link %in% c("logit", "probit", "probit_approx", "cloglog") |
+             family == "categorical" & link != "logit" |
+             is.skew & !link %in% c("log", "identity", "inverse"))
+    stop(paste(link, "is not a valid link for family", family))
+  else if (family == "poisson" & link == "sqrt") 
+    warning("Poisson model with sqrt link may not be uniquely identified")
+  link
+}
