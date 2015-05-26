@@ -4,12 +4,8 @@
 # @return A character string containing the model in bugs language
 brm.bugs <- function(formula, data = NULL, family = "gaussian", link = "identiy", 
                        prior = list(), partial = NULL, threshold = "flexible", 
-                       post.pred = FALSE, save.model = FALSE, ...) {  
-  
-  cd <- match.call(expand.dots = FALSE)
-  cd <- cd[c(1, match(c("formula", "partial"), names(cd), 0))]
-  cd[[1]] <- quote(extract.effects)
-  ef <- eval(cd)  
+                       predict = FALSE, save.model = FALSE, ...) {  
+  ef <- extract.effects(formula = formula, partial = partial)   
   data <- model.frame(ef$all, data=data, drop.unused.levels=TRUE)
   
   is.ord <- family %in% c("cumulative", "cratio", "sratio", "acat")
@@ -146,7 +142,7 @@ brm.bugs <- function(formula, data = NULL, family = "gaussian", link = "identiy"
     "### likelihood \n",
     "for ( n in 1:N) { \n",
     "  Y[n] ~ ",llh, "\n",
-    if (post.pred) 
+    if (predict) 
       paste0("  Y_pred[n] ~ ",llh, "\n"),
     "  eta[n] <- ",eta," \n",
        ord.lh.jags(family), 
@@ -223,10 +219,10 @@ bugs.prior = function(par, prior = list(), ind = rep("", length(par)), s = 0, ..
 # brm.llh(family = "gaussian")
 # brm.llh(family = "cumulative", link = "logit")
 # }
-bugs.llh <- function(family, link = "identity", post.pred = FALSE, add = FALSE,
+bugs.llh <- function(family, link = "identity", predict = FALSE, add = FALSE,
                      weights = FALSE, cens = FALSE) {
   is.ord <- is.element(family, c("cumulative", "cratio", "sratio", "acat"))
-  n <- ifelse(post.pred | is.element(link, c("inverse","sqrt")), "[n]", "")
+  n <- ifelse(predict | is.element(link, c("inverse","sqrt")), "[n]", "")
   ilink <- c(identity = "", log = "exp", inverse = "inv", sqrt = "square", logit = "ilogit", 
              probit = "phi", probit_approx = "Phi_approx", cloglog = "icloglog")[[link]]
   llh <- list(gaussian = paste0("dnorm(eta[n],pow(sigma",if(add)"[n]",",-2))"), 
@@ -256,10 +252,7 @@ bugs.llh <- function(family, link = "identity", post.pred = FALSE, add = FALSE,
 bugs.inits <- function(formula, data = NULL, range = 2, family="gaussian", partial = NULL, 
                        threshold = "flexible", engine="stan", seed=NULL) {
   if (is.null(range)) range <- 2
-  cd <- match.call(expand.dots = FALSE)
-  cd <- cd[c(1, match(c("formula", "partial"), names(cd), 0))]
-  cd[[1]] <- quote(extract.effects)
-  ef <- eval(cd)
+  ef <- extract.effects(formula = formula, partial = partial) 
   data <- model.frame(ef$all, data = data, drop.unused.levels = TRUE)
   
   if(length(as.integer(seed)) == 1) set.seed(as.integer(seed))

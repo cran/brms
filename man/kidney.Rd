@@ -27,19 +27,19 @@ infection in kideny patients using portable dialysis equipment. In addition, inf
 }
 \examples{
 \dontrun{
-# performing surivival analysis using the "weibull" family
-# time | cens indicates which values in variable time are left censored
+## performing surivival analysis using the "weibull" family
+## time | cens indicates which values in variable time are left censored
 fit_k1 <- brm(time | cens ~ age + sex + disease, data = kidney, family = "weibull")
-brm.plot(fit_k1)
-print(fit_k1)
+summary(fit_k1)
+plot(fit_k1)
 
-# adding random intercepts over patients and using weakly informative priors
-# for regression parameters and standard deviations of random effects
+## adding random intercepts over patients and using weakly informative priors
+## for regression parameters and standard deviations of random effects
 fit_k2 <- brm(time|cens ~ age + sex + disease + (1|patient), data = kidney,
            family = "weibull", prior = list(b = "normal(0,10)", sd = "uniform(0.1,20)"),
            n.iter = 5000)
-brm.plot(fit_k2)
-print(fit_k2)
+summary(fit_k2)
+plot(fit_k2)
 }
 }
 \keyword{datasets}

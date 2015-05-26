@@ -9,16 +9,14 @@
 # }
 stan.model <- function(formula, data = NULL, family = "gaussian", link = "identity",
                        prior = list(), partial = NULL, threshold = "flexible",
-                       post.pred = FALSE, save.model = NULL, ...) {
-  cd <- match.call(expand.dots = FALSE)
-  cd <- cd[c(1, match(c("formula", "partial"), names(cd), 0))]
-  cd[[1]] <- quote(extract.effects)
-  ef <- eval(cd)  
+                       predict = FALSE, save.model = NULL, ...) {
+  ef <- extract.effects(formula = formula, partial = partial)  
   data <- model.frame(ef$all, data = data, drop.unused.levels = TRUE)
 
-  is.lin <- is.element(family, c("gaussian", "student", "cauchy"))
-  is.ord <- is.element(family, c("cumulative", "cratio", "sratio", "acat")) 
-  is.skew <- is.element(family, c("gamma", "weibull", "exponential"))
+  is.lin <- family %in% c("gaussian", "student", "cauchy")
+  is.ord <- family %in% c("cumulative", "cratio", "sratio", "acat") 
+  is.skew <- family %in% c("gamma", "weibull", "exponential")
+  is.count <- family %in% c("poisson", "negbinomial", "geometric")
     
   if (family == "categorical") {
     X <- data.frame()
@@ -43,7 +41,7 @@ stan.model <- function(formula, data = NULL, family = "gaussian", link = "identi
     if (length(p)) paste0("  int<lower=1> Kp; \n", "  matrix[N,Kp] Xp; \n"),  
     if (is.lin & is(ef$add, "formula"))
       "  real<lower=0> sigma[N]; \n"
-    else if (is.lin & is(ef$weights, "formula"))
+    else if (is.lin & is(ef$add2, "formula"))
       "  vector<lower=0>[N] inv_weights; \n"
     else if (is.ord | is.element(family, c("binomial", "categorical"))) 
       paste0("  int max_obs",toupper(n),"; \n")
@@ -92,16 +90,17 @@ stan.model <- function(formula, data = NULL, family = "gaussian", link = "identi
       "  real<lower=0> sigma; \n",
     if (family == "student") 
       "  real<lower=1> nu; \n",
-    if (is.element(family, c("gamma", "weibull"))) 
+    if (family %in% c("gamma", "weibull", "negbinomial")) 
       "  real<lower=1e-10> shape; \n",
     "} \n")
   
   ilink <- c(identity = "", log = "exp", inverse = "inv", sqrt = "square", logit = "inv_logit", 
             probit = "Phi", probit_approx = "Phi_approx", cloglog = "inv_cloglog")[[link]]
-  simplify <- is.element(family,c("binomial","bernoulli","cumulative")) & link=="logit"
+  simplify <- family %in% c("binomial","bernoulli","cumulative") & link == "logit" & 
+              !(predict & family == "cumulative")
   vectorize <- c(!length(ef$random), 
                  is.element(family,c("binomial","bernoulli")) & link=="logit" | 
-                 is.lin & link != "inverse" | family == "poisson" & link !="sqrt")
+                 is.lin & link != "inverse" | is.count & link !="sqrt")
   if (family == "categorical") fe.only <- f
   else fe.only <- setdiff(f, unlist(lapply(r, intersect, y = f)))
   eta.fe <- paste0("  eta <- ", ifelse(length(f), "X * b", "rep_vector(0,N)"), "; \n",
@@ -116,12 +115,12 @@ stan.model <- function(formula, data = NULL, family = "gaussian", link = "identi
   if (length(reffects)) reffects <- sapply(1:5, function(x) 
     paste0(reffects[seq(x, length(reffects), 5)], collapse = ""))   
   ord <- stan.ord(family, ilink = ilink, partial = length(p), max_obs = max_obs[1], n = n, 
-                  post.pred = post.pred) 
+                  predict = predict) 
   
   llh <- stan.llh(family, link = link, add = is(ef$add, "formula"), 
-                 weights = is(ef$weights, "formula"))
-  llh.pred <- stan.llh(family, link = link, post.pred = TRUE, add = is(ef$add, "formula"),  
-                 weights = is(ef$weights, "formula")) 
+                 add2 = is(ef$add2, "formula"))
+  llh.pred <- stan.llh(family, link = link, predict = TRUE, add = is(ef$add, "formula"),  
+                 add2 = is(ef$add2, "formula")) 
   if (is.skew & is(ef$add, "formula"))
     cens <- c("if (cens[n] == 0) ", paste0("    else ",
       stan.llh(family, link = link, add = is(ef$add, "formula"), cens = TRUE), "\n"))
@@ -138,7 +137,7 @@ stan.model <- function(formula, data = NULL, family = "gaussian", link = "identi
                     ind = 1:length(p), partial = TRUE), collapse = ""), 
     if (is.element(family,c("gamma", "weibull"))) stan.prior("shape", prior = prior),
     if (family == "student") stan.prior("nu", prior = prior),
-    if (is.lin) stan.prior("sigma", prior = prior), reffects[1])
+    if (is.lin & !is(ef$add, "formula")) stan.prior("sigma", prior = prior), reffects[1])
   loop <- !vectorize[1] | is.ord & !(is.ord & simplify & !is(ef$add, "formula"))
   
   model <- paste0(data.text, 
@@ -156,9 +155,9 @@ stan.model <- function(formula, data = NULL, family = "gaussian", link = "identi
   "} \n",
   "model { \n",
     priors, 
-    ifelse(vectorize[2],paste0("  Y ~ ", llh, "\n"),
+    ifelse(vectorize[2],paste0("  Y ~ ", llh),
       paste0("  for(n in 1:N) { \n    ",
-             cens[1],"Y[n] ~ ",llh, "\n", cens[2],"  } \n")), 
+        cens[1],"Y[n] ~ ",llh, cens[2],"  } \n")), 
   "} \n",
   "generated quantities { \n",
     if (length(f)) paste0(
@@ -166,7 +165,7 @@ stan.model <- function(formula, data = NULL, family = "gaussian", link = "identi
     if (length(p)) paste0(
     "  vector[",max_obs[1],"-1] b_",p,"; \n", collapse =""),
     reffects[4],
-    if (post.pred) paste0(
+    if (predict) paste0(
     "  ",type," Y_pred[N]; \n", 
     "  for (n in 1:N) { \n", 
     "    Y_pred[n] <- ",llh.pred,
@@ -228,8 +227,8 @@ stan.reffects <- function(rg, f, family = "gaussian", prior = list()) {
 # 
 # @return A vector of strings containing the ordinal effects in stan language
 stan.ord <- function(family, ilink = "inv_logit", partial = FALSE, max_obs = "max_obs", 
-                         n = "", post.pred = FALSE) {
-  simplify <- is.element(family, c("cumulative", "categorical")) & ilink == "inv_logit" & n != "[n]" & !post.pred
+                         n = "", predict = FALSE) {
+  simplify <- is.element(family, c("cumulative", "categorical")) & ilink == "inv_logit" & n != "[n]" & !predict
   if (!is.element(family, c("cumulative", "cratio", "sratio", "acat", "categorical")) | simplify) 
     return(rep("", 3)) 
   th <- function(k) {
@@ -330,25 +329,26 @@ stan.prior = function(par, prior = list(), add.type = NULL, ind = rep("", length
     if (!all(grepl(type[2], par))) 
       stop("Additional parameter type not present in all parameters")
   }  
-  default.prior <- list(L = "lkj_corr_cholesky(1)", sd = "cauchy(0,5)", 
-                        nu = "uniform(1,60)", shape = "gamma(0.01,0.01)") 
+  default.prior <- list(b = "", bp = "", sigma = "", delta = "",
+    L = "lkj_corr_cholesky(1)", sd = "cauchy(0,5)", nu = "uniform(1,60)", 
+    shape = "gamma(0.01,0.01)") 
   if (!is.null(prior[[type[2]]])) base.prior <- prior[[type[2]]]
   else if (!is.null(prior[[type[1]]])) base.prior <- prior[[type[1]]]
   else base.prior <- default.prior[[type[1]]]
   
   if (type[1] == "b" & partial) type[1] <- "bp"
   type <- ifelse(is.na(type[2]), type[1], type[2])  
-  if (any(is.element(par, names(prior))))
+  if (any(par %in% names(prior)))
     out <- sapply(1:length(par), function(i, par, ind) {
       if (ind[i] != "") ind[i] <- paste0("[",ind[i],"]")
       if (!par[i] %in% names(prior))
         prior[[par[i]]] <- base.prior
-      if (!is.null(prior[[par[i]]]))  
+      if (paste0(prior[[par[i]]],"") != "")  
         return(paste0(paste0(rep(" ", s), collapse = ""), 
                type, ind[i], " ~ ", prior[[par[i]]], "; \n"))
       else return("") }, 
     par = par, ind = ind)
-  else if (!is.null(base.prior)) 
+  else if (base.prior != "")
     out <- paste0(paste0(rep(" ", s), collapse = ""), 
       ifelse(identical(type,"bp"), "to_vector(bp)", type), " ~ ", base.prior, "; \n")
   else out <- ""
@@ -362,7 +362,7 @@ stan.prior = function(par, prior = list(), add.type = NULL, ind = rep("", length
 # @inheritParams brm
 # @param add A flag inicating if the model contains additional information of the response variable
 #   (e.g., standard errors in a gaussian linear model)
-# @param weights A flag indicating if the response variable should have unequal weights 
+# @param add2 A flag indicating if the response variable should have unequal weights 
 #   Only used if \code{family} is either \code{"gaussian", "student"}, or \code{"cauchy"}.
 #    
 # @return A character string defining a line of code in stan language 
@@ -372,18 +372,20 @@ stan.prior = function(par, prior = list(), add.type = NULL, ind = rep("", length
 # stan.llh(family = "gaussian")
 # stan.llh(family = "cumulative", link = "logit")
 # }
-stan.llh <- function(family, link = "identity", post.pred = FALSE, add = FALSE,
-                    weights = FALSE, cens = FALSE, engine = "stan") {
+stan.llh <- function(family, link = "identity", predict = FALSE, add = FALSE,
+                    add2 = FALSE, cens = FALSE, engine = "stan") {
   is.ord <- is.element(family, c("cumulative", "cratio", "sratio", "acat"))
-  n <- ifelse(post.pred | is.element(link, c("inverse","sqrt")), "[n]", "")
+  n <- ifelse(predict | is.element(link, c("inverse","sqrt")), "[n]", "")
   ilink <- c(identity = "", log = "exp", inverse = "inv", sqrt = "square", logit = "inv_logit", 
              probit = "Phi", probit_approx = "Phi_approx", cloglog = "inv_cloglog")[[link]]
-  simplify <- !post.pred & (link=="logit" & (is.element(family,c("binomial", "bernoulli"))
+  simplify <- !predict & (link=="logit" & (is.element(family,c("binomial", "bernoulli"))
                             | is.element(family, c("cumulative", "categorical")) & !add) 
-                            | family=="poisson" & link == "log") 
-  lin.args <- paste0(ilink,"(eta",n,"),sigma", ifelse(add, n, ifelse(weights,"*inv_weights","")))
+                            | family %in% c("poisson","negbinomial", "geometric") & link == "log") 
+  lin.args <- paste0(ilink,"(eta",n,"),sigma", ifelse(add, n, ifelse(add2,"*inv_weights","")))
   if (simplify) 
-    llh <- list(poisson=c("poisson_log", "(eta);"), 
+    llh <- list(poisson = c("poisson_log", "(eta);"), 
+            negbinomial = c("neg_binomial_2_log", "(eta,shape);"),
+            geometric = c("neg_binomial_2_log", "(eta,1);"),
             cumulative = c("ordered_logistic", "(eta[n],b_Intercept);"),
             categorical = c("categorical_logit", "(to_vector(append_col(zero, eta[n] + etap[n])));"), 
             binomial=c("binomial_logit", "(max_obs,eta);"), 
@@ -391,15 +393,17 @@ stan.llh <- function(family, link = "identity", post.pred = FALSE, add = FALSE,
   else llh <- list(gaussian = c("normal", paste0("(",lin.args,");")),
                student = c("student_t", paste0("(nu,",lin.args,");")),
                cauchy = c("cauchy", paste0("(",lin.args,");")),
-               poisson = c("poisson",paste0("(",ilink,"(eta",n,"));")),
+               poisson = c("poisson", paste0("(",ilink,"(eta",n,"));")),
+               negbinomial = c("neg_binomial_2", paste0("(",ilink,"(eta",n,"),shape);")),
+               geometric = c("neg_binomial_2", paste0("(",ilink,"(eta",n,"),1);")),
                binomial = c("binomial",paste0("(max_obs",ifelse(add,"[n]",""),",",ilink,"(eta[n]));")),
                bernoulli = c("bernoulli",paste0("(",ilink,"(eta[n]));")), 
                gamma = c("gamma", paste0("(shape, shape*inv(",ilink,"(eta[n])));")), 
                exponential = c("exponential", paste0("(",ilink,"(-eta[n]));")),
                weibull = c("weibull", paste0("(shape, inv(",ilink,"(-eta[n]/shape)));")), 
                categorical = c("categorical","(p[n]);"))[[ifelse(is.ord, "categorical", family)]]
-  llh <- paste0(llh[1],ifelse(post.pred, "_rng",""),llh[2])
-  if (cens & is.element(family, c("gamma", "exponential", "weibull"))) {
+  llh <- paste0(llh[1],ifelse(predict, "_rng",""),llh[2],"\n")
+  if (cens & family %in% c("gamma", "exponential", "weibull")) {
     llh <- list(gamma = paste0("gamma_cdf_log(Y[n], shape, shape*inv(",ilink,"(eta[n])))"),
                 exponential = paste0("exponential_cdf_log(Y[n],",ilink,"(-eta[n]))"),
                 weibull = paste0("weibull_cdf_log(Y[n], shape, inv(",ilink,"(-eta[n]/shape)))"))[family]

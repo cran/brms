@@ -2,14 +2,14 @@
 % Please edit documentation in R/main.R
 \name{brm}
 \alias{brm}
-\title{Fit Bayesian Generalized Linear Mixed Models}
+\title{Fit Bayesian Generalized Linear and Ordinal Mixed Models}
 \usage{
 brm(formula, data = NULL, family = c("gaussian", "identity"),
-  prior = list(), partial = NULL, threshold = "flexible",
-  post.pred = FALSE, fit = NA, n.chains = 2, n.iter = 2000,
-  n.warmup = 500, n.thin = 1, n.cluster = 1, pars = "auto",
-  inits = "random", save.model = NULL, seed = 12345, engine = "stan",
-  ...)
+  prior = list(), partial = NULL, threshold = "flexible", ranef = TRUE,
+  predict = FALSE, fit = NA, n.chains = 2, n.iter = 2000,
+  n.warmup = 500, n.thin = 1, n.cluster = 1, inits = "random",
+  silent = FALSE, seed = 12345, save.model = NULL, engine = "stan",
+  pars = "auto", post.pred = FALSE, ...)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): a symbolic description of the model to be fitted.
@@ -20,24 +20,28 @@ the variables in the model. If not found in data, the variables are taken from \
 typically the environment from which \code{brm} is called.}
 
 \item{family}{A vector of one or two character strings. The first string indicates the distribution of the dependent variable (the 'family'). Currently, the following families are supported:
-\code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"poisson"}, \code{"binomial"}, \code{"categorical"}, \code{"gamma"}, \code{"exponential"},
-\code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
+\code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"binomial"}, \code{"categorical"}, \code{"poisson"}, \code{"negbinomial"}, \code{"geometric"},
+\code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
 The second string indicates the link function, which must be supported by the distribution of the dependent variable.
 If not specified, default link functions are used. Further information is provided under 'Details'.}
 
 \item{prior}{A named list of character strings specifing the prior distributions of the parameters. Further information
 is provided under 'Details'.}
 
-\item{partial}{A one sided formula of the form \code{~ partial.effects} specifing the predictors that can vary between categories in non-cumulative ordinal models
+\item{partial}{A one sided formula of the form \code{~partial.effects} specifing the predictors that can vary between categories in non-cumulative ordinal models
 (i.e. in families \code{"cratio"}, \code{"sratio"}, or \code{"acat"}).}
 
 \item{threshold}{A character string indicating the type of thresholds (i.e. intercepts) used in an ordinal model.
 \code{"flexible"} provides the standard unstructured thresholds and \code{"equidistant"} restricts the distance between consecutive thresholds to the same value.}
 
-\item{post.pred}{A flag to indicate if posterior predictives of the dependent variables should be generated}
+\item{ranef}{A flag to indicate if random effects for each level of the grouping factor(s) should be saved (default is \code{TRUE}).
+Set to \code{FALSE} to save memory.}
 
-\item{fit}{An instance of S4 class \code{stanfit} derived from a previous fit; defaults to \code{NA}. If fit is not \code{NA}, the compiled model associated with the fitted
-result is re-used. Make sure that all other arguments of \code{brm} are the same as at the time at which the \code{stanfit} object was generated.}
+\item{predict}{A flag to indicate if posterior predictives of the dependent variable should be generated.}
+
+\item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; defaults to \code{NA}. If fit is of class \code{brmsfit}, the compiled model associated
+ with the fitted result is re-used and the arguments \code{formula}, \code{data}, \code{family}, \code{prior}, \code{partial}, \code{threshold},
+\code{predict}, and \code{ranef} are ignored.}
 
 \item{n.chains}{Number of Markov chains (default: 2)}
 
@@ -50,28 +54,31 @@ so warmup samples should not be used for inference. The number of warmup should 
 
 \item{n.cluster}{Number of clusters to use to run parallel chains. Default is 1.}
 
-\item{pars}{Either "auto", "all", or a character vector containing the names of the parameters to be saved. If \code{"auto"}, the function \code{\link[brms:brm.pars]{brm.pars}} chooses
-the observed parameters.}
-
-\item{inits}{A list with n.chains elements; each element of the list is itself a list of starting values for the model, or a function creating (possibly random) initial values.
+\item{inits}{A list with \code{n.chains} elements; each element of the list is itself a list of starting values for the model, or a function creating (possibly random) initial values.
 If inits is \code{NULL} (the default), Stan will generate initial values for parameters. Other options supported by Stan are also possible.}
+
+\item{silent}{logical; If \code{TRUE}, most intermediate output from Stan is suppressed.}
+
+\item{seed}{Positive integer. Used by \code{set.seed} to make results reproducable.}
 
 \item{save.model}{Either \code{NULL} or a character string. In the latter case, the model code is
 saved in a file with its name specified by \code{save.model} in the current working directory.}
 
-\item{seed}{Positive integer. Used by \code{set.seed} to make results reproducable.}
-
 \item{engine}{A character string, either \code{"stan"} (the default) or \code{"jags"}. Specifies which program should be used to fit the model.
 Note that \code{jags} is currently implemented for testing purposes only, does not allow full functionality and is not supported or documented.}
+
+\item{pars}{deprecated; all relevant parameters including random effects for each level are now returned by default.}
+
+\item{post.pred}{A deprecated alias for argument \code{predict}.}
 
 \item{...}{Further arguments to be passed to Stan.}
 }
 \value{
-An object of class \code{stanfit}, which contains the posterior samples. If rstan is not installed,
- a named list containing the Stan model, the required data and the parameters of interest is returned instead.
+An object of class \code{brmsfit}, which contains the posterior samples along with many other useful information about the model.
+ If rstan is not installed, \code{brmsfit} will not contain posterior samples.
 }
 \description{
-Fit a Bayesian generalized linear mixed model using Stan
+Fit a Bayesian generalized linear or ordinal mixed model using Stan
 }
 \details{
 Fit a generalized linear mixed model, which incorporates both fixed-effects parameters and random effects in a linear predictor
@@ -115,7 +122,7 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
 
   Family \code{gaussian} with \code{identity} link leads to linear regression. Families \code{student}, and \code{cauchy}
   with \code{identity} link leads to robust linear regression that is less influenced by outliers.
-  Family \code{poisson} with \code{log} link leads to poisson regression for count data.
+  Families \code{poisson}, \code{negbinomial}, and \code{geometric} with \code{log} link lead to regression models for count data.
   Family \code{binomial} with \code{logit} link leads to logistic regression and family \code{categorical} to
   multi-logistic regression when there are more than two possible outcomes.
   Families \code{cumulative}, \code{cratio} ('contiuation ratio'), \code{sratio} ('stopping ratio'),
@@ -124,7 +131,7 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
 
   In the following, we list all possible links for each family.
   The families \code{gaussian}, \code{student}, and \code{cauchy} accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
-  the \code{poisson} family the links \code{log}, \code{identity}, and \code{sqrt};
+  families \code{poisson}, \code{negbinomial}, and \code{geometric} the links \code{log}, \code{identity}, and \code{sqrt};
   families \code{binomial}, \code{cumulative}, \code{cratio}, \code{sratio}, and \code{acat} the links \code{logit}, \code{probit}, \code{probit_approx}, and \code{cloglog};
   family  \code{categorical} the link \code{logit}; families \code{gamma}, \code{weibull}, and \code{exponential} the links \code{log}, \code{identity}, and \code{inverse}.
   The first link mentioned for each family is the default. \cr
@@ -198,39 +205,36 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   By default, \code{nu} has prior \code{"uniform(1,60)"}.
   Families \code{gamma} and \code{weibull} need the parameter \code{shape}
   that has a \code{"gamma(0.01,0.01)"} prior by default. \cr
-
-  \bold{Parameters of interest}
-
-  If \code{pars = "auto"} (the default) only certain parameters are returned by \code{brm}.
-  These are the fixed (and partial) regression parameters,
-  the random effects standard deviations and correlations, as well as parameters specific to certain
-  families (see also section 'Prior distributions'). By default, the random effects themselves (named as \code{r_(group)}) are not returned,
-  and one has to use \code{pars = "reffects"} to add them to the set of returned parameters.
-  When \code{post.pred = }\code{TRUE}, posterior predictive samples are also included.
 }
 \examples{
 \dontrun{
-### Poisson Regression for the number of seizures in epileptic patients
-### using half cauchy priors for standard deviations of random effects
+## Poisson Regression for the number of seizures in epileptic patients
+## using half cauchy priors for standard deviations of random effects
 fit_e <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit),
-           data = epilepsy, family = c("poisson", "log"),
-           prior = list(sd = "cauchy(0,2.5)"))
-brm.plot(fit_e)
-print(fit_e)
+           data = epilepsy, family = "poisson", prior = list(sd = "cauchy(0,2.5)"))
+## generate a summary of the results
+summary(fit_e)
+## plot the MCMC chains as well as the posterior distributions
+plot(fit_e)
+## extract random effects standard devations, correlation and covariance matrices
+VarCorr(fit_e)
+## extract random effects for each level
+ranef(fit_e)
 
-### Ordinal regression (with family 'sratio') modeling patient's rating
-### of inhaler instructions using normal priors for fixed effects parameters
+## Ordinal regression (with family 'sratio') modeling patient's rating
+## of inhaler instructions using normal priors for fixed effects parameters
 fit_i <- brm(rating ~ treat + period + carry, data = inhaler,
-              family = "sratio", prior = prior = list(b = "normal(0,5)"))
-brm.plot(fit_i)
-print(fit_i)
+              family = "sratio", prior = list(b = "normal(0,5)"))
+summary(fit_i)
+plot(fit_i)
 
-### Surivival Regression (with family 'weibull') modeling time between
-### first and second recurrence of an infection in kidney patients
-### time | cens indicates which values in variable time are left censored
-fit_k <- brm(time | cens ~ age + sex + disease, data = kidney, family = "weibull")
-brm.plot(fit_k)
-print(fit_k)
+## Surivival Regression (with family 'weibull') modeling time between
+## first and second recurrence of an infection in kidney patients
+## time | cens indicates which values in variable time are left censored
+fit_k <- brm(time | cens ~ age + sex + disease, data = kidney,
+             family = "weibull", silent = TRUE)
+summary(fit_k)
+plot(fit_k)
 }
 }
 
