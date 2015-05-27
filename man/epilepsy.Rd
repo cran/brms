@@ -33,19 +33,19 @@ Breslow and Clayton (1993) analyse data initially provided by Thall and Vail (19
 }
 \examples{
 \dontrun{
-# poisson regression without random effects.
-# family = c("poisson", "log") is equivalent to family = "poisson"
+## poisson regression without random effects.
+## family = c("poisson", "log") is equivalent to family = "poisson"
 fit_e1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c,
             data = epilepsy, family = c("poisson", "log"))
-brm.plot(fit_e1)
-print(fit_e1)
+summary(fit_e1)
+plot(fit_e1)
 
-# poisson regression with random intercepts over patients and visits
-# as well as normal priors for fixed effects parameters.
+## poisson regression with random intercepts over patients and visits
+## as well as normal priors for fixed effects parameters.
 fit_e2 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit),
             data = epilepsy, family = c("poisson", "log"), prior = list(b = "normal(0,5)"))
-brm.plot(fit_e2)
-print(fit_e2)
+summary(fit_e2)
+plot(fit_e2)
 }
 }
 \keyword{datasets}

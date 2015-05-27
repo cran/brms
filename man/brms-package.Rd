@@ -19,9 +19,9 @@ which is a C++ package for obtaining Bayesian inference using the No-U-turn samp
 %License: \tab GPL >= 2 \cr
 %}
 
-The main function of the brms package is \code{\link[brms:brm]{brm}}, which creates the model in Stan language and fits it using the package rstan, if installed. Subsequently, \code{\link[brms:brm.plot]{brm.plot}} can be applied to visualize the obtained results making use of the \code{ggmcmc} package. 
+The main function of the brms package is \code{\link[brms:brm]{brm}}, which creates the model in Stan language and fits it using the package rstan, if installed. Subsequently, methods suchs as \code{\link[brms:summary.brmsfit]{summary}} or \code{\link[brms:plot.brmsfit]{plot}} can be applied to investigate the obtained results
 
-Without having rstan installed, the function brm will return the Stan model, the required data, and the parameters of interest, which are the important prerequisites to fit the model in Stan. If rstan is installed, the model is fitted automatically. Unfortunately, rstan has to be installed manually, as it is not on CRAN, yet. However, the developers of Stan and rstan are currently working on a version to be uploaded on CRAN. In the meantime, instructions on how to install rstan can be found at \url{https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started}.  
+Without having rstan installed, the function \code{brm} will not return posterior samples, but all prerequisites to fit the model in Stan, such as the model code and the relevant data. If rstan is installed, the model is fitted automatically. Unfortunately, rstan has to be installed manually, as it is not on CRAN, yet. However, the developers of Stan and rstan are currently working on a version to be uploaded on CRAN. In the meantime, instructions on how to install rstan can be found at \url{https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started}.  
 
 %First, you need a C++ compiler. See \url{https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started#prerequisites} for instructions on how to get one. Second, install rstan by running the following R code (the number behind 'j' in the first line corresponds to the number of cores to use for the installation). This may take a few minutes and you should restart R after the installation.
 
@@ -40,15 +40,15 @@ The Stan Development Team Stan Modeling Language User's Guide and Reference Manu
 }
 \keyword{package}
 \seealso{
-\code{\link[rstan:rstan-package]{rstan}}, \code{\link[rstan:stanfit-class]{stanfit}}  
+\code{\link[brms:brmsfit-class]{brmsfit}}
 }
 
 %\examples{
 %## Not run: 
 %fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient), data = epilepsy, 
 %           family = c("poisson", "log"))
-%brm.plot(fit)
-%print(fit)         
+%summary(fit)
+%plot(fit)       
 %
 %## End(Not run)
 %}

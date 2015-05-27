@@ -16,19 +16,19 @@
 #' 
 #' @examples 
 #' \dontrun{
-#' # performing surivival analysis using the "weibull" family
-#' # time | cens indicates which values in variable time are left censored
+#' ## performing surivival analysis using the "weibull" family
+#' ## time | cens indicates which values in variable time are left censored
 #' fit_k1 <- brm(time | cens ~ age + sex + disease, data = kidney, family = "weibull")
-#' brm.plot(fit_k1) 
-#' print(fit_k1)
+#' summary(fit_k1) 
+#' plot(fit_k1)
 #' 
-#' # adding random intercepts over patients and using weakly informative priors 
-#' # for regression parameters and standard deviations of random effects 
+#' ## adding random intercepts over patients and using weakly informative priors 
+#' ## for regression parameters and standard deviations of random effects 
 #' fit_k2 <- brm(time|cens ~ age + sex + disease + (1|patient), data = kidney, 
 #'            family = "weibull", prior = list(b = "normal(0,10)", sd = "uniform(0.1,20)"), 
 #'            n.iter = 5000)
-#' brm.plot(fit_k2)
-#' print(fit_k2)           
+#' summary(fit_k2) 
+#' plot(fit_k2)         
 #' }
 #' 
 #' @source McGilchrist, C. A., & Aisbett, C. W. (1991). Regression with frailty in survival analysis. 
@@ -53,17 +53,17 @@
 #' 
 #' @examples
 #' \dontrun{
-#' # ordinal regression with family "sratio"
+#' ## ordinal regression with family "sratio"
 #' fit_i1 <- brm(rating ~ treat + period + carry, data = inhaler, 
-#'               family = "sratio", prior = prior = list(b = "normal(0,5)"))
-#' brm.plot(fit_i1)
-#' print(fit_i1)
+#'               family = "sratio", prior = list(b = "normal(0,5)"))
+#' summary(fit_i1) 
+#' plot(fit_i1)
 #'        
-#' # ordinal regression with family "cumulative" and random intercept over subjects             
+#' ## ordinal regression with family "cumulative" and random intercept over subjects             
 #' fit_i2 <- brm(rating ~ treat + period + carry + (1|subject), data = inhaler, 
 #'            family = "cumulative", n.iter = 2000, prior = list(b = "normal(0,5)"))
-#' brm.plot(fit_i2)
-#' print(fit_i2)
+#' summary(fit_i2) 
+#' plot(fit_i2)
 #' }
 #' 
 #' @source Ezzet, F., & Whitehead, J. (1991). A random effects model for ordinal responses from a crossover trial. 
@@ -92,19 +92,19 @@
 #' 
 #' @examples
 #' \dontrun{
-#' # poisson regression without random effects. 
-#' # family = c("poisson", "log") is equivalent to family = "poisson"
+#' ## poisson regression without random effects. 
+#' ## family = c("poisson", "log") is equivalent to family = "poisson"
 #' fit_e1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c, 
 #'             data = epilepsy, family = c("poisson", "log"))
-#' brm.plot(fit_e1)
-#' print(fit_e1)             
+#' summary(fit_e1) 
+#' plot(fit_e1)             
 #'     
-#' # poisson regression with random intercepts over patients and visits
-#' # as well as normal priors for fixed effects parameters.    
+#' ## poisson regression with random intercepts over patients and visits
+#' ## as well as normal priors for fixed effects parameters.    
 #' fit_e2 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit), 
 #'             data = epilepsy, family = c("poisson", "log"), prior = list(b = "normal(0,5)"))
-#' brm.plot(fit_e2) 
-#' print(fit_e2)  
+#' summary(fit_e2) 
+#' plot(fit_e2)
 #' }
 #'  
 #' @source Thall, P. F., & Vail, S. C. (1990). Some covariance models for longitudinal count data with overdispersion. 

@@ -3,7 +3,7 @@ test_that("Test that brm.links returns correct links", {
   expect_equal(brm.link("weibull"), "log")
   expect_equal(brm.link("binomial"), "logit")
   expect_equal(brm.link(c("binomial", "probit")), "probit")
-  expect_warning(brm.link(c("poisson", "sqrt")), "Poisson model with sqrt link may not be uniquely identified")
+  expect_warning(brm.link(c("poisson", "sqrt")), "poisson model with sqrt link may not be uniquely identified")
 })
 
 test_that("Test that brm.links return an error on wrong links", {

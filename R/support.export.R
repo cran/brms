@@ -1,7 +1,7 @@
 #' Parameters of interest for \code{brms} models
 #' 
 #' @inheritParams brm
-#' @param reffects logical; indicating wheter random effects estimates should be returned by \code{brm}
+#' @param ranef logical; indicating if random effects estimates should be returned
 #' 
 #' @return A vector of character strings specifying parameters of interest for models produced by the \code{brms} package.
 #' @examples 
@@ -13,29 +13,30 @@
 #'          
 #' @export
 brm.pars = function(formula, data = NULL, family = "gaussian", partial = NULL,
-                    threshold = "flexible", post.pred = FALSE, reffects = FALSE, 
+                    threshold = "flexible", predict = FALSE, ranef = TRUE, 
                     engine = "stan", ...) {
   dots <- list(...)  
-  cd <- match.call(expand.dots = FALSE)
-  cd <- cd[c(1, match(c("formula", "partial"), names(cd), 0))]
-  cd[[1]] <- quote(extract.effects)
-  ef <- eval(cd)
+  ef <- extract.effects(formula = formula, partial = partial) 
   data <- model.frame(ef$all, data = data, drop.unused.levels = TRUE)
   
   family <- family[1]
-  if (is.element(engine,c("stan","jags"))) stan <- engine=="stan"
+  if (is.element(engine,c("stan","jags"))) stan <- engine == "stan"
   else stop("engine must be either stan or jags")
   is.lin <- family %in% c("gaussian", "student", "cauchy")
   is.ord <- family  %in% c("cumulative","cratio","sratio","acat")
   is.skew <- family %in% c("gamma", "weibull", "exponential")
-  if (!(is.lin | is.ord | is.skew | family %in% c("poisson", "binomial","bernoulli", "categorical")))
-    stop(paste(family, " is not a valid family"))
+  if (!(is.lin | is.ord | is.skew | family %in% 
+      c("poisson", "negbinomial", "geometric", "binomial","bernoulli", "categorical")))
+    stop(paste(family,"is not a valid family"))
   
   f <- colnames(brm.model.matrix(ef$fixed,data, rm.int = is.ord))
   r <- lapply(lapply(ef$random, brm.model.matrix, data=data, rm.int = is.ord & !stan), colnames)
   p <- colnames(brm.model.matrix(partial, data, rm.int = TRUE))
   out = NULL
-  if (length(f)) out <- c(out,paste0("b_",f))
+  if (is.ord & threshold == "flexible") out <- c(out, "b_Intercept")
+  if (is.ord & threshold == "equidistant") out <- c(out, "b_Intercept1", "delta")
+  if (length(f)) out <- c(out, paste0("b_",f))
+  if (is.ord & length(p)) out <- c(out, paste0("b_",p))
   if (length(ef$group) & engine == "jags") 
     out <- c(out, paste0("V_",ef$group), paste0("VI_",ef$group))
   else if (length(ef$group) & engine == "stan") {
@@ -44,15 +45,12 @@ brm.pars = function(formula, data = NULL, family = "gaussian", partial = NULL,
     out <- c(out, unlist(lapply(1:length(ef$group), function(i)
       if (length(r[[i]])>1) paste0("cor_",ef$g[[i]],"_", unlist(lapply(2:length(r[[i]]), function(j) 
         lapply(1:(j-1), function(k) paste0(r[[i]][k],"_",r[[i]][j]))))))))
+    if (ranef) out <- c(out, paste0("r_",ef$group))
   }  
   if (is.lin & !is(ef$add,"formula")) out <- c(out,"sigma")
   if (family == "student") out <- c(out,"nu")
-  if (family %in% c("gamma","weibull")) out <- c(out,"shape")
-  if (is.ord & threshold == "flexible")  out <- c(out,"b_Intercept")
-  if (is.ord & threshold == "equidistant") out <- c(out,"b_Intercept1","delta")
-  if (is.ord & length(p)) out <- c(out,paste0("b_",p))
-  if (post.pred) out <- c(out,"Y_pred")
-  if (reffects) out <- c(out, paste0("r_",ef$g))
+  if (family %in% c("gamma","weibull","negbinomial")) out <- c(out,"shape")
+  if (predict) out <- c(out,"Y_pred")
   return(out)
 }
 
@@ -76,10 +74,7 @@ brm.pars = function(formula, data = NULL, family = "gaussian", partial = NULL,
 brm.data <- function(formula, data = NULL, family = c("gaussian", "identity"), prior = list(),
                      partial = NULL, engine = "stan", ...) {
   dots <- list(...)  
-  cd <- match.call(expand.dots = FALSE)
-  cd <- cd[c(1, match(c("formula", "partial"), names(cd), 0))]
-  cd[[1]] <- quote(extract.effects)
-  ef <- eval(cd)
+  ef <- extract.effects(formula = formula, partial = partial) 
   data <- model.frame(ef$all, data = data, drop.unused.levels = TRUE)
   for (g in ef$group) data[[g]] <- as.numeric(as.factor(data[[g]]))
   
@@ -91,8 +86,9 @@ brm.data <- function(formula, data = NULL, family = c("gaussian", "identity"), p
   is.lin <- family %in% c("gaussian", "student", "cauchy")
   is.ord <- family  %in% c("cumulative","cratio","sratio","acat")
   is.skew <- family %in% c("gamma", "weibull", "exponential")
-  if (!(is.lin | is.ord | is.skew | family %in% c("poisson", "binomial","bernoulli", "categorical")))
-    stop(paste(family, "is not a valid family"))
+  if (!(is.lin | is.ord | is.skew | family %in% 
+      c("poisson", "negbinomial", "geometric", "binomial","bernoulli", "categorical")))
+    stop(paste(family,"is not a valid family"))
   
   supl.data <- list(N = nrow(data), Y = model.response(data))
   X <- brm.model.matrix(ef$fixed, data, rm.int = is.ord)
@@ -104,10 +100,10 @@ brm.data <- function(formula, data = NULL, family = c("gaussian", "identity"), p
   else if (is.factor(supl.data$Y)) 
     stop(paste("family", family, "expects numeric response variable")) 
   if (is.lin) {
-    if (is(ef$add,"formula") & length(all.vars(ef$add)) == 1)
+    if (is(ef$add, "formula") & length(all.vars(ef$add)) == 1)
       supl.data <- c(supl.data,list(sigma = brm.model.matrix(ef$add, data, rm.int = TRUE)[,1]))
-    else if (is(ef$weights,"formula")) {
-      inv_weights <- 1/brm.model.matrix(ef$weights, data, rm.int = TRUE)[,1]
+    else if (is(ef$add2, "formula")) {
+      inv_weights <- 1/brm.model.matrix(ef$add2, data, rm.int = TRUE)[,1]
       inv_weights <- supl.data$N*inv_weights/sum(inv_weights)
       supl.data <- c(supl.data, list(inv_weights = inv_weights))
     }
@@ -170,33 +166,3 @@ brm.data <- function(formula, data = NULL, family = c("gaussian", "identity"), p
   else if (!stan & ncol(X) > 0) supl.data <- c(supl.data, list(X = X))
   supl.data
 }  
-
-#' Trace and density plots for MCMC samples
-#' 
-#' Trace and density plots for MCMC samples using the \code{ggmcmc} package
-#' 
-#' @param fit An object of class \code{stanfit} or an object that can be coerced to an 
-#'  \code{mcmc.list} via \code{as.mcmc} of package \code{coda}.
-#' @param family Name of the family of parameters to plot, as given by a character vector or a regular expression. A family of parameters is considered to 
-#'   be any group of parameters with the same name but different numerical value between square brackets (as beta[1], beta[2], etc). 
-#'   For details see the documentation of \code{ggmcmc}.
-#' 
-#' @return NULL
-#' @examples 
-#' \dontrun{ 
-#' fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c, data = epilepsy, 
-#'            family = c("poisson", "log"))
-#' brm.plot(fit)              
-#' }
-#' 
-#' @import ggplot2
-#' @export
-brm.plot <- function(fit, family = NA) {
-  pfit <- ggmcmc::ggs(ifelse(is(fit,"stanfit"), list(fit), list(coda::as.mcmc(fit)))[[1]])   
-  gridExtra::grid.arrange(ggmcmc::ggs_traceplot(pfit, family = family) + 
-                            ggplot2::theme(legend.position = "none"), 
-                          ggmcmc::ggs_density(pfit, family = family), ncol = 2, nrow = 1)
-}
-
-#' @import methods
-NULL

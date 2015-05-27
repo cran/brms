@@ -10,16 +10,26 @@
 brm.model.matrix = function(formula, data = environment(formula), rm.int = FALSE) {
   if (!is(formula, "formula")) return(NULL) 
   X <- model.matrix(formula,data)
-  cn.new <- gsub("\\.","",colnames(X))
-  cn.new <- gsub(":","__",cn.new)
-  cn.new <- gsub("\\(|\\)","",cn.new)
-  cn.new <- gsub("/","",cn.new)
-  if (rm.int & is.element("Intercept", cn.new)) {
+  cn.new <- brm.replace(colnames(X))
+  if (rm.int & "Intercept" %in% cn.new) {
     X <- as.matrix(X[,-(1)])
     if (ncol(X)) colnames(X) <- cn.new[2:length(cn.new)]
   } 
   else colnames(X) <- cn.new
   X   
+}
+
+#  replace certain symbols in a character vector
+brm.replace <- function(names, symbols = NULL, subs = NULL) {
+  if (is.null(symbols))
+    symbols <- c(" |\\.|\\(|\\)|\\[|\\]", ":", "\\+", "-", "\\*", "/", "\\^", "=", "!=")
+  if (is.null(subs))
+    subs <- c("", "__", "P", "M", "T", "D", "E", "EQ", "NEQ")
+  if (length(symbols) != length(subs)) 
+    stop("length(symbols) != length(subs)")
+  for (i in 1:length(symbols)) 
+    names <- gsub(symbols[i], subs[i], names)
+  names
 }
 
 # Extract fixed and random effects from a formula
@@ -32,7 +42,7 @@ brm.model.matrix = function(formula, data = environment(formula), rm.int = FALSE
 #   \code{random}:   A list of formulas containing the random effects per grouping variable. \cr
 #   \code{group}:    A list of names of the grouping variables. \cr
 #   \code{add}:      A one sided formula containing the \code{add} part of \code{formula = y | add ~ predictors} if present. \cr
-#   \code{weights}:  A one sided formula containing the \code{weights} part of \code{formula = y || weights ~ predictors} if present. \cr
+#   \code{add2}:  A one sided formula containing the \code{add2} part of \code{formula = y || add2 ~ predictors} if present. \cr
 #   \code{all}:      A formula that contains every variable mentioned in \code{formula} and \code{...} 
 # 
 # @examples
@@ -62,20 +72,20 @@ extract.effects <- function(formula, ...) {
   else if (is.na(suppressWarnings(as.numeric(add)))) add <- as.formula(paste0("~", add))
   else add <- as.numeric(add)
   
-  weights <- unlist(regmatches(formula, gregexpr("\\|\\|[^~]*~", formula)))[1]
-  if (is.na(weights)) weights <- NULL
-  else weights <- as.formula(paste0("~", substr(weights, 3, nchar(weights) - 1)))
+  add2 <- unlist(regmatches(formula, gregexpr("\\|\\|[^~]*~", formula)))[1]
+  if (is.na(add2)) add2 <- NULL
+  else add2 <- as.formula(paste0("~", substr(add2, 3, nchar(add2) - 1)))
   
   rg <- unlist(regmatches(formula, gregexpr("\\([^\\|\\)]*\\|[^\\)]*\\)", formula)))
   random <- lapply(regmatches(rg, gregexpr("\\([^\\|]*", rg)), function(r) 
     formula(paste0("~ ",substr(r, 2, nchar(r)))))
   group <- lapply(regmatches(rg, gregexpr("\\|[^\\)]*", rg)), function(g) 
     substr(g, 2, nchar(g)))
-  out <- list(fixed = fixed, random = random, group = group, add = add, weights = weights)
+  out <- list(fixed = fixed, random = random, group = group, add = add, add2 = add2)
   
   if (length(group)) group <- lapply(paste("~",group),"formula") 
   if (is.numeric(add)) add <- NULL
-  up.formula <- unlist(lapply(c(add, weights, random, group, ...), 
+  up.formula <- unlist(lapply(c(add, add2, random, group, ...), 
                               function(x) paste0("+", Reduce(paste, deparse(x[[2]])))))
   up.formula <- paste0("update(",Reduce(paste, deparse(fixed)),", . ~ .",paste0(up.formula, collapse=""),")")
   return(c(out, all = eval(parse(text = up.formula))))
@@ -104,18 +114,51 @@ brm.link <- function(family) {
   is.lin <- family %in% c("gaussian", "student", "cauchy")
   is.skew <- family %in% c("gamma", "weibull", "exponential")
   is.bin <- family %in% c("cumulative", "cratio", "sratio", "acat","binomial", "bernoulli")                    
+  is.count <- family %in% c("poisson", "negbinomial", "geometric")
   if (is.na(link)) {
     if (is.lin) link <- "identity"
-    else if (is.skew | family == "poisson") link <- "log"
+    else if (is.skew | is.count) link <- "log"
     else if (is.bin | family == "categorical") link <- "logit"
   }
   else if (is.lin & !is.element(link, c("identity", "log", "inverse")) |
-             family == "poisson" & !link %in% c("log", "identity", "sqrt") |
+             is.count & !link %in% c("log", "identity", "sqrt") |
              is.bin & !link %in% c("logit", "probit", "probit_approx", "cloglog") |
              family == "categorical" & link != "logit" |
              is.skew & !link %in% c("log", "identity", "inverse"))
     stop(paste(link, "is not a valid link for family", family))
-  else if (family == "poisson" & link == "sqrt") 
-    warning("Poisson model with sqrt link may not be uniquely identified")
+  else if (is.count & link == "sqrt") 
+    warning(paste(family, "model with sqrt link may not be uniquely identified"))
   link
+}
+
+# convert array to list of elements with reduced dimension
+array2list <- function(x) {
+  if (is.null(dim(x))) stop("Argument x has no dimension")
+  n.dim <- length(dim(x))
+  l <- list(length = dim(x)[n.dim])
+  ind <- paste0(rep(",",n.dim-1),collapse="")
+  for (i in 1:dim(x)[n.dim])
+    l[[i]] <- eval(parse(text = paste0("x[",ind,i,"]")))
+  names(l) <- dimnames(x)[[n.dim]]
+  l
+}
+
+#calculate estimates over posterior samples 
+get.estimate <- function(coef, samples, margin = 1, to.array = FALSE, ...) {
+  out <- apply(samples, margin, coef, ...)
+  if (is.null(dim(out))) 
+    out <- matrix(out, dimnames = list(NULL, coef))
+  else if (coef == "quantile") out <- aperm(out, length(dim(out)):1)
+  if (to.array & length(dim(out)) == 2) 
+    out <- array(out, dim = c(dim(out), 1), dimnames = list(NULL, NULL, coef))
+  out 
+}
+
+get.cor.names <- function(names) {
+  cor.names <- NULL
+  if (length(names) > 1)
+    for (i in 2:length(names)) 
+      for (j in 1:(i-1)) 
+        cor.names <- c(cor.names, paste0("cor(",names[j],",",names[i],")"))
+  cor.names
 }
