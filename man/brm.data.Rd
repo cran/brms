@@ -5,7 +5,8 @@
 \title{Extract required data for \code{brms} models}
 \usage{
 brm.data(formula, data = NULL, family = c("gaussian", "identity"),
-  prior = list(), partial = NULL, engine = "stan", ...)
+  prior = list(), autocor = NULL, partial = NULL, cov.ranef = NULL,
+  engine = "stan", ...)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): a symbolic description of the model to be fitted.
@@ -24,8 +25,18 @@ If not specified, default link functions are used. Further information is provid
 \item{prior}{A named list of character strings specifing the prior distributions of the parameters. Further information
 is provided under 'Details'.}
 
+\item{autocor}{An optional \code{\link{cor.brms}} object describing the correlation structure within the response variable (i.e. the 'autocorrelation').
+See the documentation of \code{\link{cor.brms}} for a description of the available correlation structures.
+Defaults to NULL, corresponding to no correlations.}
+
 \item{partial}{A one sided formula of the form \code{~partial.effects} specifing the predictors that can vary between categories in non-cumulative ordinal models
 (i.e. in families \code{"cratio"}, \code{"sratio"}, or \code{"acat"}).}
+
+\item{cov.ranef}{A list of matrices that are proportional to the (within) covariance structure of the random effects.
+The names of the matrices should correspond to columns in \code{data} that are used as grouping factors.
+All levels of the grouping factor should appear as rownames of the corresponding matrix.
+Currently, the covariance structure applies only to the first random effect of each grouping factor.
+If incorporated, random intercepts will always be treated as the first random effect.}
 
 \item{engine}{A character string, either \code{"stan"} (the default) or \code{"jags"}. Specifies which program should be used to fit the model.
 Note that \code{jags} is currently implemented for testing purposes only, does not allow full functionality and is not supported or documented.}
@@ -46,5 +57,8 @@ names(data1)
 data2 <- brm.data(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit),
          data = epilepsy, family = c("poisson", "log"))
 names(data2)
+}
+\author{
+Paul-Christian Buerkner \email{paul.buerkner@gmail.com}
 }
 

@@ -1,7 +1,7 @@
-test_that("Test that stan.reffects contains the correct strings", {
-  expect_match(stan.reffects(list(c("Intercept","PROD"), "site"), f = c("Intercept","Prod"))[5], 
+test_that("Test that stan.ranef contains the correct strings", {
+  expect_match(stan.ranef(list(c("Intercept","PROD"), "site"), f = c("Intercept","Prod"))$genC, 
                "cor_site\\[1,2\\]", all = FALSE)
-  expect_equal(stan.reffects(list(c("Intercept"), "site"), f = c("Intercept","Prod"))[5], 
+  expect_equal(stan.ranef(list(c("Intercept"), "site"), f = c("Intercept","Prod"))$genC, 
                "  sd_site_Intercept <- sd_site; \n", all = FALSE)
 })
 
@@ -20,6 +20,10 @@ test_that("Test that stan.prior accepts supported prior families", {
   expect_equal(stan.prior(c("b_x1","b_x2"), prior = list(b = "uniform(0,10)", 
                b_x1 = "normal(0,1)"), ind = 1:2), 
                c("  b[1] ~ normal(0,1); \n", "  b[2] ~ uniform(0,10); \n"))
+  expect_equal(stan.prior("ar", prior = list(ar = "uniform(0,1)")),
+               "  ar ~ uniform(0,1); \n")
+  expect_equal(stan.prior("ma", prior = list(ma = "normal(0,5)")),
+               "  ma ~ normal(0,5); \n")
 })
 
 test_that("Test that stan.prior returns the correct indices", {
@@ -33,8 +37,27 @@ test_that("Test that stan.prior returns the correct indices", {
                c("  sd[1] ~ normal(0,1); \n","  sd[2] ~ cauchy(0,5); \n"))                                                       
 })
 
-#test_that("Test that brm.stan does not duplicate the model", {
-#  expect_match()
-#})
+test_that("Test that stan.model returns correct strings (or errors) for autocorrelation models", {
+  expect_match(stan.model(count~Trt_c, data=epilepsy, family = "poisson", link = "log",
+                          autocor = cor.arma(~visit|patient, p=1)),
+               "eta <- X\\*b \\+ Yar\\*ar")
+  expect_match(stan.model(rating ~ treat + period + carry + (1|subject), data = inhaler,
+                          autocor = cor.arma(~visit|patient, p=1, q=2)),
+               "eta\\[n\\] <- eta\\[n\\] \\+ Ema\\[n\\]\\*ma")
+  expect_error(stan.model(count~Trt_c, data=epilepsy, family = "poisson", link = "log",
+                          autocor = cor.arma(~visit|patient, p=1, q=1)),
+               paste0("moving-average models for family poisson require a random effect with the same number \n",
+                      "of levels as observations in the data"))
+  
+})
 
+test_that("Test that stan.model returns correct strings for customized covariances", {
+  expect_match(stan.model(rating ~ treat + period + carry + (1|subject), data = inhaler,
+                          cov.ranef = "subject"),
+             "r_subject <- b\\[1\\] \\+ sd_subject \\* \\(CF_cov_subject\\*pre_subject\\)")
+})
 
+test_that("Test that stan.model handles addition arguments correctly", {
+  expect_match(stan.model(time | cens(censored) ~ age + sex + disease, data = kidney,
+                          family = "weibull", link = "log"), "vector\\[N\\] cens;")
+})

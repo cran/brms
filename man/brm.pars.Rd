@@ -4,8 +4,8 @@
 \alias{brm.pars}
 \title{Parameters of interest for \code{brms} models}
 \usage{
-brm.pars(formula, data = NULL, family = "gaussian", partial = NULL,
-  threshold = "flexible", predict = FALSE, ranef = TRUE,
+brm.pars(formula, data = NULL, family = "gaussian", autocor = NULL,
+  partial = NULL, threshold = "flexible", predict = FALSE, ranef = TRUE,
   engine = "stan", ...)
 }
 \arguments{
@@ -21,6 +21,10 @@ typically the environment from which \code{brm} is called.}
 \code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
 The second string indicates the link function, which must be supported by the distribution of the dependent variable.
 If not specified, default link functions are used. Further information is provided under 'Details'.}
+
+\item{autocor}{An optional \code{\link{cor.brms}} object describing the correlation structure within the response variable (i.e. the 'autocorrelation').
+See the documentation of \code{\link{cor.brms}} for a description of the available correlation structures.
+Defaults to NULL, corresponding to no correlations.}
 
 \item{partial}{A one sided formula of the form \code{~partial.effects} specifing the predictors that can vary between categories in non-cumulative ordinal models
 (i.e. in families \code{"cratio"}, \code{"sratio"}, or \code{"acat"}).}
@@ -46,5 +50,8 @@ Parameters of interest for \code{brms} models
 \examples{
 brm.pars(rating ~ treat + period + carry + (1|subject),
          data = inhaler, family = "cumulative")
+}
+\author{
+Paul-Christian Buerkner \email{paul.buerkner@gmail.com}
 }
 
