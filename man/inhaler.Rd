@@ -34,7 +34,7 @@ plot(fit_i1)
 
 ## ordinal regression with family "cumulative" and random intercept over subjects
 fit_i2 <- brm(rating ~ treat + period + carry + (1|subject), data = inhaler,
-           family = "cumulative", n.iter = 2000, prior = list(b = "normal(0,5)"))
+              family = "cumulative", prior = list(b = "normal(0,5)"))
 summary(fit_i2)
 plot(fit_i2)
 }

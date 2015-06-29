@@ -5,11 +5,11 @@
 \title{Fit Bayesian Generalized Linear and Ordinal Mixed Models}
 \usage{
 brm(formula, data = NULL, family = c("gaussian", "identity"),
-  prior = list(), partial = NULL, threshold = "flexible", ranef = TRUE,
+  prior = list(), addition = NULL, autocor = NULL, partial = NULL,
+  threshold = "flexible", cov.ranef = NULL, ranef = TRUE,
   predict = FALSE, fit = NA, n.chains = 2, n.iter = 2000,
   n.warmup = 500, n.thin = 1, n.cluster = 1, inits = "random",
-  silent = FALSE, seed = 12345, save.model = NULL, engine = "stan",
-  pars = "auto", post.pred = FALSE, ...)
+  silent = FALSE, seed = 12345, save.model = NULL, engine = "stan", ...)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): a symbolic description of the model to be fitted.
@@ -28,20 +28,36 @@ If not specified, default link functions are used. Further information is provid
 \item{prior}{A named list of character strings specifing the prior distributions of the parameters. Further information
 is provided under 'Details'.}
 
+\item{addition}{A named list of one sided formulas each containing additional information on the response variable. The following names are allowed:
+\code{se} for specifying standard errors for meta-analysis, \code{weights} to fit weighted regression models,
+\code{trials} to specify the number of trials per observation in binomial models, \code{cat} to specify the number of categories in
+categorical or ordinal models, and \code{cens} to indicate censoring. Alternatively, the \code{addition} arguments can be incorporated directly into \code{formula}.
+See 'Formula Syntax' under 'Details' for further information.}
+
+\item{autocor}{An optional \code{\link{cor.brms}} object describing the correlation structure within the response variable (i.e. the 'autocorrelation').
+See the documentation of \code{\link{cor.brms}} for a description of the available correlation structures.
+Defaults to NULL, corresponding to no correlations.}
+
 \item{partial}{A one sided formula of the form \code{~partial.effects} specifing the predictors that can vary between categories in non-cumulative ordinal models
 (i.e. in families \code{"cratio"}, \code{"sratio"}, or \code{"acat"}).}
 
 \item{threshold}{A character string indicating the type of thresholds (i.e. intercepts) used in an ordinal model.
 \code{"flexible"} provides the standard unstructured thresholds and \code{"equidistant"} restricts the distance between consecutive thresholds to the same value.}
 
+\item{cov.ranef}{A list of matrices that are proportional to the (within) covariance structure of the random effects.
+The names of the matrices should correspond to columns in \code{data} that are used as grouping factors.
+All levels of the grouping factor should appear as rownames of the corresponding matrix.
+Currently, the covariance structure applies only to the first random effect of each grouping factor.
+If incorporated, random intercepts will always be treated as the first random effect.}
+
 \item{ranef}{A flag to indicate if random effects for each level of the grouping factor(s) should be saved (default is \code{TRUE}).
-Set to \code{FALSE} to save memory.}
+Set to \code{FALSE} to save memory. The argument has no impact on the model fitting itself.}
 
 \item{predict}{A flag to indicate if posterior predictives of the dependent variable should be generated.}
 
-\item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; defaults to \code{NA}. If fit is of class \code{brmsfit}, the compiled model associated
- with the fitted result is re-used and the arguments \code{formula}, \code{data}, \code{family}, \code{prior}, \code{partial}, \code{threshold},
-\code{predict}, and \code{ranef} are ignored.}
+\item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; defaults to \code{NA}. If \code{fit} is of class \code{brmsfit}, the compiled model associated
+ with the fitted result is re-used and the arguments \code{formula}, \code{data}, \code{family}, \code{prior}, \code{addition}, \code{autocor}, \code{partial}, \code{threshold},
+\code{cov.ranef}, \code{ranef}, and \code{predict} are ignored.}
 
 \item{n.chains}{Number of Markov chains (default: 2)}
 
@@ -55,21 +71,18 @@ so warmup samples should not be used for inference. The number of warmup should 
 \item{n.cluster}{Number of clusters to use to run parallel chains. Default is 1.}
 
 \item{inits}{A list with \code{n.chains} elements; each element of the list is itself a list of starting values for the model, or a function creating (possibly random) initial values.
-If inits is \code{NULL} (the default), Stan will generate initial values for parameters. Other options supported by Stan are also possible.}
+If inits is \code{"random"} (the default), Stan will generate initial values for parameters. Other options supported by Stan are also possible.}
 
 \item{silent}{logical; If \code{TRUE}, most intermediate output from Stan is suppressed.}
 
 \item{seed}{Positive integer. Used by \code{set.seed} to make results reproducable.}
 
 \item{save.model}{Either \code{NULL} or a character string. In the latter case, the model code is
-saved in a file with its name specified by \code{save.model} in the current working directory.}
+saved in a file named after the string supplied in \code{save.model}, which may also contain the full path where to save the file.
+If only a name is given, the file is save in the current working directory.}
 
 \item{engine}{A character string, either \code{"stan"} (the default) or \code{"jags"}. Specifies which program should be used to fit the model.
 Note that \code{jags} is currently implemented for testing purposes only, does not allow full functionality and is not supported or documented.}
-
-\item{pars}{deprecated; all relevant parameters including random effects for each level are now returned by default.}
-
-\item{post.pred}{A deprecated alias for argument \code{predict}.}
 
 \item{...}{Further arguments to be passed to Stan.}
 }
@@ -82,7 +95,11 @@ Fit a Bayesian generalized linear or ordinal mixed model using Stan
 }
 \details{
 Fit a generalized linear mixed model, which incorporates both fixed-effects parameters and random effects in a linear predictor
-  via full bayesian inference using Stan. \cr
+  via full bayesian inference using Stan. During warmup aka burnin phase, Stan may print out quite a few informational
+  messages that \cr
+  \code{"the current Metropolis proposal is about the be rejected ..."}. \cr
+  These messages can be ignored in nearly all cases.
+  Use \code{silent = TRUE} to stop these messages from being printed out. \cr
 
   \bold{Formula syntax}
 
@@ -92,31 +109,41 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
 
   Multiple grouping factors each with multiple random effects are possible. With the exception of \code{addition},
   this is basically \code{lme4} syntax.
-  The optional argument \code{addition} has different meanings depending on the \code{family} argument.
+  The optional \code{addition} term may contain multiple terms of the form \code{fun(variable)} seperated by \code{|} each providing
+  special information on the response variable. \code{fun} can be replaced with either \code{se}, \code{weights}, \code{trials},
+  \code{cat}, or \code{cens} (their meanings are explained below). Using the \code{addition} term in \code{formula} is equivalent
+  to using argument \code{addition}: Instead of writing \code{fun(variable)} in \code{formula}, we may use \code{addition = list(fun = ~variable)}.
 
-  For families \code{gaussian}, \code{student}, and \code{cauchy}
-  it may be a variable specifying the standard errors of the observation, thus allowing to perform meta-analysis.
+  For families \code{gaussian}, \code{student}, and \code{cauchy} it is possible to specify
+  standard errors of the observation, thus allowing to perform meta-analysis.
   Suppose that the variable \code{yi} contains the effect sizes from the studies and \code{sei} the
   corresponding standard errors. Then, fixed and random effects meta-analyses can be conducted
-  using the formulae \code{yi | sei ~ 1} and \code{yi | sei ~ 1 + (1|study)}, respectively, where
+  using the formulae \code{yi | se(sei) ~ 1} and \code{yi | se(sei) ~ 1 + (1|study)}, respectively, where
   \code{study} is a variable uniquely identifying every study.
-  If desired, meta-regressen can be performed via \code{yi | sei ~ 1 + mod1 + mod2 + (1|study)}
-  or \code{yi | sei ~ 1 + mod1 + mod2 + (1 + mod1 + mod2|study)}, where
+  If desired, meta-regressen can be performed via \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1|study)}
+  or \cr \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1 + mod1 + mod2|study)}, where
   \code{mod1} and \code{mod2} represent moderator variables.
 
-  For family \code{binomial}, addition may be a variable indicating the number of trials
+  For all families, weighted regression may be performed using
+  \code{weights} in the addition part. Suppose that variable \code{wei} contains the weights and that \code{yi} is the response variable.
+  Then, formula \code{yi | weights(wei) ~ predictors} implements a weighted regression.
+
+  For family \code{binomial}, addition may contain a variable indicating the number of trials
   underlying each observation. In \code{lme4} syntax, we may write for instance
-  \code{cbind(success, trials - success)}, which is equivalent
-  to \code{success | trials} in \code{brms} syntax. If the number of trials
-  is constant across all observation (say \code{10}), we may also write \code{success | 10}.
+  \code{cbind(success, n - success)}, which is equivalent
+  to \code{success | trials(n)} in \code{brms} syntax. If the number of trials
+  is constant across all observation (say \code{10}), we may also write \code{success | trials(10)}.
 
-  For family \code{categorical} and all ordinal families, \code{addition} specifies the number of
-  categories for each observation, either with a variable name or a single number.
+  For family \code{categorical} and all ordinal families, \code{addition} may contain a term \code{cat(categories)} to
+  specify the number categories for each observation, either with a variable name (e.g, \code{categories} in this example) or a single number.
 
-  For families \code{gamma}, \code{exponential}, and \code{weibull}, \code{addition} may contain
-  a logical variable (or a variable than can be coerced to logical) indicating
-  if the response variable is left censored (corresponding to \code{TRUE}) or not censored
-  (corresponding to \code{FALSE}). \cr
+  With the expection of \code{categorical} and ordinal families, left and right censoring can be modeled through \code{yi | cens(censored) ~ predictors}.
+  The censoring variable (named \code{censored} in this example) should contain the values \code{'left'}, \code{'none'}, and \code{'right'}
+  (or equivalenty -1, 0, and 1) to indicate that the corresponding observation is left censored, not censored, or right censored.
+
+  Mutiple \code{addition} terms may be specified at the same time, for instance \cr
+  \code{formula = yi | se(sei) | cens(censored) ~ 1} for a censored meta-analytic model, equivalent to
+  \code{formula = yi ~ 1} and \code{addition = list(se = ~sei, cens = ~censored)} when using argument \code{addition}. \cr
 
   \bold{Families and link functions}
 
@@ -147,7 +174,7 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
 
   \code{brm} performs no checks if the priors are written in correct Stan language.
   Instead, Stan will check their correctness when the model is parsed to C++ and returns an error if they are not.
-  Currently, there are four types of parameters in \code{brms} models,
+  Currently, there are five types of parameters in \code{brms} models,
   for which the user can specify prior distributions. \cr
 
   1. Fixed effects
@@ -167,7 +194,13 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   we may write as a shortcut \code{prior = } \cr \code{list(b = "normal(0,5)")}. In addition, this
   leads to faster sampling in Stan, because priors can be vectorized. \cr
 
-  2. Standard deviations of random effects
+  2. Autocorrelation parameters
+
+  The autocorrelation parameters currently implemented are named \code{ar} (autoregression) and \code{ma} (moving average).
+  The default prior for autocorrelation parameters is an improper flat prior over the reals. It should be noted that \code{ar} will
+  only take one values between -1 and 1 if the response variable is wide-sence stationay, i.e. if there is no drift in the responses. \cr
+
+  3. Standard deviations of random effects
 
   Each random effect of each grouping factor has a standard deviation named
   \code{sd_(group)_(random)}. Consider, for instance, the formula \code{y ~ x1+x2+(1+x1|z)}.
@@ -178,7 +211,7 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   We could make this explicit by writing \code{prior = list(sd = "cauchy(0,5)")}.
   One common alternative is a uniform prior over a positive interval. \cr
 
-  3. Correlations of random effects
+  4. Correlations of random effects
 
   If there is more than one random effect per grouping factor, the correlations between those random
   effects have to be estimated.
@@ -193,7 +226,7 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   The cholesky factors in \code{brms} models are named as
   \code{L_(group)}, (e.g., \code{L_z} if \code{z} is the grouping factor). \cr
 
-  4. Parameters for specific families
+  5. Parameters for specific families
 
   Some families need additional parameters to be estimated.
   Families \code{gaussian}, \code{student}, and \code{cauchy} need the parameter \code{sigma}
@@ -204,7 +237,9 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   the degrees of freedom of students t distribution.
   By default, \code{nu} has prior \code{"uniform(1,60)"}.
   Families \code{gamma} and \code{weibull} need the parameter \code{shape}
-  that has a \code{"gamma(0.01,0.01)"} prior by default. \cr
+  that has a \code{"gamma(0.01,0.01)"} prior by default. For families \code{cumulative}, \code{cratio}, \code{sratio},
+  and \code{acat}, and only if \code{threshold = "equidistant"}, the parameter \code{delta} is used to model the distance
+  between to adjacent thresholds. By default, \code{delta} has an improper flat prior over the reals. \cr
 }
 \examples{
 \dontrun{
@@ -230,11 +265,14 @@ plot(fit_i)
 
 ## Surivival Regression (with family 'weibull') modeling time between
 ## first and second recurrence of an infection in kidney patients
-## time | cens indicates which values in variable time are left censored
-fit_k <- brm(time | cens ~ age + sex + disease, data = kidney,
-             family = "weibull", silent = TRUE)
+## time | cens indicates which values in variable time are right censored
+fit_k <- brm(time | cens(censored) ~ age + sex + disease, data = kidney,
+             family = "weibull", silent = TRUE, inits = "0")
 summary(fit_k)
 plot(fit_k)
 }
+}
+\author{
+Paul-Christian Buerkner \email{paul.buerkner@gmail.com}
 }
 

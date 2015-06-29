@@ -34,4 +34,7 @@ plot(fit_e)
 plot(fit_e, parameters = "^b_", combine = TRUE)
 }
 }
+\author{
+Paul-Christian Buerkner \email{paul.buerkner@gmail.com}
+}
 

@@ -28,4 +28,7 @@ fixef(brm(time | cens ~ age + sex + disease, data=kidney, family="exponential"),
       estimate = c("mean", "sd"))
 }
 }
+\author{
+Paul-Christian Buerkner \email{paul.buerkner@gmail.com}
+}
 

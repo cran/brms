@@ -15,8 +15,8 @@ ranef(x, estimate = "mean", var = FALSE, center.zero = TRUE, ...)
 
 \item{var}{logical; indicating if the covariance matrix for each random effects should be computed.}
 
-\item{center.zero}{logical; indicating if the random effects are centered around the (possibly implicit)
-fixed effect or around zero (the default).}
+\item{center.zero}{logical; indicating if the random effects are centered around the corresponding
+fixed effect (if present) or around zero (the default).}
 
 \item{...}{Further arguments to be passed to the function specified in \code{estimate}}
 }
@@ -37,5 +37,8 @@ attr(rf, "var")
 ## random effects medians centered around the corresponding fixed effect
 ranef(fit_e, estimate = "median", center.zero = FALSE)
 }
+}
+\author{
+Paul-Christian Buerkner \email{paul.buerkner@gmail.com}
 }
 

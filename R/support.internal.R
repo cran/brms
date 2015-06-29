@@ -31,66 +31,7 @@ brm.replace <- function(names, symbols = NULL, subs = NULL) {
     names <- gsub(symbols[i], subs[i], names)
   names
 }
-
-# Extract fixed and random effects from a formula
-# 
-# @param formula An object of class "formula" using mostly the syntax of the \code{lme4} package
-# @param ... Additional objects of class "formula"
-# 
-# @return A named list of the following six objects: \cr
-#   \code{fixed}:    An object of class "formula" that contains the fixed effects including the dependent variable. \cr
-#   \code{random}:   A list of formulas containing the random effects per grouping variable. \cr
-#   \code{group}:    A list of names of the grouping variables. \cr
-#   \code{add}:      A one sided formula containing the \code{add} part of \code{formula = y | add ~ predictors} if present. \cr
-#   \code{add2}:  A one sided formula containing the \code{add2} part of \code{formula = y || add2 ~ predictors} if present. \cr
-#   \code{all}:      A formula that contains every variable mentioned in \code{formula} and \code{...} 
-# 
-# @examples
-# \dontrun{ 
-# # fixed effects model
-# extract.effects(response ~ I(1/a) + b)
-# 
-# # mixed effects model
-# extract.effects(response ~ I(1/a) + b + (1 + c | d))
-# 
-# # mixed effects model with additional information on the response variable 
-# # (e.g., standard errors in a gaussian linear model)
-# extract.effects(response | se ~ I(1/a) + b + (1 + c | d))
-# }
-extract.effects <- function(formula, ...) {
-  formula <- gsub(" ","",Reduce(paste, deparse(formula)))  
-  fixed <- gsub(paste0("\\([^(\\||~)]*\\|[^\\)]*\\)\\+|\\+\\([^(\\||~)]*\\|[^\\)]*\\)",
-                       "|\\([^(\\||~)]*\\|[^\\)]*\\)"),"",formula)
-  fixed <- gsub("\\|+[^~]*~", "~", fixed)
-  if (substr(fixed, nchar(fixed), nchar(fixed)) == "~") fixed <- paste0(fixed, "1")
-  fixed <- formula(fixed)
-  if (length(fixed) < 3) stop("invalid formula: response variable is missing")
-  
-  add <- unlist(regmatches(formula,gregexpr("[^\\|]\\|[^~|\\|]*~",formula)))[1]
-  add <- substr(add, 3, nchar(add)-1)
-  if (is.na(add)) add <- NULL
-  else if (is.na(suppressWarnings(as.numeric(add)))) add <- as.formula(paste0("~", add))
-  else add <- as.numeric(add)
-  
-  add2 <- unlist(regmatches(formula, gregexpr("\\|\\|[^~]*~", formula)))[1]
-  if (is.na(add2)) add2 <- NULL
-  else add2 <- as.formula(paste0("~", substr(add2, 3, nchar(add2) - 1)))
-  
-  rg <- unlist(regmatches(formula, gregexpr("\\([^\\|\\)]*\\|[^\\)]*\\)", formula)))
-  random <- lapply(regmatches(rg, gregexpr("\\([^\\|]*", rg)), function(r) 
-    formula(paste0("~ ",substr(r, 2, nchar(r)))))
-  group <- lapply(regmatches(rg, gregexpr("\\|[^\\)]*", rg)), function(g) 
-    substr(g, 2, nchar(g)))
-  out <- list(fixed = fixed, random = random, group = group, add = add, add2 = add2)
-  
-  if (length(group)) group <- lapply(paste("~",group),"formula") 
-  if (is.numeric(add)) add <- NULL
-  up.formula <- unlist(lapply(c(add, add2, random, group, ...), 
-                              function(x) paste0("+", Reduce(paste, deparse(x[[2]])))))
-  up.formula <- paste0("update(",Reduce(paste, deparse(fixed)),", . ~ .",paste0(up.formula, collapse=""),")")
-  return(c(out, all = eval(parse(text = up.formula))))
-} 
-
+ 
 # Links for \code{brms} families
 # 
 # @param family A vector of one or two character strings. The first string indicates the distribution of the dependent variable (the 'family'). Currently, the following distributions are supported:
@@ -145,15 +86,21 @@ array2list <- function(x) {
 
 #calculate estimates over posterior samples 
 get.estimate <- function(coef, samples, margin = 1, to.array = FALSE, ...) {
-  out <- apply(samples, margin, coef, ...)
-  if (is.null(dim(out))) 
-    out <- matrix(out, dimnames = list(NULL, coef))
-  else if (coef == "quantile") out <- aperm(out, length(dim(out)):1)
-  if (to.array & length(dim(out)) == 2) 
-    out <- array(out, dim = c(dim(out), 1), dimnames = list(NULL, NULL, coef))
-  out 
+  dots <- list(...)
+  args <- list(X = samples, MARGIN = margin, FUN = coef)
+  fun.args <- names(formals(coef))
+  if (!"..." %in% fun.args) 
+    dots <- dots[fun.args %in% names(dots)] 
+  x <- do.call(apply, c(args, dots))
+  if (is.null(dim(x))) 
+    x <- matrix(x, dimnames = list(NULL, coef))
+  else if (coef == "quantile") x <- aperm(x, length(dim(x)):1)
+  if (to.array & length(dim(x)) == 2) 
+    x <- array(x, dim = c(dim(x), 1), dimnames = list(NULL, NULL, coef))
+  x 
 }
 
+#get correlation names of random effects
 get.cor.names <- function(names) {
   cor.names <- NULL
   if (length(names) > 1)
@@ -162,3 +109,22 @@ get.cor.names <- function(names) {
         cor.names <- c(cor.names, paste0("cor(",names[j],",",names[i],")"))
   cor.names
 }
+
+isNULL <- function(x) is.null(x) | all(sapply(x, is.null))
+
+rmNULL <- function(x) {
+  x <- Filter(Negate(isNULL), x)
+  lapply(x, function(x) if (is.list(x)) rmNULL(x) else x)
+}
+
+rmNum <- function(x) x[sapply(x, Negate(is.numeric))]
+
+#removes all elements in x appearing also in y
+rmMatch <- function(x, y) {
+  att <- attributes(x)
+  keep <- which(!(x %in% y))
+  x <- x[keep]
+  attributes(x) <- att
+  attr(x, "match.length") <- att$match.length[keep] 
+  x
+} 

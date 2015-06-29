@@ -40,7 +40,7 @@ The Stan Development Team Stan Modeling Language User's Guide and Reference Manu
 }
 \keyword{package}
 \seealso{
-\code{\link[brms:brmsfit-class]{brmsfit}}
+\code{\link[brms:brm]{brm}}, \code{\link[brms:brmsfit-class]{brmsfit}}
 }
 
 %\examples{
