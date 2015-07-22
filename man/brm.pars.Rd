@@ -5,8 +5,8 @@
 \title{Parameters of interest for \code{brms} models}
 \usage{
 brm.pars(formula, data = NULL, family = "gaussian", autocor = NULL,
-  partial = NULL, threshold = "flexible", predict = FALSE, ranef = TRUE,
-  engine = "stan", ...)
+  partial = NULL, threshold = "flexible", ranef = TRUE, WAIC = FALSE,
+  predict = FALSE)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): a symbolic description of the model to be fitted.
@@ -17,8 +17,8 @@ the variables in the model. If not found in data, the variables are taken from \
 typically the environment from which \code{brm} is called.}
 
 \item{family}{A vector of one or two character strings. The first string indicates the distribution of the dependent variable (the 'family'). Currently, the following families are supported:
-\code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"binomial"}, \code{"categorical"}, \code{"poisson"}, \code{"negbinomial"}, \code{"geometric"},
-\code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
+\code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"multigaussian"}, \code{"binomial"}, \code{"bernoulli"}, \code{"categorical"}, \code{"poisson"}, \code{"negbinomial"}, \cr
+\code{"geometric"}, \code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
 The second string indicates the link function, which must be supported by the distribution of the dependent variable.
 If not specified, default link functions are used. Further information is provided under 'Details'.}
 
@@ -32,14 +32,13 @@ Defaults to NULL, corresponding to no correlations.}
 \item{threshold}{A character string indicating the type of thresholds (i.e. intercepts) used in an ordinal model.
 \code{"flexible"} provides the standard unstructured thresholds and \code{"equidistant"} restricts the distance between consecutive thresholds to the same value.}
 
-\item{predict}{A flag to indicate if posterior predictives of the dependent variable should be generated.}
-
 \item{ranef}{logical; indicating if random effects estimates should be returned}
 
-\item{engine}{A character string, either \code{"stan"} (the default) or \code{"jags"}. Specifies which program should be used to fit the model.
-Note that \code{jags} is currently implemented for testing purposes only, does not allow full functionality and is not supported or documented.}
+\item{WAIC}{A flag to indicate if the log likelihood of the model should be saved so that the WAIC can be computed afterwards.
+For models with many observation, this leads to rather huge fitted model objects.}
 
-\item{...}{Further arguments to be passed to Stan.}
+\item{predict}{A flag to indicate if posterior predictives of the dependent variable should be generated.
+For models with many observation, this leads to rather huge fitted model objects.}
 }
 \value{
 A vector of character strings specifying parameters of interest for models produced by the \code{brms} package.

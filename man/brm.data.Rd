@@ -4,9 +4,8 @@
 \alias{brm.data}
 \title{Extract required data for \code{brms} models}
 \usage{
-brm.data(formula, data = NULL, family = c("gaussian", "identity"),
-  prior = list(), autocor = NULL, partial = NULL, cov.ranef = NULL,
-  engine = "stan", ...)
+brm.data(formula, data = NULL, family = "gaussian", prior = list(),
+  autocor = NULL, partial = NULL, cov.ranef = NULL)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): a symbolic description of the model to be fitted.
@@ -17,8 +16,8 @@ the variables in the model. If not found in data, the variables are taken from \
 typically the environment from which \code{brm} is called.}
 
 \item{family}{A vector of one or two character strings. The first string indicates the distribution of the dependent variable (the 'family'). Currently, the following families are supported:
-\code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"binomial"}, \code{"categorical"}, \code{"poisson"}, \code{"negbinomial"}, \code{"geometric"},
-\code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
+\code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"multigaussian"}, \code{"binomial"}, \code{"bernoulli"}, \code{"categorical"}, \code{"poisson"}, \code{"negbinomial"}, \cr
+\code{"geometric"}, \code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
 The second string indicates the link function, which must be supported by the distribution of the dependent variable.
 If not specified, default link functions are used. Further information is provided under 'Details'.}
 
@@ -35,13 +34,7 @@ Defaults to NULL, corresponding to no correlations.}
 \item{cov.ranef}{A list of matrices that are proportional to the (within) covariance structure of the random effects.
 The names of the matrices should correspond to columns in \code{data} that are used as grouping factors.
 All levels of the grouping factor should appear as rownames of the corresponding matrix.
-Currently, the covariance structure applies only to the first random effect of each grouping factor.
-If incorporated, random intercepts will always be treated as the first random effect.}
-
-\item{engine}{A character string, either \code{"stan"} (the default) or \code{"jags"}. Specifies which program should be used to fit the model.
-Note that \code{jags} is currently implemented for testing purposes only, does not allow full functionality and is not supported or documented.}
-
-\item{...}{Further arguments for testing purposes only}
+Currently, customized covariance structures are only implemented for grouping factors with a single random effect.}
 }
 \value{
 A named list of objects containing the required data to fit a \code{brms} model
@@ -51,11 +44,11 @@ Extract required data for \code{brms} models
 }
 \examples{
 data1 <- brm.data(rating ~ treat + period + carry + (1|subject),
-         data = inhaler, family = "cumulative")
+                  data = inhaler, family = "cumulative")
 names(data1)
 
 data2 <- brm.data(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit),
-         data = epilepsy, family = c("poisson", "log"))
+                  data = epilepsy, family = "poisson")
 names(data2)
 }
 \author{
