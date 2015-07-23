@@ -10,12 +10,12 @@ brmsfit <- function(formula = NULL, family = "", link = "", data.name = "", data
 
 # brmssummary class
 brmssummary <- function(formula = NULL, family = "", link = "", data.name = "", group = NULL,
-                 nobs = NULL, ngrps = NULL, n.chain = 1, n.iter = 2000, n.warmup = 500, n.thin = 1,
+                 nobs = NULL, ngrps = NULL, n.chains = 1, n.iter = 2000, n.warmup = 500, n.thin = 1,
                  sampler = "", fixed = NULL, random = list(), cor.pars = NULL, autocor = NULL, 
-                 spec.pars = NULL) {
+                 spec.pars = NULL, WAIC = "Not computed") {
   x <- list(formula = formula, family = family, link = link, data.name = data.name, group = group, 
-            nobs = nobs, ngrps = ngrps, n.chain = n.chain, n.iter = n.iter,  n.warmup = n.warmup, 
-            n.thin = n.thin, sampler = sampler, fixed = fixed, random = random, 
+            nobs = nobs, ngrps = ngrps, n.chains = n.chains, n.iter = n.iter,  n.warmup = n.warmup, 
+            n.thin = n.thin, sampler = sampler, fixed = fixed, random = random, WAIC = WAIC,
             cor.pars = cor.pars, autocor = autocor, spec.pars = spec.pars)
   class(x) <- "brmssummary"
   x
@@ -32,7 +32,7 @@ brmssummary <- function(formula = NULL, family = "", link = "", data.name = "", 
 #' 
 #' @param x An object of class \code{brmsfit}
 #' @param estimate A character vector specifying which coefficients (e.g., "mean", "median", "sd", or "quantile") 
-#' should be calculated for the random effects.
+#' should be calculated for the fixed effects.
 #' @param ... Further arguments to be passed to the functions specified in \code{estimate}
 #' 
 #' @return A matrix with one row per fixed effect and one column per calculated estimate.
@@ -55,13 +55,11 @@ fixef <- function(x, estimate = "mean", ...)
 #' 
 #' @aliases ranef.brmsfit
 #' @usage ## S3 method for class 'brmsfit'
-#' ranef(x, estimate = "mean", var = FALSE, center.zero = TRUE, ...)
+#' ranef(x, estimate = "mean", var = FALSE, ...)
 #' 
 #' @param x An object of a class of fitted models with random effects, typically a \code{brmsfit} object.
 #' @param estimate The point estimate to be calculated for the random effects, either "mean" or "median".
 #' @param var logical; indicating if the covariance matrix for each random effects should be computed.
-#' @param center.zero logical; indicating if the random effects are centered around the corresponding
-#'   fixed effect (if present) or around zero (the default).
 #' @param ... Further arguments to be passed to the function specified in \code{estimate}
 #'
 #' @return A list of matrices (one per grouping factor), each with one row per level
@@ -73,21 +71,22 @@ fixef <- function(x, estimate = "mean", ...)
 #' \dontrun{
 #' fit_e <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1+Trt_c|visit), 
 #'              data = epilepsy, family = "poisson", n.chains = 1)
-#' ## random effects means centered around zero with corresponding covariances
+#' ## random effects means with corresponding covariances
 #' rf <- ranef(fit_e, var = TRUE)
 #' attr(rf, "var")
-#' ## random effects medians centered around the corresponding fixed effect
-#' ranef(fit_e, estimate = "median", center.zero = FALSE)                                                        
+#' ## random effects medians
+#' ranef(fit_e, estimate = "median")                                                        
 #' }
 #' 
 #' @export
-ranef <- function(x, estimate = "mean", var = FALSE, center.zero = TRUE, ...) 
+ranef <- function(x, estimate = "mean", var = FALSE, ...) 
   UseMethod("ranef")
 
-#' Extract random effects covariance and correlation components
+#' Extract variance and correlation components
 #' 
 #' This function calculates the estimated standard deviations, correlations and covariances of the
-#' random-effects terms in a mixed-effects model, of class \code{brmsfit}. 
+#' random-effects terms in a mixed-effects model of class \code{brmsfit}. For linear models, the residual
+#' standard deviations, correlations and covariances are also returned. 
 #' 
 #' @aliases VarCorr.brmsfit
 #' 
@@ -146,7 +145,11 @@ ngrps <- function(object, ...)
 #' @aliases hypothesis.brmsfit
 #' 
 #' @param x An \code{R} object typically of class \code{brmsfit}
-#' @param hypothesis A character vector specifying one or more non-linear hypothesis concerning fixed effects
+#' @param hypothesis A character vector specifying one or more non-linear hypothesis concerning parameters of the model
+#' @param class A string specifying the class of parameters being tested. Default is "b" for fixed effects. 
+#'        Other typical options are "sd" or "cor". If \code{class = NULL}, all parameters can be tested
+#'        against each other, but have to be specified with their full name (see also \code{\link[brms:par.names]{par.names}}) 
+#' @param alpha the alpha-level of the tests (default is 0.05)        
 #' @param ... Currently ignored
 #' 
 #' @details Currently there are methods for \code{brmsfit} objects.
@@ -156,17 +159,24 @@ ngrps <- function(object, ...)
 #' 
 #' @examples
 #' \dontrun{
-#' fit_i <- brm(rating ~ treat + period + carry, data = inhaler, family = "cumulative")
+#' fit_i <- brm(rating ~ treat + period + carry + (1+treat|subject),
+#'              data = inhaler, family = "gaussian")
 #' 
 #' hypothesis(fit_i, "treat = period + carry")
 #' hypothesis(fit_i, "exp(treat) - 3 = 0")
 #' 
-#' ## test both of the above hypotheses with the same call 
+#' ## perform one-sided hypothesis testing
+#' hypothesis(fit_i, "period + carry - 3 < 0")
+#' 
+#' # compare random effects standard deviations
+#' hypothesis(fit_i, "treat < Intercept", class = "sd_subject")
+#' 
+#' ## test more than one hypothesis at once
 #' hypothesis(fit_i, c("treat = period + carry", "exp(treat) - 3 = 0"))
 #' }
 #' 
 #' @export
-hypothesis <- function(x, hypothesis, ...)
+hypothesis <- function(x, hypothesis, class = "b", alpha = 0.05, ...)
   UseMethod("hypothesis")
 
 #' Extract posterior samples
@@ -187,7 +197,8 @@ hypothesis <- function(x, hypothesis, ...)
 #' 
 #' @examples
 #' \dontrun{
-#' fit_i <- brm(rating ~ treat + period + carry + (1|subject), data = inhaler, family = "cumulative")
+#' fit_i <- brm(rating ~ treat + period + carry + (1|subject), 
+#'              data = inhaler, family = "cumulative")
 #' 
 #' #extract posterior samples of fixed effects 
 #' samples1 <- posterior.samples(fit_i, "b_")
@@ -217,3 +228,44 @@ posterior.samples <- function(x, parameters = NA, ...)
 #' @export
 par.names <- function(x, ...)
   UseMethod("par.names")
+
+
+#' Compute the WAIC
+#' 
+#' Compute the Watanabe-Akaike Information Criterion based on the posterior likelihood
+#' 
+#' @param x A fitted model object typically of class \code{brmsfit}. 
+#' @param ... Optionally more fitted model objects. 
+#' @param se A flag to indicate if the standard error of the WAIC should be estimated. 
+#'   When the samples size is low, this estimation should be interpreted with caution.
+#' 
+#' @details When comparing models fitted to the same data, the smaller the WAIC, the better the fit.
+#' @return If just one object is provided, a numeric value with the corresponding WAIC. 
+#' If multiple objects are provided, a named list of numeric values with the corresponding WAICs.
+#' 
+#' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
+#' 
+#' @examples
+#' \dontrun{
+#' #model with fixed effects only
+#' fit_i1 <- brm(rating ~ treat + period + carry,
+#'               data = inhaler, family = "gaussian", WAIC = TRUE)
+#' WAIC(fit_i1)
+#' 
+#' #model with an additional random intercept for subjects
+#' fit_i2 <- brm(rating ~ treat + period + carry + (1|subject),
+#'              data = inhaler, family = "gaussian", WAIC = TRUE)
+#' #compare both models
+#' WAIC(fit_i1, fit_i2)                          
+#' }
+#' 
+#' @references 
+#' Gelman, A., Hwang, J., & Vehtari, A. (2014). Understanding predictive information criteria for Bayesian models. 
+#' Statistics and Computing, 24, 997-1016.
+#' 
+#' Watanabe, S. (2010). Asymptotic equivalence of Bayes cross validation and widely applicable information criterion in singular learning theory. 
+#' The Journal of Machine Learning Research, 11, 3571-3594.
+#' 
+#' @export
+WAIC <- function(x, ..., se = FALSE)
+  UseMethod("WAIC")

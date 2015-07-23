@@ -27,7 +27,7 @@
 #' ## for regression parameters and standard deviations of random effects 
 #' fit_k2 <- brm(time | cens(censored) ~ age + sex + disease + (1|patient), 
 #'               data = kidney, prior = list(sd = "uniform(0,20)"), 
-#'               family = "weibull", n.iter = 3000, silent = TRUE)
+#'               family = "weibull", inits = "0", silent = TRUE)
 #' summary(fit_k2) 
 #' plot(fit_k2)         
 #' }
@@ -89,6 +89,7 @@
 #'  \item{visit}{The session number from \code{1} (first visit) to \code{4} (last visit)}
 #'  \item{count}{The seizure count between two visits}
 #'  \item{patient}{The patient number}
+#'  \item{obs}{The observation number, i.e. a unique identifier for each observation}
 #' } 
 #' 
 #' @examples

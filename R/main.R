@@ -8,8 +8,8 @@
 #'  the variables in the model. If not found in data, the variables are taken from \code{environment(formula)}, 
 #'  typically the environment from which \code{brm} is called.
 #' @param family A vector of one or two character strings. The first string indicates the distribution of the dependent variable (the 'family'). Currently, the following families are supported:
-#'  \code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"binomial"}, \code{"categorical"}, \code{"poisson"}, \code{"negbinomial"}, \code{"geometric"},
-#'  \code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
+#'  \code{"gaussian"}, \code{"student"}, \code{"cauchy"}, \code{"multigaussian"}, \code{"binomial"}, \code{"bernoulli"}, \code{"categorical"}, \code{"poisson"}, \code{"negbinomial"}, \cr
+#'  \code{"geometric"}, \code{"gamma"}, \code{"exponential"}, \code{"weibull"}, \code{"cumulative"}, \code{"cratio"}, \code{"sratio"}, and \code{"acat"}.
 #'  The second string indicates the link function, which must be supported by the distribution of the dependent variable. 
 #'  If not specified, default link functions are used. Further information is provided under 'Details'.
 #' @param prior A named list of character strings specifing the prior distributions of the parameters. Further information
@@ -29,9 +29,11 @@
 #' @param cov.ranef A list of matrices that are proportional to the (within) covariance structure of the random effects. 
 #'   The names of the matrices should correspond to columns in \code{data} that are used as grouping factors. 
 #'   All levels of the grouping factor should appear as rownames of the corresponding matrix. 
-#'   Currently, the covariance structure applies only to the first random effect of each grouping factor. 
-#'   If incorporated, random intercepts will always be treated as the first random effect.
+#'   Currently, customized covariance structures are only implemented for grouping factors with a single random effect.
 #' @param predict A flag to indicate if posterior predictives of the dependent variable should be generated. 
+#'   For models with many observation, this leads to rather huge fitted model objects.
+#' @param WAIC A flag to indicate if the log likelihood of the model should be saved so that the WAIC can be computed afterwards.
+#'   For models with many observation, this leads to rather huge fitted model objects.
 #' @param ranef A flag to indicate if random effects for each level of the grouping factor(s) should be saved (default is \code{TRUE}). 
 #'   Set to \code{FALSE} to save memory. The argument has no impact on the model fitting itself.
 #' @param fit An instance of S3 class \code{brmsfit} derived from a previous fit; defaults to \code{NA}. If \code{fit} is of class \code{brmsfit}, the compiled model associated 
@@ -50,8 +52,6 @@
 #'   If only a name is given, the file is save in the current working directory. 
 #' @param silent logical; If \code{TRUE}, most intermediate output from Stan is suppressed.
 #' @param seed Positive integer. Used by \code{set.seed} to make results reproducable.  
-#' @param engine A character string, either \code{"stan"} (the default) or \code{"jags"}. Specifies which program should be used to fit the model. 
-#'  Note that \code{jags} is currently implemented for testing purposes only, does not allow full functionality and is not supported or documented.
 #' @param ... Further arguments to be passed to Stan.
 #' 
 #' @return An object of class \code{brmsfit}, which contains the posterior samples along with many other useful information about the model.
@@ -72,8 +72,9 @@
 #'   
 #'   \code{response | addition ~ fixed + (random | group)} 
 #'   
-#'   Multiple grouping factors each with multiple random effects are possible. With the exception of \code{addition}, 
-#'   this is basically \code{lme4} syntax.
+#'   Multiple grouping factors each with multiple random effects are possible. Instead of | you may use || in random effects terms
+#'   to prevent random effects correlations from being modeled.
+#'   With the exception of \code{addition}, this is basically \code{lme4} syntax. 
 #'   The optional \code{addition} term may contain multiple terms of the form \code{fun(variable)} seperated by \code{|} each providing
 #'   special information on the response variable. \code{fun} can be replaced with either \code{se}, \code{weights}, \code{trials},
 #'   \code{cat}, or \code{cens} (their meanings are explained below). Using the \code{addition} term in \code{formula} is equivalent
@@ -110,21 +111,33 @@
 #'   \code{formula = yi | se(sei) | cens(censored) ~ 1} for a censored meta-analytic model, equivalent to 
 #'   \code{formula = yi ~ 1} and \code{addition = list(se = ~sei, cens = ~censored)} when using argument \code{addition}. \cr
 #'   
+#'   Family \code{multigaussian} allows to perform multivariate (normal) regression using \code{cbind} notation. Suppose that
+#'   \code{y1} and \code{y2} are response variables and \code{x} is a predictor, then \code{cbind(y1,y2) ~ x} speficies a multivariate model, where
+#'   \code{x} has the same effect on \code{y1} and \code{y2}.
+#'   To indicate different effects on each response variable, the word \code{trait} (which is reserved in \code{multigaussian} models) can be used
+#'   as an additional categorical predictor. For instance, \code{cbind(y1,y2) ~ -1 + x:trait} leads to seperate effects
+#'   of \code{x} on \code{y1} and \code{y2}. In this case, \code{trait} has two levels, namely \code{"y1"} and \code{"y2"}. 
+#'   By default, \code{trait} is dummy-coded. 
+#'   It may also be used within random effects terms, both as grouping factor or as random effect within a grouping factor. 
+#'   Note that variable \code{trait} is generated internally and may not be specified in the data passed to \code{brm}. \cr
+#'   
+#'   
 #'   \bold{Families and link functions}
 #'   
 #'   Family \code{gaussian} with \code{identity} link leads to linear regression. Families \code{student}, and \code{cauchy}
-#'   with \code{identity} link leads to robust linear regression that is less influenced by outliers. 
+#'   with \code{identity} link leads to robust linear regression that is less influenced by outliers. Family \code{multigaussian} with link
+#'   \code{identity} may be used for multivariate normal regression as explained above. 
 #'   Families \code{poisson}, \code{negbinomial}, and \code{geometric} with \code{log} link lead to regression models for count data. 
-#'   Family \code{binomial} with \code{logit} link leads to logistic regression and family \code{categorical} to
+#'   Families \code{binomial} and \code{bernoulli} with \code{logit} link leads to logistic regression and family \code{categorical} to
 #'   multi-logistic regression when there are more than two possible outcomes.
 #'   Families \code{cumulative}, \code{cratio} ('contiuation ratio'), \code{sratio} ('stopping ratio'), 
 #'   and \code{acat} ('adjacent category') leads to ordinal regression. Families \code{gamma}, \code{weibull}, and \code{exponential}
 #'   can be used (among others) for survival regression when combined with the \code{log} link.
 #'   
 #'   In the following, we list all possible links for each family.
-#'   The families \code{gaussian}, \code{student}, and \code{cauchy} accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
+#'   The families \code{gaussian}, \code{student}, \code{cauchy}, and \code{multigaussian} accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
 #'   families \code{poisson}, \code{negbinomial}, and \code{geometric} the links \code{log}, \code{identity}, and \code{sqrt}; 
-#'   families \code{binomial}, \code{cumulative}, \code{cratio}, \code{sratio}, and \code{acat} the links \code{logit}, \code{probit}, \code{probit_approx}, and \code{cloglog};
+#'   families \code{binomial}, \code{bernoulli}, \code{cumulative}, \code{cratio}, \code{sratio}, and \code{acat} the links \code{logit}, \code{probit}, \code{probit_approx}, and \code{cloglog};
 #'   family  \code{categorical} the link \code{logit}; families \code{gamma}, \code{weibull}, and \code{exponential} the links \code{log}, \code{identity}, and \code{inverse}. 
 #'   The first link mentioned for each family is the default. \cr    
 #'   
@@ -237,6 +250,7 @@
 #' plot(fit_k)             
 #' }
 #' 
+#' @import rstan
 #' @import parallel
 #' @import Rcpp
 #' @import methods
@@ -244,82 +258,54 @@
 #' @export 
 brm <- function(formula, data = NULL, family = c("gaussian", "identity"), prior = list(),
                 addition = NULL, autocor = NULL, partial = NULL, threshold = "flexible", cov.ranef = NULL, 
-                ranef = TRUE, predict = FALSE, fit = NA, n.chains = 2, n.iter = 2000, n.warmup = 500, 
+                ranef = TRUE, WAIC = FALSE, predict = FALSE, fit = NA, n.chains = 2, n.iter = 2000, n.warmup = 500, 
                 n.thin = 1, n.cluster = 1, inits = "random", silent = FALSE, seed = 12345, 
-                save.model = NULL, engine = "stan", ...) {
+                save.model = NULL, ...) {
   dots <- list(...) 
   link <- brm.link(family)
   if (n.chains %% n.cluster != 0) stop("n.chains must be a multiple of n.cluster")
-  if (!engine %in% c("stan","jags")) stop("engine must be either 'stan' or 'jags'")
   if (is.null(autocor)) autocor <- cor.arma()
   if (!is(autocor, "cor.brms")) stop("cor must be of class cor.brms")
   if (!threshold %in% c("flexible","equidistant")) 
     stop("threshold must be either flexible or equidistant")
-  names(prior) <- gsub(":", "__", names(prior))
   set.seed(seed)
-
-  if (is(fit,"brmsfit")) x <- fit
+  
+  if (is(fit, "brmsfit")) x <- fit
   else {
     formula <- brm.update.formula(formula, addition = addition)
+    et <- extract.time(autocor$formula)
+    ee <- extract.effects(formula, family = family[1], partial, et$all)
+    data.name <- Reduce(paste, deparse(substitute(data)))
+    data <- updateData(data, family = family[1], effects = ee, et$group)
     x <- brmsfit(formula = formula, family = family[1], link = link, partial = partial,
-                 data.name = Reduce(paste, deparse(substitute(data))), autocor = autocor)
+                 data.name = data.name, autocor = autocor)
+    x$ranef <- setNames(lapply(lapply(ee$random, brm.model.matrix, data = data), colnames), 
+                        gsub("__", ":", ee$group))
+    x$pars <- brm.pars(formula, data = data, family = family, autocor = autocor, partial = partial, 
+                       threshold = threshold, ranef = ranef, WAIC = WAIC, predict = predict)
     x$data <- brm.data(formula, data = data, family = family, prior = prior, cov.ranef = cov.ranef,
-                       autocor = autocor, partial = partial, engine = engine, ...) 
-    x$pars <- brm.pars(formula, data, family = family[1], autocor = autocor, partial = partial, 
-                threshold = threshold, ranef = ranef, engine = engine, predict = predict)
+                       autocor = autocor, partial = partial) 
+    x$model <- stan.model(formula = x$formula, data = data, family = x$family, link = x$link, prior = prior, 
+                          autocor = x$autocor, partial = x$partial, predict = predict, WAIC = WAIC,
+                          threshold = threshold, cov.ranef = names(cov.ranef), save.model = save.model)
   }  
   
-  if (is.function(inits) | (is.character(inits) & !is.element(inits, c("random", "0")))) 
+  if (is.function(inits) || (is.character(inits) && !is.element(inits, c("random", "0")))) 
     inits <- replicate(n.chains, do.call(inits, list()), simplify = FALSE)
-  
-  if (engine == "stan") {
-    if(!nchar(x$model)) 
-      x$model <- stan.model(formula = x$formula, data = data, family = x$family, 
-                  link = x$link, prior = prior, autocor = x$autocor, partial = x$partial, 
-                  predict = predict, threshold = threshold, cov.ranef = names(cov.ranef), 
-                  save.model = save.model)
-    if (!requireNamespace("rstan", quietly = TRUE)) {
-      warning(paste("Package rstan is not installed yet so that the model cannot be fitted. \n",
-        "Returning only the Stan model, the required data, and the parameters of interest. \n",
-        "Please see https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started \n",
-        "for instructions on how to install rstan. \n",
-        "You may need to restart R after the installation of rstan to make it work correctly.")) 
-      return(x)
-    }
-
-    if (n.cluster > 1 | silent & n.chains > 0) {
-      if (is.character(inits) | is.numeric(inits)) inits <- rep(inits, n.chains)
-      x$fit <- suppressMessages(rstan::stan(model_code = x$model, data = x$data, 
-                                            chains = 0, fit = x$fit, ...))
-      cl <- makeCluster(n.cluster)
-      clusterEvalQ(cl, require(rstan))
-      clusterExport(cl = cl, c("x", "inits", "n.iter", "n.warmup", "n.thin"), envir = environment())
-      sflist <- parLapply(cl, 1:n.chains, fun = function(i)  
-        rstan::stan(fit = x$fit, data = x$data, iter = n.iter, pars = x$pars, init = inits[i],
-                    warmup = n.warmup, thin = n.thin, chains = 1, chain_id = i))
-      if (n.chains > 1) x$fit <- rstan::sflist2stanfit(sflist)
-      else x$fit <- sflist[[1]]
-      stopCluster(cl)
-    } 
-    else x$fit <- rstan::stan(model_code = x$model, data = x$data, pars = x$pars, init = inits, 
-                           iter = n.iter, chains = n.chains, warmup = n.warmup, thin = n.thin, 
-                           fit = x$fit, ...)
+  if (n.cluster > 1 || silent && n.chains > 0) {
+    if (is.character(inits) || is.numeric(inits)) inits <- rep(inits, n.chains)
+    x$fit <- suppressMessages(rstan::stan(model_code = x$model, data = x$data, chains = 0, fit = x$fit, ...))
+    cl <- makeCluster(n.cluster)
+    clusterEvalQ(cl, require(rstan))
+    clusterExport(cl = cl, c("x", "inits", "n.iter", "n.warmup", "n.thin"), envir = environment())
+    sflist <- parLapply(cl, 1:n.chains, fun = function(i)  
+      rstan::stan(fit = x$fit, data = x$data, iter = n.iter, pars = x$pars, init = inits[i],
+                  warmup = n.warmup, thin = n.thin, chains = 1, chain_id = i))
+    x$fit <- rstan::sflist2stanfit(sflist)
+    stopCluster(cl)
   } 
-  else if (engine == "jags") {
-    warning("Engine 'jags' is currently implemented for testing purposes only and we do not support its usage.")
-    if (is.character(inits) | is.numeric(inits)) 
-      inits <- replicate(n.chains, bugs.inits(formula = formula, data = data, family = family[1], 
-        partial = partial, threshold = threshold, engine = engine, range = dots$range), simplify = FALSE)
-    x$model <- brm.bugs(formula = x$formula, data = data, family = x$family, link = x$link, 
-                      prior = prior, partial = partial, threshold = threshold, 
-                      predict = predict, save.model = save.model)
-    if (!requireNamespace("R2jags", quietly = TRUE)) {
-      warning(paste0("Package 'R2jags' is not installed yet so that the model cannot be fitted.
-        Returning the Bugs model, the required data, and the parameters of interest instead."))
-      return(x)
-    }  
-    x$fit <- suppressWarnings(R2jags::jags(x$data, inits, x$pars, textConnection(x$model), 
-             n.chains = n.chains, n.iter = n.iter, n.burnin = n.warmup, n.thin = n.thin))
-  }
-  x
+  else x$fit <- rstan::stan(model_code = x$model, data = x$data, pars = x$pars, init = inits, 
+                            iter = n.iter, chains = n.chains, warmup = n.warmup, thin = n.thin, 
+                            fit = x$fit, ...)
+  rename.pars(x)
 }

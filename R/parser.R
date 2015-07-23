@@ -35,9 +35,15 @@ extract.effects <- function(formula, ..., family = "none", add.ignore = FALSE) {
   rg <- unlist(regmatches(formula, gregexpr("\\([^\\|\\)]*\\|[^\\)]*\\)", formula)))
   random <- lapply(regmatches(rg, gregexpr("\\([^\\|]*", rg)), function(r) 
     formula(paste0("~ ",substr(r, 2, nchar(r)))))
-  group <- lapply(regmatches(rg, gregexpr("\\|[^\\)]*", rg)), function(g) 
-    substr(g, 2, nchar(g)))
-  x <- list(fixed = fixed, random = random, group = group)
+  cor <- lapply(regmatches(rg, gregexpr("\\|[^\\)]*", rg)), function(g) cor <- substr(g, 1, 2) != "||")
+  group <- lapply(regmatches(rg, gregexpr("\\|[^\\)]*", rg)), function(g) {
+    g <- ifelse(substr(g, 1, 2) == "||", substr(g, 3, nchar(g)), substr(g, 2, nchar(g)))
+    if (nchar(gsub(":", "", gsub("[^([:digit:]|[:punct:])][[:alnum:]_\\.]*", "", g))))
+      stop(paste("Illegal grouping term:",g,"\nGrouping terms may contain only variable names",
+                 "combined by the interaction symbol ':'"))
+    return(formula(paste("~",g)))})
+  x <- list(fixed = fixed, random = random, cor = cor,
+            group = lapply(group, function(g) paste0(all.vars(g), collapse = "__")))
   
   fun <- c("se", "weights", "trials", "cat", "cens")
   if (!add.ignore) {
@@ -51,7 +57,7 @@ extract.effects <- function(formula, ..., family = "none", add.ignore = FALSE) {
       x[[f]] <- unlist(regmatches(add, gregexpr(paste0(f,"\\([^\\|]*\\)"), add)))[1]
       add <- gsub(paste0(f,"\\([^~|\\|]*\\)\\|*"), "", add)
       if (is.na(x[[f]])) x[[f]] <- NULL
-      else if (family %in% families[[f]] | families[[f]][1] == "all") {
+      else if (family %in% families[[f]] || families[[f]][1] == "all") {
         x[[f]] <- substr(x[[f]], nchar(f) + 2, nchar(x[[f]]) -1)
         if (is.na(suppressWarnings(as.numeric(x[[f]])))) {
           x[[f]] <- as.formula(paste0("~", x[[f]]))
@@ -62,30 +68,42 @@ extract.effects <- function(formula, ..., family = "none", add.ignore = FALSE) {
       }  
       else stop(paste("Argument",f,"in formula is not supported by family",family))
     }
-    if (nchar(gsub("\\|", "", add)) > 0 & !is.na(add))
+    if (nchar(gsub("\\|", "", add)) > 0 && !is.na(add))
       stop(paste0("Invalid addition part of formula. Please see the 'Details' section of help(brm) ",
                   "for further information. \nNote that the syntax of addition has changed in brms 0.2.1 as ",
                   "the old one was not flexible enough."))
   }
   
-  if (length(group)) group <- lapply(paste("~",group),"formula") 
   up.formula <- unlist(lapply(c(random, group, rmNULL(rmNum(x[fun])), ...), 
                               function(x) paste0("+", Reduce(paste, deparse(x[[2]])))))
   up.formula <- paste0("update(",Reduce(paste, deparse(fixed)),", . ~ .",paste0(up.formula, collapse=""),")")
-  all <- eval(parse(text = up.formula))
-  environment(all) <- globalenv()
-  return(c(x, all = all))
+  x$all <- eval(parse(text = up.formula))
+  environment(x$all) <- globalenv()
+  x$response = all.vars(x$all[[2]])
+  if (length(x$response) > 1) {
+    x$fixed <- eval(parse(text = paste0("update(x$fixed, ", x$response[1], " ~ .)"))) 
+    x$all <- eval(parse(text = paste0("update(x$all, ", x$response[1], " ~ .)"))) 
+  }  
+  x
 } 
 
 # extract time and grouping variabels for correlation structure
 extract.time <- function(formula) {
   if (is.null(formula)) return(NULL)
   formula <- gsub(" ","",Reduce(paste, deparse(formula))) 
-  time <- gsub("~|\\|[[:print:]]*", "", formula)
+  time <- all.vars(as.formula(paste("~", gsub("~|\\|[[:print:]]*", "", formula))))
+  if (length(time) > 1) stop("Autocorrelation structures may only contain 1 time variable")
+  x <- list(time = ifelse(length(time), time, ""), group = "")
+
   group <- gsub("~[^\\|]*|\\|", "", formula)
-  x <- list(time = time, group = group)
-  if (!nchar(group)) group <- NULL
-  x$all <- formula(paste("~",paste(c(time, group), collapse = "+")))
+  if (nchar(group)) {
+    if (nchar(gsub(":", "", gsub("[^([:digit:]|[:punct:])][[:alnum:]_\\.]*", "", group))))
+      stop(paste("Illegal grouping term:",group,"\nGrouping terms may contain only variable names",
+                 "combined by the interaction symbol ':'"))
+    group <- formula(paste("~", group))
+    x$group <- paste0(all.vars(group), collapse = "__")
+  }
+  x$all <- formula(paste("~",paste(c("1", time, all.vars(group)), collapse = "+")))
   x
 }
 
@@ -103,6 +121,16 @@ brm.update.formula <- function(formula, addition = NULL, partial = NULL) {
     fnew <- paste(fnew, "+ partial(", partial, ")")
   }
   update.formula(formula, formula(fnew))
+}
+
+#find all valid object names in a string
+find.names <- function(x) {
+  if (!is.character(x)) stop("x must be of class character")
+  fun.pos <- gregexpr("([^([:digit:]|[:punct:])]|\\.|_)[[:alnum:]_\\.]*\\(", x)[[1]]
+  decnum.pos <- gregexpr("\\.[[:digit:]]+", x)[[1]]
+  var.pos <- list(rmMatch(gregexpr("([^([:digit:]|[:punct:])]|\\.|_)[[:alnum:]_\\.]*(\\[[[:digit:]]*\\])?", x)[[1]], 
+                          fun.pos, decnum.pos))
+  unlist(regmatches(x, var.pos))
 }
 
 #checks if x is formula (or list of formulas)
