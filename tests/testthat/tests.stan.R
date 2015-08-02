@@ -33,10 +33,10 @@ test_that("Test that stan.prior can remove default priors", {
 })
 
 test_that("Test that stan.eta returns correct strings for autocorrelation models", {
-  expect_match(stan.eta(family = "poisson", link = "log", f = c("Trt_c"), p = NULL, group = list(),
+  expect_match(stan.eta(family = "poisson", link = "log", f = c("Trt_c"),
                         autocor = cor.arma(~visit|patient, p=1))$transC1,
                "eta <- X\\*b \\+ Yar\\*ar")
-  expect_match(stan.eta(family = "poisson", link = "log", f = c("Trt_c"), p = NULL, group = list(),
+  expect_match(stan.eta(family = "poisson", link = "log", f = c("Trt_c"),
                         autocor = cor.arma(~visit|patient, q=1))$transC2,
                "eta\\[n\\] <- eta\\[n\\] \\+ Ema\\[n\\]\\*ma")
 })
@@ -91,6 +91,13 @@ test_that("Test that stan.model handles addition arguments correctly", {
                           family = "weibull", link = "log"), "vector[N] cens;", fixed = TRUE)
 })
 
+test_that("Test that stan.model correctly combines strings of multiple grouping factors", {
+  expect_match(stan.model(count ~ (1|patient) + (1+Trt_c|visit), data = epilepsy, family = "poisson", link = "log"), 
+               "  real Z_patient[N]; \n  int<lower=1> visit[N];", fixed = TRUE)
+  expect_match(stan.model(count ~ (1+Trt_c|visit) + (1|patient), data = epilepsy, family = "poisson", link = "log"), 
+               "  int NC_visit; \n  int<lower=1> patient[N];", fixed = TRUE)
+})
+
 test_that("Test that stan.ord returns correct strings", {
   expect_match(stan.ord(family = "sratio", link = "logit")$par, "")
   
@@ -98,16 +105,44 @@ test_that("Test that stan.ord returns correct strings", {
 
 test_that("Test that stan.llh uses simplifications when possible", {
   expect_equal(stan.llh(family = "bernoulli", link = "logit"), "  Y ~ bernoulli_logit(eta); \n")
+  expect_equal(stan.llh(family = "gaussian", link = "log"), "  Y ~ lognormal(eta,sigma); \n")
+  expect_match(stan.llh(family = "gaussian", link = "log", weights = TRUE), 
+               "lognormal_log(Y[n],eta[n],sigma); \n", fixed = TRUE)
   expect_equal(stan.llh(family = "poisson", link = "log"), "  Y ~ poisson_log(eta); \n")
   expect_match(stan.llh(family = "cumulative", link = "logit"), fixed = TRUE,
                "  Y[n] ~ ordered_logistic(eta[n],b_Intercept); \n")
 })
 
-test_that("Test that stan.llh returns correct llhs under weights, censoring, etc.", {
+test_that("Test that stan.llh returns correct llhs under weights and censoring", {
   expect_equal(stan.llh(family = "cauchy", link = "inverse", weights = TRUE),
                "  lp_pre[n] <- cauchy_log(Y[n],eta[n],sigma); \n")
+  expect_equal(stan.llh(family = "poisson", link = "log", weights = TRUE),
+               "  lp_pre[n] <- poisson_log_log(Y[n],eta[n]); \n")
+  expect_match(stan.llh(family = "poisson", link = "log", cens = TRUE),
+               "Y[n] ~ poisson(exp(eta[n])); \n", fixed = TRUE)
+  expect_equal(stan.llh(family = "binomial", link = "logit", add = TRUE, weights = TRUE),
+               "  lp_pre[n] <- binomial_logit_log(Y[n],max_obs[n],eta[n]); \n")
   expect_match(stan.llh(family = "weibull", link = "inverse", cens = TRUE), fixed = TRUE,
                "increment_log_prob(weibull_ccdf_log(Y[n],shape,eta[n])); \n")
   expect_match(stan.llh(family = "weibull", link = "inverse", cens = TRUE, weights = TRUE), fixed = TRUE,
                "increment_log_prob(weights[n] * weibull_ccdf_log(Y[n],shape,eta[n])); \n")
+})
+
+test_that("Test that stan.rngprior returns correct sampling statements for priors", {
+  expect_equal(stan.rngprior(TRUE, prior = "nu ~ uniform(0,100); \n"),
+               list(par = "  real<lower=0> prior_nu; \n", model = "  prior_nu ~ uniform(0,100); \n"))
+  expect_equal(stan.rngprior(TRUE, prior = "delta ~ normal(0,1); \n", family = "cumulative"),
+               list(par = "  real<lower=0> prior_delta; \n", model = "  prior_delta ~ normal(0,1); \n"))
+  expect_equal(stan.rngprior(TRUE, prior = "b ~ normal(0,5); \n"),
+               list(genD = "  real prior_b; \n", genC = "  prior_b <- normal_rng(0,5); \n"))
+  expect_equal(stan.rngprior(TRUE, prior = "b[1] ~ normal(0,5); \n", fixed = c("x1", "x2")),
+               list(genD = "  real prior_b_x1; \n", genC = "  prior_b_x1 <- normal_rng(0,5); \n"))
+  expect_equal(stan.rngprior(TRUE, prior = "bp[1] ~ normal(0,5); \n", partial = c("x1", "x2")),
+               list(genD = "  real prior_b_x1; \n", genC = "  prior_b_x1 <- normal_rng(0,5); \n"))
+  expect_equal(stan.rngprior(TRUE, prior = "sigma[2] ~ normal(0,5); \n", response = c("y1", "y2")),
+               list(par = "  real<lower=0> prior_sigma_y2; \n", model = "  prior_sigma_y2 ~ normal(0,5); \n"))
+  expect_equal(stan.rngprior(TRUE, prior = "sd_id[1] ~ normal(0,5); \n  sd_id[2] ~ cauchy(0,2); \n",
+                             group = list("id"), random = list(c("x1", "x2"))),
+               list(par = "  real<lower=0> prior_sd_id_x1; \n  real<lower=0> prior_sd_id_x2; \n", 
+                    model = "  prior_sd_id_x1 ~ normal(0,5); \n  prior_sd_id_x2 ~ cauchy(0,2); \n"))
 })
