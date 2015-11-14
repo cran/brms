@@ -43,10 +43,12 @@ link <- function(x, link) {
   else if (link == "log") log(x)
   else if (link == "inverse") 1/x
   else if (link == "sqrt") sqrt(x)
+  else if (link == "1/mu^2") 1 / x^2
   else if (link == "logit") logit(x)
   else if (link == "probit") qnorm(x)
-  else if (link == "cloglog") log(-log(1-x))
   else if (link == "probit_approx") qnorm(x)
+  else if (link == "cloglog") log(-log(1-x))
+  else if (link == "cauchit") qcauchy(x)
   else stop(paste("Link", link, "not supported"))
 }
 
@@ -63,10 +65,12 @@ ilink <- function(x, link) {
   else if (link == "log") exp(x)
   else if (link == "inverse") 1/x
   else if (link == "sqrt") x^2
+  else if (link == "1/mu^2") 1 / sqrt(x)
   else if (link == "logit") ilogit(x)
   else if (link == "probit") pnorm(x)
-  else if (link == "cloglog") 1 - exp(-exp(x))
   else if (link == "probit_approx") ilogit(0.07056*x^3 + 1.5976*x)
+  else if (link == "cloglog") 1 - exp(-exp(x))
+  else if (link == "cauchit") pcauchy(x)
   else stop(paste("Link", link, "not supported"))
 }
 
@@ -117,9 +121,9 @@ get_estimate <- function(coef, samples, margin = 2, to.array = FALSE, ...) {
   #   typically a matrix with colnames(samples) as colnames
   dots <- list(...)
   args <- list(X = samples, MARGIN = margin, FUN = coef)
-  fun.args <- names(formals(coef))
-  if (!"..." %in% fun.args)
-    dots <- dots[names(dots) %in% fun.args]
+  fun_args <- names(formals(coef))
+  if (!"..." %in% fun_args)
+    dots <- dots[names(dots) %in% fun_args]
   x <- do.call(apply, c(args, dots))
   if (is.null(dim(x))) 
     x <- matrix(x, dimnames = list(NULL, coef))
@@ -142,7 +146,7 @@ get_summary <- function(samples, probs = c(0.025, 0.975)) {
   #   a N x C matric where N is the number of observations and C is equal to \code{length(probs) + 2}.
   if (length(dim(samples)) == 2) {
     out <- do.call(cbind, lapply(c("mean", "sd", "quantile"), get_estimate, 
-                                 samples = samples, probs = probs))
+                                 samples = samples, probs = probs, na.rm = TRUE))
   } else if (length(dim(samples)) == 3) {
     out <- abind(lapply(1:dim(samples)[3], function(i)
       do.call(cbind, lapply(c("mean", "sd", "quantile"), get_estimate, 
@@ -213,6 +217,87 @@ get_cov_matrix <- function(sd, cor = NULL) {
   list(cor = cor_matrix, cov = cov_matrix)
 }
 
+get_cov_matrix_ar1 <- function(ar, sigma, sq_se, nrows) {
+  # compute the covariance matrix for an AR1 process
+  # Args: 
+  #   ar: AR1 autocorrelation samples
+  #   sigma: standard deviation samples of the AR1 process
+  #   sq_se: user defined standard errors (may be 0)
+  #   nrows: number of rows of the covariance matrix
+  # Returns:
+  #   An nsamples x nrows x nrows AR1 covariance array (!)
+  mat <- aperm(array(diag(sq_se, nrows), dim = c(nrows, nrows, nrow(ar))),
+               perm = c(3, 1, 2))
+  sigma2_adjusted <- sigma^2 / (1 - ar^2)
+  pow_ar <- as.list(rep(1, nrows + 1))
+  for (i in 1:nrows) {
+    pow_ar[[i + 1]] <- ar^i
+    mat[, i, i] <- mat[, i, i] + sigma2_adjusted
+    if (i > 1) {
+      for (j in 1:(i - 1)) { 
+        mat[, i, j] <- sigma2_adjusted * pow_ar[[i - j + 1]]
+        mat[, j, i] <- mat[, i, j]
+      } 
+    }
+  } 
+  mat 
+}
+
+get_cov_matrix_ma1 <- function(ma, sigma, sq_se, nrows) {
+  # compute the covariance matrix for an MA1 process
+  # Args: 
+  #   ma: MA1 autocorrelation samples
+  #   sigma: standard deviation samples of the AR1 process
+  #   sq_se: user defined standard errors (may be 0)
+  #   nrows: number of rows of the covariance matrix
+  # Returns:
+  #   An nsamples x nrows x nrows MA1 covariance array (!)
+  mat <- aperm(array(diag(sq_se, nrows), dim = c(nrows, nrows, nrow(ma))),
+               perm = c(3, 1, 2))
+  sigma2 <- sigma^2
+  sigma2_adjusted <- sigma2 * (1 + ma^2)
+  sigma2_times_ma <- sigma2 * ma
+  for (i in 1:nrows) { 
+    mat[, i, i] <- mat[, i, i] + sigma2_adjusted
+    if (i > 1) {
+      mat[, i, i - 1] <- sigma2_times_ma
+    }
+    if (i < nrows) {
+      mat[, i, i + 1] <- sigma2_times_ma
+    }
+  } 
+  mat 
+}
+
+get_cov_matrix_arma1 <- function(ar, ma, sigma, sq_se, nrows) {
+  # compute the covariance matrix for an AR1 process
+  # Args: 
+  #   ar: AR1 autocorrelation sample
+  #   ma: MA1 autocorrelation sample
+  #   sigma: standard deviation samples of the AR1 process
+  #   sq_se: user defined standard errors (may be 0)
+  #   nrows: number of rows of the covariance matrix
+  # Returns:
+  #   An nsamples x nrows x nrows ARMA1 covariance array (!)
+  mat <- aperm(array(diag(sq_se, nrows), dim = c(nrows, nrows, nrow(ar))),
+               perm = c(3, 1, 2))
+  sigma2_adjusted <- sigma^2 / (1 - ar^2)
+  gamma0 <- 1 + ma^2 + 2 * ar * ma
+  gamma <- as.list(rep(NA, nrows))
+  gamma[[1]] <- (1 + ar * ma) * (ar + ma)
+  for (i in 1:nrows) {
+    mat[, i, i] <- mat[, i, i] + sigma2_adjusted * gamma0
+    gamma[[i]] <- gamma[[1]] * ar^(i - 1)
+    if (i > 1) {
+      for (j in 1:(i - 1)) { 
+        mat[, i, j] <- sigma2_adjusted * gamma[[i - j]]
+        mat[, j, i] <- mat[, i, j]
+      } 
+    }
+  } 
+  mat 
+}
+
 evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"), 
                            prior_samples = NULL, pow = 12, ...) {
   # calculate the evidence ratio between two disjunct hypotheses
@@ -254,6 +339,38 @@ evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"),
   out  
 }
 
+get_sigma <- function(x, data, method, n) {
+  # get residual standard devation of linear models
+  # Args:
+  #   x: a brmsfit object or posterior samples of sigma (can be NULL)
+  #   data: data initially passed to Stan
+  #   method: S3 method from which get_sigma is called
+  #   n: meaning depends on the method argument:
+  #      for predict and logLik this is the current observation number
+  #      for fitted this is the number of samples
+  if (!method %in% c("fitted", "predict", "logLik"))
+    stop("Invalid method argument")
+  if (is(x, "brmsfit")) {
+    sigma <- posterior_samples(x, pars = "^sigma_")$sigma
+  } else {
+    sigma <- x
+  }
+  if (is.null(sigma)) {
+    # user defined standard errors were applied
+    sigma <- data$se
+    if (is.null(sigma)) {
+      # for backwards compatibility with brms <= 0.5.0
+      sigma <- data$sigma
+    }
+    if (method %in% c("predict", "logLik")) {
+      sigma <- sigma[n]
+    } else {
+      sigma <- matrix(rep(sigma, n), ncol = data$N, byrow = TRUE)
+    }
+  }
+  sigma
+}
+
 linear_predictor <- function(x, newdata = NULL, re_formula = NULL) {
   # compute the linear predictor (eta) for brms models
   #
@@ -268,17 +385,22 @@ linear_predictor <- function(x, newdata = NULL, re_formula = NULL) {
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) 
     stop("The model does not contain posterior samples")
   if (is.null(newdata)) { 
-    data <- x$data
+    data <- standata(x, keep_intercept = TRUE)
   } else {
     data <- newdata
   }
   
-  n.samples <- nrow(posterior.samples(x, parameters = "^lp__$"))
-  eta <- matrix(0, nrow = n.samples, ncol = data$N)
+  ee <- extract_effects(x$formula, family = x$family)
+  n_samples <- nrow(posterior_samples(x, pars = "^lp__$"))
+  eta <- matrix(0, nrow = n_samples, ncol = data$N)
   X <- data$X
   if (!is.null(X) && ncol(X) && x$family != "categorical") {
-    b <- posterior.samples(x, parameters = "^b_[^\\[]+$")
+    b <- posterior_samples(x, pars = "^b_[^\\[]+$")
     eta <- eta + fixef_predictor(X = X, b = b)  
+  }
+  if (!is.null(data$offset)) {
+    eta <- eta + matrix(rep(data$offset, n_samples), 
+                        ncol = data$N, byrow = TRUE)
   }
   
   group <- names(x$ranef)
@@ -288,8 +410,9 @@ linear_predictor <- function(x, newdata = NULL, re_formula = NULL) {
     for (i in 1:length(group)) {
       if (any(grepl(paste0("^J_|^lev_"), names(data)))) {  # implies brms > 0.4.1
         # create a single RE design matrix for every grouping factor
-        Z <- do.call(cbind, lapply(which(all_groups == group[i]), function(k) 
-          get(paste0("Z_",k), data)))
+        Z <- lapply(which(all_groups == group[i]), 
+                    function(k) get(paste0("Z_",k), data))
+        Z <- do.call(cbind, Z)
         id <- match(group[i], all_groups)
         if (any(grepl(paste0("^J_"), names(data)))) {
           gf <- get(paste0("J_",id), data)
@@ -298,26 +421,50 @@ linear_predictor <- function(x, newdata = NULL, re_formula = NULL) {
           gf <- get(paste0("lev_",id), data)  
         }
       } else {  # implies brms <= 0.4.1
-        Z <- get(paste0("Z_",group[i]), data)
+        Z <- as.matrix(get(paste0("Z_",group[i]), data))
         gf <- get(group[i], data)
       }
-      r <- posterior.samples(x, parameters = paste0("^r_",group[i],"\\["))
+      r <- posterior_samples(x, pars = paste0("^r_",group[i],"\\["),
+                             as.matrix = TRUE)
+      if (is.null(r)) {
+        stop(paste("Random effects for each level of grouping factor",
+                   group[i], "not found. Please set ranef = TRUE",
+                   "when calling brm."))
+      }
       eta <- eta + ranef_predictor(Z = Z, gf = gf, r = r) 
     }
   }
-  if (x$autocor$p > 0) {
-    Yar <- as.matrix(data$Yar)
-    ar <- posterior.samples(x, parameters = "^ar\\[")
-    eta <- eta + fixef_predictor(X = Yar, b = ar)
+  # indicates if the model was fitted with brms <= 0.5.0
+  old_autocor <- is.null(x$autocor$r)
+  if (get_arr(x$autocor)) {
+    # incorporate ARR effects
+    if (old_autocor) {
+      Yarr <- as.matrix(data$Yar)
+      arr <- posterior_samples(x, pars = "^ar\\[")
+    } else {
+      # brms > 0.5.0
+      Yarr <- as.matrix(data$Yarr)
+      arr <- posterior_samples(x, pars = "^arr\\[")
+    }
+    eta <- eta + fixef_predictor(X = Yarr, b = arr)
   }
-  if (x$autocor$q > 0) {
-    ma <- posterior.samples(x, parameters = "^ma\\[")
-    eta <- ma_predictor(data = data, ma = ma, eta = eta, link = x$link)
+  if ((get_ar(x$autocor) || get_ma(x$autocor)) && !use_cov(x$autocor)) {
+    # only run when ARMA effects were modeled as part of eta
+    if (old_autocor) {
+      ar <- NULL
+    } else {
+      ar <- posterior_samples(x, pars = "^ar\\[", as.matrix = TRUE)
+    }
+    ma <- posterior_samples(x, pars = "^ma\\[", as.matrix = TRUE)
+    eta <- arma_predictor(data = data, ar = ar, ma = ma, 
+                          eta = eta, link = x$link)
   }
-  if (x$family %in% c("cumulative", "cratio", "sratio", "acat")) {
-    Intercept <- posterior.samples(x, "^b_Intercept\\[")
+  
+  # transform eta to to etap for ordinal and categorical models
+  if (is.ordinal(x$family)) {
+    Intercept <- posterior_samples(x, "^b_Intercept\\[")
     if (!is.null(data$Xp) && ncol(data$Xp)) {
-      p <- posterior.samples(x, paste0("^b_",colnames(data$Xp),"\\["))
+      p <- posterior_samples(x, paste0("^b_",colnames(data$Xp),"\\["))
       etap <- partial_predictor(Xp = data$Xp, p = p, ncat = data$max_obs)
     } else {
       etap <- array(0, dim = c(dim(eta), data$max_obs-1))
@@ -331,10 +478,9 @@ linear_predictor <- function(x, newdata = NULL, re_formula = NULL) {
       }
     }
     eta <- etap
-  }
-  else if (x$family == "categorical") {
+  } else if (x$family == "categorical") {
     if (!is.null(data$X)) {
-      p <- posterior.samples(x, parameters = "^b_")
+      p <- posterior_samples(x, pars = "^b_")
       etap <- partial_predictor(data$X, p, data$max_obs)
     } else {
       etap <- array(0, dim = c(dim(eta), data$max_obs - 1))
@@ -377,7 +523,7 @@ ranef_predictor <- function(Z, gf, r) {
   sort_levels <- ulapply(1:max_levels, function(l) seq(l, ncol(r), max_levels))
   if (length(levels) < max_levels) {
     # if only a subset of levels is provided (only for newdata)
-    take_levels <- ulapply(levels, function(l) ((l-1) * nranef + 1):(l * nranef))
+    take_levels <- ulapply(levels, function(l) ((l - 1) * nranef + 1):(l * nranef))
     eta <- as.matrix(r[, sort_levels])[, take_levels] %*% t(Z[, take_levels])
   } else {
     eta <- as.matrix(r[, sort_levels]) %*% t(Z)
@@ -385,31 +531,41 @@ ranef_predictor <- function(Z, gf, r) {
   eta
 }
 
-ma_predictor <- function(data, ma, eta, link = "identity") {
+arma_predictor <- function(data, ar, ma, eta, link) {
   # compute eta for moving average effects
   #
   # Args:
   #   data: the data initially passed to stan
-  #   ma: moving average samples 
+  #   ar: autoregressive samples (can be NULL)
+  #   ma: moving average samples (can be NULL)
   #   eta: previous linear predictor samples
-  #   link: the link function
+  #   link: the link function as character string
   #
   # Returns:
   #   new linear predictor samples updated by moving average effects
-  ma <- as.matrix(ma)
-  K <- ncol(ma)
+  S <- max(nrow(ar), nrow(ma))
+  Kar <- ifelse(is.null(ar), 0, ncol(ar))
+  Kma <- ifelse(is.null(ma), 0, ncol(ma))
+  K <- max(Kar, Kma)
   Ks <- 1:K
   Y <- link(data$Y, link)
   N <- length(Y)
   tg <- c(rep(0, K), data$tgroup)
-  Ema <- array(0, dim = c(nrow(ma), K, N))
-  e <- matrix(0, nrow = nrow(ma), ncol = N)
+  E <- array(0, dim = c(S, K, N))
+  e <- matrix(0, nrow = S, ncol = N)
   for (n in 1:N) {
-    eta[, n] <- eta[, n] + apply(ma * Ema[, , n], 1, sum)
+    if (Kma) {
+      # add MA effects
+      eta[, n] <- eta[, n] + rowSums(ma * E[, 1:Kma, n])
+    }
     e[, n] <- Y[n] - eta[, n]
     if (n < N) {
-      I <- which(n < N & tg[n+1+K] == tg[n+1+K-Ks])
-      Ema[, I, n+1] <- e[, n+1-I]
+      I <- which(n < N & tg[n + 1 + K] == tg[n + 1 + K - Ks])
+      E[, I, n + 1] <- e[, n + 1 - I]
+    }
+    if (Kar) {
+      # add AR effects
+      eta[, n] <- eta[, n] + rowSums(ar * E[, 1:Kar, n])
     }
   }
   eta
@@ -425,8 +581,8 @@ partial_predictor <- function(Xp, p, ncat) {
   #
   # @return linear predictor of partial effects as a 3D array (not as a matrix)
   ncat <- max(ncat)
-  etap <- array(0, dim = c(nrow(p), nrow(Xp), ncat-1))
-  indices <- seq(1, (ncat-1) * ncol(Xp), ncat-1) - 1
+  etap <- array(0, dim = c(nrow(p), nrow(Xp), ncat - 1))
+  indices <- seq(1, (ncat - 1) * ncol(Xp), ncat - 1) - 1
   for (k in 1:(ncat-1)) {
     etap[, , k] <- as.matrix(p[, indices + k]) %*% t(as.matrix(Xp))
   }
@@ -457,7 +613,7 @@ expand_matrix <- function(A, x) {
     return(v)}, v = v))
 }
 
-calculate_ic <- function(x, ic = c("waic", "loo")) {
+compute_ic <- function(x, ic = c("waic", "loo"), ...) {
   # compute WAIC and LOO using the 'loo' package
   #
   # Args:
@@ -467,10 +623,11 @@ calculate_ic <- function(x, ic = c("waic", "loo")) {
   # Returns:
   #   output of the loo package with amended class attribute
   ic <- match.arg(ic)
-  ee <- extract_effects(x$formula)
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) 
     stop("The model does not contain posterior samples") 
-  IC <- do.call(eval(parse(text = paste0("loo::",ic))), list(logLik(x)))
+  args <- list(x = logLik(x))
+  if (ic == "loo") args <- c(args, ...)
+  IC <- do.call(eval(parse(text = paste0("loo::",ic))), args)
   class(IC) <- c("ic", "loo")
   return(IC)
 }
@@ -486,68 +643,34 @@ compare_ic <- function(x, ic = c("waic", "loo")) {
   #   A matrix with differences in the ICs as well as corresponding standard errors
   ic <- match.arg(ic)
   n_models <- length(x)
-  compare_matrix <- matrix(0, nrow = n_models * (n_models - 1) / 2, ncol = 2)
-  rnames <- rep("", nrow(compare_matrix))
+  ic_diffs <- matrix(0, nrow = n_models * (n_models - 1) / 2, ncol = 2)
+  rnames <- rep("", nrow(ic_diffs))
+  # pairwise comparision to get differences in ICs and their SEs
   n <- 1
   for (i in 1:(n_models - 1)) {
     for (j in (i + 1):n_models) {
       temp <- loo::compare(x[[j]], x[[i]])
-      compare_matrix[n, ] <- c(-2 * temp$elpd_diff, 2 * temp$se) 
+      ic_diffs[n, ] <- c(-2 * temp[["elpd_diff"]], 2 * temp[["se"]]) 
       rnames[n] <- paste(names(x)[i], "-", names(x)[j])
       n <- n + 1
     }
   }
-  rownames(compare_matrix) <- rnames
-  colnames(compare_matrix) <- c(toupper(ic), "SE")
-  compare_matrix
-}
-
-amend_newdata <- function(newdata, fit, re_formula = NULL, 
-                          allow_new_levels = FALSE) {
-  # amend newdata passed to predict and fitted methods
-  # 
-  # Args:
-  #   newdata: a data.frame containing new data for prediction 
-  #   fit: an object of class brmsfit
-  #   re.form: a random effects formula
-  #
-  # Notes:
-  #   used in predict.brmsfit, fitted.brmsfit and linear_predictor.brmsfit
-  #
-  # Returns:
-  #   updated data.frame being compatible with fit$formula
-  if (allow_new_levels) {
-    # TODO
-    stop("New random effects levels are not yet allowed.")
-  }
-  ee <- extract_effects(fit$formula, family = fit$family)
-  if (sum(fit$autocor$p, fit$autocor$q) > 0 && !all(ee$response %in% names(newdata))) {
-    stop("response variables must be specified in newdata for autocorrelative models")
+  rownames(ic_diffs) <- rnames
+  colnames(ic_diffs) <- c(toupper(ic), "SE")
+  # compare all models at once to obtain weights
+  all_compare <- do.call(loo::compare, x)
+  if (n_models == 2) {
+    # weights are named differently when comparing only 2 models
+    weights <- unname(all_compare[c("weight1", "weight2")])
   } else {
-    for (resp in ee$response)
-      newdata[[resp]] <- 0  # add irrelevant response variables
-  }
-  # validate grouping factors in newdata
-  if (length(fit$ranef) && is.null(re_formula)) {
-    gnames <- names(fit$ranef)
-    for (i in 1:length(gnames)) {
-      gf <- as.character(get(gnames[i], newdata))
-      new_levels <- unique(gf)
-      old_levels <- attr(fit$ranef[[i]], "levels")
-      unknown_levels <- setdiff(new_levels, old_levels)
-      if (length(unknown_levels)) {
-        stop(paste("levels", paste0(unknown_levels, collapse = ", "), 
-                   "of grouping factor", gf[i], "not found in the fitted model"))
-      } 
-      newdata[[gnames[i]]] <- sapply(gf, match, table = old_levels)
+    # weights must be resorted as loo::compare sorts models after weights
+    get_input_names <- function(...) {
+      # mimic the way loo::compare defines model names
+      as.character(match.call())[-1L]
     }
+    weights <- unname(all_compare[do.call(get_input_names, x), "weights"])
   }
-  if (is.formula(ee$cens)) {
-    for (cens in all.vars(ee$cens)) 
-      newdata[[cens]] <- 0  # add irrelevant censor variables
-  }
-  brmdata(fit$formula, data = newdata, family =  fit$family, 
-          autocor =  fit$autocor, partial =  fit$partial, newdata = TRUE)
+  list(ic_diffs = ic_diffs, weights = weights)
 }
 
 find_names <- function(x) {
@@ -591,12 +714,12 @@ td_plot <- function(par, x) {
     xlab("") + ylab("") + ggtitle(paste("Trace of", par)) + 
     theme(legend.position = "none",
           plot.title = element_text(size = 15, vjust = 1),
-          plot.margin = grid::unit(c(0.2, 0, -0.8, -0.5), "lines"))
+          plot.margin = grid::unit(c(0.2, 0, -0.5, -0.5), "lines"))
   density <- ggplot(x, aes_string(x = "value")) + 
     geom_density(aes_string(fill = "chains"), alpha = 0.5) + 
     xlab("") + ylab("") + ggtitle(paste("Density of", par)) + 
     theme(plot.title = element_text(size = 15, vjust = 1),
-          plot.margin = grid::unit(c(0.2, 0, -0.8, -0.5), "lines"))
+          plot.margin = grid::unit(c(0.2, 0, -0.5, -0.5), "lines"))
   list(trace, density)
 }
 
@@ -654,15 +777,73 @@ print.brmssummary <- function(x, digits = 2, ...) {
                "crude measure of effective sample size, and Rhat is the potential scale \n",
                "reduction factor on split chains (at convergence, Rhat = 1)."))
   }
-}  
+}
+
+#' @export
+as.data.frame.VarCorr_brmsfit <- function(x, ...) {
+  estimates <- colnames(x[[1]]$sd)
+  groups <- names(x)
+  n_groups <- length(groups)
+  names_coef <- lapply(x, function(y) rownames(y$sd))
+  groups_col <- ulapply(1:n_groups, function(i) 
+    c(groups[i], rep("", length(names_coef[[i]]) - 1)))
+  max_cor <- max(ulapply(names_coef, length)) - 1
+  # basic data.frame to be used in fill_base_frame
+  base_frame <- as.data.frame(matrix(NA, nrow = length(groups_col),
+                                     ncol = 4 + 2 * max_cor))
+  names(base_frame) <- c("Group", "Name", "Std.Dev", rep("Cor", max_cor),
+                         rep("Cov", max_cor + 1))
+  base_frame[, 1:2] <- cbind(groups_col, unlist(names_coef))
+  
+  fill_base_frame <- function(estimate) {
+    # fills the base_frame with SD and COR estimates
+    # Args:
+    #   estimate: The estimate being applied on the SD and COR parameters
+    out <- base_frame
+    pos <- 1
+    for (i in 1:n_groups) {
+      len <- length(names_coef[[i]])
+      rows <- pos:(pos + len - 1)
+      out[rows, "Std.Dev"] <- x[[i]]$sd[, estimate]
+      if (len > 1) {
+        # covariances and correlations present
+        # add correlations
+        cor_pos <- 4:(2 + len)
+        cormat <- x[[i]]$cor[[estimate]][2:len, 1:(len-1), drop = FALSE]
+        lt <- lower.tri(cormat, diag = TRUE)
+        out[rows[2:length(rows)], cor_pos][lt] <- cormat[lt]
+      }
+      # add covariances
+      cov_pos <- (4 + max_cor):(3 + max_cor + len)
+      covmat <- x[[i]]$cov[[estimate]]
+      lt <- lower.tri(covmat, diag = TRUE)
+      out[rows, cov_pos][lt] <- covmat[lt]
+      pos <- pos + len
+    }
+    out
+  }
+  
+  out <- do.call(rbind, lapply(estimates, fill_base_frame))
+  estimates_col <- ulapply(estimates, function(e)
+    c(e, rep("", length(groups_col) - 1)))
+  cbind(Estimate = estimates_col, out)
+}
+
+#' @export
+print.VarCorr_brmsfit <- function(x, digits = 2, ...) {
+  dat <- as.data.frame(x)
+  dat[, 4:ncol(dat)] <- round(as.matrix(dat[, 4:ncol(dat)]), digits = digits)
+  dat[is.na(dat)] <- ""
+  print(dat, row.names = FALSE, ...)
+}
 
 #' @export
 print.brmshypothesis <- function(x, digits = 2, ...) {
   cat(paste0("Hypothesis Tests for class ", x$class, ":\n"))
-  x$hypothesis[,1:5] <- round(x$hypothesis[,1:5], digits = digits)
+  x$hypothesis[, 1:5] <- round(x$hypothesis[, 1:5], digits = digits)
   print(x$hypothesis, quote = FALSE)
   cat(paste0("---\n'*': The expected value under the hypothesis lies outside the ",
-             (1-x$alpha)*100,"% CI."))
+             (1 - x$alpha) * 100, "% CI."))
 }
 
 #' @export
@@ -683,9 +864,14 @@ print.iclist <- function(x, digits = 2, ...) {
   ic <- names(x[[1]])[3]
   mat <- matrix(0, nrow = length(x), ncol = 2, 
                 dimnames = list(names(x), c(toupper(ic), "SE")))
-  for (i in 1:length(x))
+  for (i in 1:length(x)) { 
     mat[i, ] <- c(x[[i]][[ic]], x[[i]][[paste0("se_",ic)]])
-  if (is.matrix(attr(x, "compare")))
+  }
+  if (is.matrix(attr(x, "compare"))) {
+    # models were compared using the compare_ic function
     mat <- rbind(mat, attr(x, "compare"))
-  print(round(mat, digits = digits))
+    weights <- c(attr(x, "weights"), rep(NA, nrow(attr(x, "compare")))) 
+    mat <- cbind(mat, Weights = weights)
+  }
+  print(round(mat, digits = digits), na.print = "")
 }

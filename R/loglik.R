@@ -9,219 +9,245 @@
 # Returns:
 #   A vector of length nrow(samples) containing the pointwise log-likelihood for the nth observation 
 loglik_gaussian <- function(n, data, samples, link) {
-  sigma <- if (!is.null(samples$sigma)) samples$sigma
-           else data$sigma
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dnorm(data$Y[n], mean = ilink(samples$eta[, n], link), 
-          sd = sigma, log = TRUE)
-  } else if (data$cens[n] == 1) {
-    pnorm(data$Y[n], mean = ilink(samples$eta[, n], link), 
-          sd = sigma, lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pnorm(data$Y[n], mean = ilink(samples$eta[, n], link), 
-          sd = sigma, log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  sigma <- get_sigma(samples$sigma, data = data, method = "logLik", n = n)
+  args <- list(mean = ilink(samples$eta[, n], link), sd = sigma)
+  # censor_loglik computes the conventional loglik in case of no censoring 
+  out <- censor_loglik(dist = "norm", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pnorm, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_student <- function(n, data, samples, link) {
-  sigma <- if (!is.null(samples$sigma)) samples$sigma
-           else data$sigma
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dstudent(data$Y[n], df = samples$nu, mu = ilink(samples$eta[, n], link), 
-             sigma = sigma, log = TRUE) 
-  } else if (data$cens[n] == 1) {
-    pstudent(data$Y[n], df = samples$nu, mu = ilink(samples$eta[,n], link), 
-             sigma = sigma, lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pstudent(data$Y[n], df = samples$nu, mu = ilink(samples$eta[, n], link), 
-             sigma = sigma, log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  sigma <- get_sigma(samples$sigma, data = data, method = "logLik", n = n)
+  args <- list(df = samples$nu, mu = ilink(samples$eta[, n], link), 
+               sigma = sigma)
+  out <- censor_loglik(dist = "student", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pstudent, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_cauchy <- function(n, data, samples, link) {
-  sigma <- if (!is.null(samples$sigma)) samples$sigma
-           else data$sigma
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dstudent(data$Y[n], df = 1, mu = ilink(samples$eta[, n], link), 
-             sigma = sigma, log = TRUE)
-  } else if (data$cens[n] == 1) {
-    pstudent(data$Y[n], df = 1, mu = ilink(samples$eta[, n], link), 
-             sigma = sigma, lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pstudent(data$Y[n], df = 1, mu = ilink(samples$eta[, n], link), 
-             sigma = sigma, log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  sigma <- get_sigma(samples$sigma, data = data, method = "logLik", n = n)
+  args <- list(df = 1, mu = ilink(samples$eta[, n], link), 
+               sigma = sigma)
+  out <- censor_loglik(dist = "student", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pstudent, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_lognormal <- function(n, data, samples, link) {
-  sigma <- if (!is.null(samples$sigma)) samples$sigma
-           else data$sigma
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dlnorm(data$Y[n], meanlog = samples$eta[, n], 
-           sdlog = sigma, log = TRUE)
-  } else if (data$cens[n] == 1) {
-    plnorm(data$Y[n], meanlog = ilink(samples$eta[, n], link), 
-           sdlog = sigma, lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    plnorm(data$Y[n], meanlog = ilink(samples$eta[, n], link), 
-           sdlog = sigma, log.p = TRUE)
+  # link is currently ignored for lognormal models
+  # as 'identity' is the only valid link
+  sigma <- get_sigma(samples$sigma, data = data, method = "logLik", n = n)
+  args <- list(meanlog = samples$eta[, n], sdlog = sigma)
+  out <- censor_loglik(dist = "lnorm", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = plnorm, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_multi_gaussian <- function(n, data, samples, link) {
+  nobs <- data$N_trait * data$K_trait
+  nsamples <- nrow(samples$eta)
+  obs <- seq(n, nobs, data$N_trait)
+  out <- sapply(1:nsamples, function(i) 
+    dmulti_normal(data$Y[n,], Sigma = samples$Sigma[i, , ], log = TRUE,
+                 mu = ilink(samples$eta[i, obs], link)))
+  # no truncation allowed
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_multi_student <- function(n, data, samples, link) {
+  nobs <- data$N_trait * data$K_trait
+  nsamples <- nrow(samples$eta)
+  obs <- seq(n, nobs, data$N_trait)
+  out <- sapply(1:nsamples, function(i) 
+    dmulti_student(data$Y[n,], df = samples$nu[i, ], 
+                  Sigma = samples$Sigma[i, , ], log = TRUE,
+                  mu = ilink(samples$eta[i, obs], link)))
+  # no truncation allowed
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_multi_cauchy <- function(n, data, samples, link) {
+  nobs <- data$N_trait * data$K_trait
+  nsamples <- nrow(samples$eta)
+  obs <- seq(n, nobs, data$N_trait)
+  out <- sapply(1:nsamples, function(i) 
+    dmulti_student(data$Y[n,], df = 1, 
+                  Sigma = samples$Sigma[i, , ], log = TRUE,
+                  mu = ilink(samples$eta[i, obs], link)))
+  # no truncation allowed
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_gaussian_cov <- function(n, data, samples, link) {
+  # currently, only ARMA1 processes are implemented
+  rows <- with(data, begin_tg[n]:(begin_tg[n] + nrows_tg[n] - 1))
+  Y_part <- data$Y[rows]
+  eta_part <- samples$eta[, rows, drop = FALSE]
+  squared_se_part <- data$squared_se[rows]
+  # different functions for different residucal cov matrices
+  if (!is.null(samples$ar) && is.null(samples$ma)) {
+    # AR1 process
+    Sigma <- get_cov_matrix_ar1(ar = samples$ar, sigma = samples$sigma, 
+                                sq_se = squared_se_part, nrows = length(rows)) 
+  } else if (is.null(samples$ar) && !is.null(samples$ma)) {
+    # MA1 process
+    Sigma <- get_cov_matrix_ma1(ma = samples$ma, sigma = samples$sigma, 
+                                sq_se = squared_se_part, nrows = length(rows)) 
+  } else {
+    # ARMA1 process
+    Sigma <- get_cov_matrix_arma1(ar = samples$ar, ma = samples$ma, 
+                                  sigma = samples$sigma, sq_se = squared_se_part, 
+                                  nrows = length(rows))
   }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
+  out <- sapply(1:nrow(samples$eta), function(i)
+    dmulti_normal(Y_part, mu = ilink(eta_part[i, ], link), 
+                 Sigma = Sigma[i, , ], log = TRUE))
+  # weights, truncation and censoring not allowed
   out
 }
 
-loglik_multinormal <- function(n, data, samples, link) {
-  nobs <- data$N_trait * data$K_trait
-  out <- sapply(1:nrow(samples$eta), function(i) 
-    dmultinormal(data$Y[n,], Sigma = samples$Sigma[i, , ], log = TRUE,
-                 mu = samples$eta[i, seq(n, nobs, data$N_trait)]))
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
+loglik_student_cov <- function(n, data, samples, link) {
+  # currently, only ARMA1 processes are implemented
+  rows <- with(data, begin_tg[n]:(begin_tg[n] + nrows_tg[n] - 1))
+  Y_part <- data$Y[rows]
+  eta_part <- samples$eta[, rows, drop = FALSE]
+  squared_se_part <- data$squared_se[rows]
+  # different functions for different residucal cov matrices
+  if (!is.null(samples$ar) && is.null(samples$ma)) {
+    # AR1 process
+    Sigma <- get_cov_matrix_ar1(ar = samples$ar, sigma = samples$sigma, 
+                                sq_se = squared_se_part, nrows = length(rows)) 
+  } else if (is.null(samples$ar) && !is.null(samples$ma)) {
+    # MA1 process
+    Sigma <- get_cov_matrix_ma1(ma = samples$ma, sigma = samples$sigma, 
+                                sq_se = squared_se_part, nrows = length(rows)) 
+  } else {
+    # ARMA1 process
+    Sigma <- get_cov_matrix_arma1(ar = samples$ar, ma = samples$ma, 
+                                  sigma = samples$sigma, sq_se = squared_se_part, 
+                                  nrows = length(rows))
+  }
+  out <- sapply(1:nrow(samples$eta), function(i)
+    dmulti_student(Y_part, df = samples$nu[i, ], 
+                  mu = ilink(eta_part[i, ], link), 
+                  Sigma = Sigma[i, , ], log = TRUE))
+  # weights, truncation and censoring not yet allowed
   out
 }
+
+loglik_cauchy_cov <- function(n, data, samples, link) {
+  samples$nu <- matrix(rep(1, nrow(samples$eta)))
+  loglik_student_cov(n = n, data = data, samples = samples, link = link)
+}
+                  
 
 loglik_binomial <- function(n, data, samples, link) {
   trials <- ifelse(length(data$max_obs) > 1, data$max_obs[n], data$max_obs) 
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dbinom(data$Y[n], size = trials, 
-           prob = ilink(samples$eta[, n], link), log = TRUE)
-  } else if (data$cens[n] == 1) {
-    pbinom(data$Y[n], size = trials, 
-           prob = ilink(samples$eta[, n], link), 
-           lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pbinom(data$Y[n], size = trials, 
-           prob = ilink(samples$eta[, n], link), log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  args <- list(size = trials, prob = ilink(samples$eta[, n], link))
+  out <- censor_loglik(dist = "binom", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pbinom, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }  
 
 loglik_bernoulli <- function(n, data, samples, link) {
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dbinom(data$Y[n], size = 1, 
-           prob = ilink(samples$eta[, n], link), log = TRUE)
-  } else if (data$cens[n] == 1) {
-    pbinom(data$Y[n], size = 1, 
-           prob = ilink(samples$eta[, n], link), 
-           lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pbinom(data$Y[n], size = 1, 
-           prob = ilink(samples$eta[, n], link), 
-           log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  args <- list(size = 1, prob = ilink(samples$eta[, n], link))
+  out <- censor_loglik(dist = "binom", args = args, n = n, data = data)
+  # no truncation allowed
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_poisson <- function(n, data, samples, link) {
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dpois(data$Y[n], lambda = ilink(samples$eta[, n], link), log = TRUE)
-  } else if (data$cens[n] == 1) {
-    ppois(data$Y[n], lambda = ilink(samples$eta[, n], link), 
-          lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    ppois(data$Y[n], lambda = ilink(samples$eta[, n], link), 
-          log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  args <- list(lambda = ilink(samples$eta[, n], link))
+  out <- censor_loglik(dist = "pois", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = ppois, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_negbinomial <- function(n, data, samples, link) {
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dnbinom(data$Y[n], mu = ilink(samples$eta[, n], link), 
-            size = samples$shape, log = TRUE)
-  } else if (data$cens[n] == 1) {
-    pnbinom(data$Y[n], mu = ilink(samples$eta[, n], link), 
-            size = samples$shape, lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pnbinom(data$Y[n], mu = ilink(samples$eta[, n], link), 
-            size = samples$shape, log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  args <- list(mu = ilink(samples$eta[, n], link), size = samples$shape)
+  out <- censor_loglik(dist = "nbinom", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pnbinom, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_geometric <- function(n, data, samples, link) {
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dnbinom(data$Y[n], mu = ilink(samples$eta[, n], link), 
-            size = 1, log = TRUE)
-  } else if (data$cens[n] == 1) {
-    pnbinom(data$Y[n], mu = ilink(samples$eta[, n], link), 
-            size = 1, lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pnbinom(data$Y[n], mu = ilink(samples$eta[, n], link), 
-            size = 1, log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  args <- list(mu = ilink(samples$eta[, n], link), size = 1)
+  out <- censor_loglik(dist = "nbinom", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pnbinom, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_exponential <-  function(n, data, samples, link) {
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dexp(data$Y[n], rate = ilink(-samples$eta[, n], link), log = TRUE)
-  } else if (data$cens[n] == 1) {
-    pexp(data$Y[n], rate = ilink(-samples$eta[, n], link), 
-         lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pexp(data$Y[n], rate = ilink(-samples$eta[, n], link), 
-         log.p = TRUE)
-  }
-  if ("weights" %in% names(data))
-    out <- out * data$weights[n]
-  out
+  args <- list(rate = 1 / ilink(samples$eta[, n], link))
+  out <- censor_loglik(dist = "exp", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pexp, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_gamma <- function(n, data, samples, link) {
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dgamma(data$Y[n], shape = samples$shape, log = TRUE,
-           scale = ilink(samples$eta[, n], link) / samples$shape)
-  } else if (data$cens[n] == 1) {
-    pgamma(data$Y[n], shape = samples$shape, 
-           scale = ilink(samples$eta[, n], link) / samples$shape,
-           lower.tail = FALSE, log.p = TRUE)
-  } else if (data$cens[n] == -1) {
-    pgamma(data$Y[n], shape = samples$shape, 
-           scale = ilink(samples$eta[, n], link) / samples$shape,
-           log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  args <- list(shape = samples$shape,
+               scale = ilink(samples$eta[, n], link) / samples$shape)
+  out <- censor_loglik(dist = "gamma", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pgamma, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_weibull <- function(n, data, samples, link) {
-  out <- if (is.null(data$cens) || data$cens[n] == 0) {
-    dweibull(data$Y[n], shape = samples$shape, log = TRUE,
-             scale = 1 / (ilink(-samples$eta[, n] / samples$shape, link)))
-  } else if (data$cens[n] == 1) {
-    pweibull(data$Y[n], shape = samples$shape, 
-             scale = 1 / (ilink(-samples$eta[, n] / samples$shape, link)),
-             log.p = TRUE, lower.tail = FALSE)
-  } else if (data$cens[n] == -1) {
-    pweibull(data$Y[n], shape = samples$shape, 
-             scale = 1 / (ilink(-samples$eta[, n] / samples$shape, link)),
-             log.p = TRUE)
-  }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  args <- list(shape = samples$shape,
+               scale = ilink(samples$eta[, n] / samples$shape, link))
+  out <- censor_loglik(dist = "weibull", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pweibull, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_inverse.gaussian <- function(n, data, samples, link) {
+  args <- list(mean = ilink(samples$eta[, n], link), shape = samples$shape)
+  out <- censor_loglik(dist = "invgauss", args = args, n = n, data = data)
+  out <- truncate_loglik(out, cdf = pinvgauss, args = args, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_hurdle_poisson <- function(n, data, samples, link) {
+  theta <- ilink(samples$eta[, n + data$N_trait], "logit")
+  args <- list(lambda = ilink(samples$eta[, n], link))
+  out <- hurdle_loglik(pdf = dpois, theta = theta, 
+                       args = args, n = n, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_hurdle_negbinomial <- function(n, data, samples, link) {
+  theta <- ilink(samples$eta[, n + data$N_trait], "logit")
+  args <- list(mu = ilink(samples$eta[, n], link), size = samples$shape)
+  out <- hurdle_loglik(pdf = dnbinom, theta = theta, 
+                       args = args, n = n, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_hurdle_gamma <- function(n, data, samples, link) {
+  theta <- ilink(samples$eta[, n + data$N_trait], "logit")
+  args <- list(shape = samples$shape, 
+               scale = ilink(samples$eta[, n], link) / samples$shape)
+  out <- hurdle_loglik(pdf = dgamma, theta = theta, 
+                       args = args, n = n, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_zero_inflated_poisson <- function(n, data, samples, link) {
+  theta <- ilink(samples$eta[, n + data$N_trait], "logit")
+  args <- list(lambda = ilink(samples$eta[, n], link))
+  out <- zero_inflated_loglik(pdf = dpois, theta = theta, 
+                              args = args, n = n, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_zero_inflated_negbinomial <- function(n, data, samples, link) {
+  theta <- ilink(samples$eta[, n + data$N_trait], "logit")
+  args <- list(mu = ilink(samples$eta[, n], link), size = samples$shape)
+  out <- zero_inflated_loglik(pdf = dnbinom, theta = theta, 
+                              args = args, n = n, data = data)
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_categorical <- function(n, data, samples, link) {
@@ -230,9 +256,7 @@ loglik_categorical <- function(n, data, samples, link) {
     p <- cbind(rep(0, nrow(samples$eta)), samples$eta[, n, 1:(ncat - 1)])
     out <- p[,data$Y[n]] - log(rowSums(exp(p)))
   } else stop(paste("Link", link, "not supported"))
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_cumulative <- function(n, data, samples, link) {
@@ -246,9 +270,7 @@ loglik_cumulative <- function(n, data, samples, link) {
     out <- log(ilink(samples$eta[, n, y], link) - 
                   ilink(samples$eta[, n, y - 1], link))
   }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_sratio <- function(n, data, samples, link) {
@@ -265,9 +287,7 @@ loglik_sratio <- function(n, data, samples, link) {
   } else {
     out <- log(1 - q[, y]) + rowSums(log(q[, 1:(y - 1)]))
   }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_cratio <- function(n, data, samples, link) {
@@ -284,9 +304,7 @@ loglik_cratio <- function(n, data, samples, link) {
   } else {
     out <- log(1 - q[, y]) + rowSums(log(q[, 1:(y - 1)]))
   }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
+  weight_loglik(out, n = n, data = data)
 }
 
 loglik_acat <- function(n, data, samples, link) {
@@ -313,8 +331,96 @@ loglik_acat <- function(n, data, samples, link) {
     p[, ncat] <- apply(q[, 1:(ncat - 1)], 1, prod)
     out <- log(p[, y]) - log(apply(p, 1, sum))
   }
-  if ("weights" %in% names(data)) 
-    out <- out * data$weights[n]
-  out
-}  
+  weight_loglik(out, n = n, data = data)
+}
 
+#---------------loglik helper-functions----------------------------
+
+censor_loglik <- function(dist, args, n, data) {
+  # compute (possibly censored) loglik values
+  # Args:
+  #   dist: name of a distribution for which the functions
+  #         d<dist> (pdf) and p<dist> (cdf) are available
+  #   args: additional arguments passed to pdf and cdf
+  #   data: data initially passed to Stan
+  # Returns:
+  #   vector of loglik values
+  pdf <- get(paste0("d", dist), mode = "function")
+  cdf <- get(paste0("p", dist), mode = "function")
+  if (is.null(data$cens) || data$cens[n] == 0) {
+    do.call(pdf, c(data$Y[n], args, log = TRUE))
+  } else if (data$cens[n] == 1) {
+    do.call(cdf, c(data$Y[n], args, lower.tail = FALSE, log.p = TRUE))
+  } else if (data$cens[n] == -1) {
+    do.call(cdf, c(data$Y[n], args, log.p = TRUE))
+  }
+}
+
+truncate_loglik <- function(x, cdf, args, data) {
+  # adjust logLik in truncated models
+  # Args:
+  #  x: vector of loglik values
+  #  cdf: a cumulative distribution function 
+  #  args: arguments passed to cdf
+  #  data: data initially passed to Stan
+  # Returns:
+  #   vector of loglik values
+  if (!(is.null(data$lb) && is.null(data$ub))) {
+    lb <- ifelse(is.null(data$lb), -Inf, data$lb)
+    ub <- ifelse(is.null(data$ub), Inf, data$ub)
+    x - log(do.call(cdf, c(ub, args)) - do.call(cdf, c(lb, args)))
+  } else {
+    x
+  }
+}
+
+weight_loglik <- function(x, n, data) {
+  # weight loglik values according to defined weights
+  # Args:
+  #  x: vector of loglik values
+  #  n: observation number
+  #  data: data initially passed to Stan
+  # Returns:
+  #   vector of loglik values
+  if ("weights" %in% names(data)) {
+    x * data$weights[n]
+  } else {
+    x
+  }
+}
+
+hurdle_loglik <- function(pdf, theta, args, n, data) {
+  # loglik values for hurdle modles
+  # Args:
+  #  pdf: a probability density function 
+  #  theta: bernoulli hurdle parameter
+  #  args: arguments passed to pdf
+  #  data: data initially passed to Stan
+  # Returns:
+  #   vector of loglik values
+  if (data$Y[n] == 0) {
+    dbinom(1, size = 1, prob = theta, log = TRUE)
+  } else {
+    dbinom(0, size = 1, prob = theta, log = TRUE) + 
+      do.call(pdf, c(data$Y[n], args, log = TRUE))
+  }
+}
+
+zero_inflated_loglik <- function(pdf, theta, args, n, data) {
+  # loglik values for zero-inflated models
+  # Args:
+  #  pdf: a probability density function 
+  #  theta: bernoulli zero-inflation parameter
+  #  args: arguments passed to pdf
+  #  data: data initially passed to Stan
+  # Returns:
+  #   vector of loglik values
+  if (data$Y[n] == 0) {
+    log(dbinom(1, size = 1, prob = theta) + 
+        dbinom(0, size = 1, prob = theta) *
+          do.call(pdf, c(0, args)))
+  } else {
+    dbinom(0, size = 1, prob = theta, log = TRUE) +
+      do.call(pdf, c(data$Y[n], args, log = TRUE))
+  }
+}

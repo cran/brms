@@ -84,6 +84,11 @@ ilogit <- function(x) {
   exp(x) / (1 + exp(x))
 }
 
+incgamma <- function(x, a) {
+  # incomplete gamma funcion
+  pgamma(x, shape = a) * gamma(a)
+}
+
 is.formula <- function(x, or = TRUE) {
   # checks if x is formula (or list of formulas)
   #
@@ -116,3 +121,119 @@ formula2string <- function(formula, rm = c(0, 0)) {
   x <- substr(x, 1 + rm[1], nchar(x) - rm[2])
   x
 } 
+
+is.linear <- function(family) {
+  # indicate if family is for a linear model
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("gaussian", "student", "cauchy")
+}
+
+is.binary <- function(family) {
+  # indicate if family is bernoulli or binomial
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("binomial", "bernoulli")
+}
+
+is.ordinal <- function(family) {
+  # indicate if family is for an ordinal model
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("cumulative", "cratio", "sratio", "acat") 
+}
+
+is.skewed <- function(family) {
+  # indicate if family is for model with postive skewed response
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("gamma", "weibull", "exponential")
+}
+
+is.count <- function(family) {
+  # indicate if family is for a count model
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("poisson", "negbinomial", "geometric")
+}
+
+is.hurdle <- function(family) {
+  # indicate if family is for a hurdle model
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma")
+}
+
+is.zero_inflated <- function(family) {
+  # indicate if family is for a zero inflated model
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("zero_inflated_poisson", "zero_inflated_negbinomial")
+}
+
+has_shape <- function(family) {
+  # indicate if family needs a shape parameter
+  if (class(family) == "family") {
+    family <- family$family
+  }
+  family %in% c("gamma", "weibull", "inverse.gaussian", 
+                "negbinomial", "hurdle_negbinomial", 
+                "hurdle_gamma", "zero_inflated_negbinomial")
+}
+
+has_sigma <- function(family, autocor = cor_arma(), se = FALSE,
+                      is_multi = FALSE) {
+  # indicate if the model needs a sigma parameter
+  # Args:
+  #  family: model family
+  #  se: does the model contain user defined SEs?
+  #  autocor: object of class cor_arma
+  #  is_multi: is the model multivariate?
+  if (is.null(se)) se <- FALSE
+  if (is.formula(se)) se <- TRUE
+  is.linear(family) && !is_multi && 
+    (!se || get_ar(autocor) || get_ma(autocor)) 
+}
+
+needs_kronecker <- function(names_ranef, names_group, 
+                            names_cov_ranef) {
+  # checks if a model needs the kronecker product
+  # Args: 
+  #   names_ranef: names of the random effects coefficients
+  #   names_group: names of the grouping factors
+  #   names_cov_ranef: names of the grouping factors that
+  #                    have a cov.ranef matrix 
+  ranef_list <- mapply(list, names_ranef, names_group, SIMPLIFY = FALSE)
+  .fun <- function(x, names) {
+    length(x[[1]]) > 1 && x[[2]] %in% names
+  }
+  any(sapply(ranef_list, .fun, names = names_cov_ranef))
+}
+
+get_boundaries <- function(trunc) {
+  # extract truncation boundaries out of a formula
+  # that is known to contain the .trunc function
+  # Returns:
+  #   a list containing two numbers named lb and ub
+  if (is.formula(trunc)) {
+    .addition(trunc)
+  } else {
+    .trunc()
+  }
+}
+
+# startup messages for brms
+.onAttach <- function(libname, pkgname) {
+  packageStartupMessage(paste0(
+    "Loading 'brms' package (version ", utils::packageVersion("brms"), "). ",
+    "Useful instructions \n", 
+    "can be found by typing help('brms'). A more detailed introduction \n", 
+    "to the package is available through vignette('brms')."))
+}

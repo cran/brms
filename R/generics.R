@@ -1,15 +1,15 @@
 brmsfit <- function(formula = NULL, family = "", link = "", data.name = "", 
                     data = data.frame(), model = "", exclude = NULL,
                     prior = list(), ranef = NULL, autocor = NULL,
-                    partial = NULL, fit = NA) {
+                    partial = NULL, cov.ranef = NULL, fit = NA) {
   # brmsfit class
   x <- list(formula = formula, family = family, link = link, 
             data.name = data.name, data = data, model = model, 
-            exclude = exclude, prior = prior, 
-            ranef = ranef, autocor = autocor, 
-            partial = partial, fit = fit)
+            exclude = exclude, prior = prior, ranef = ranef, 
+            autocor = autocor, partial = partial, 
+            cov.ranef = cov.ranef, fit = fit)
   class(x) <- "brmsfit"
-  return(x)
+  x
 }
 
 brmssummary <- function(formula = NULL, family = "", link = "", 
@@ -101,17 +101,19 @@ ranef <- function(x, estimate = "mean", var = FALSE, ...)
 #' @aliases VarCorr.brmsfit
 #' 
 #' @usage ## S3 method for class 'brmsfit'
-#' VarCorr(x, estimate = "mean", as.list = TRUE, ...) 
+#' VarCorr(x, estimate = "mean", as.list = TRUE, ...)
 #' 
-#' @param x An object of class \code{brmsfit}.
+#' @param x A fitted model object usually of class \code{brmsift}
 #' @param estimate A character vector specifying which coefficients (e.g., "mean", "median", "sd", or "quantile")
 #'  should be calculated for the random effects.
 #' @param as.list logical; Indicates if covariance and correlation matrices should be returned as 
 #'   lists of matrices (the default), or as 3-dimensional arrays.
 #' @param ... Further arguments to be passed to the functions specified in \code{estimate}
 #' 
-#' @return A list of lists (one per grouping factor), each containing 3 elements:
-#'  a matrix containing the standard deviations, a list of correlation matrices, and a list of covariance matrices.
+#' @return An object of class \code{VarCorr_brmsfit}, which is a list of lists (one per grouping factor), 
+#' each containing 3 elements: a matrix containing the standard deviations, 
+#' a list of correlation matrices, and a list of covariance matrices. 
+#' Can be coerced to a \code{data.frame} by using the \code{as.data.frame} method.
 #' 
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
@@ -120,7 +122,9 @@ ranef <- function(x, estimate = "mean", var = FALSE, ...)
 #' fit_e <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1+Trt_c|visit), 
 #'              data = epilepsy, family = "poisson", n.chains = 1)
 #' ## return the means of random effects covariances
-#' VarCorr(fit_e)
+#' (vc <- VarCorr(fit_e))
+#' as.data.frame(vc)
+#' 
 #' ## return 2.5% and 97.5% quantiles of random effects covariances
 #' VarCorr(fit_e, estimate = "quantile", probs = c(0.025, 0.975))
 #' }
@@ -167,7 +171,9 @@ ngrps <- function(object, ...)
 #'   For a directed hypothesis, this is just the posterior probability under the hypothesis against its alternative.
 #'   For an undirected (i.e. point) hypothesis the evidence ratio is a Bayes factor between the hypothesis and its alternative.
 #'   In order to calculate this Bayes factor, all parameters related to the hypothesis must have proper priors
-#'   and argument \code{sample.priors} of function \code{brm} must be set to \code{TRUE}.
+#'   and argument \code{sample.priors} of function \code{brm} must be set to \code{TRUE}. 
+#'   When interpreting Bayes factors, make sure that your priors are reasonable and carefully chosen,
+#'   as the result will depend heavily on the priors. It particular, avoid using default priors.
 #' 
 #' @return Summary statistics of the posterior distributions related to the hypotheses. 
 #' 
@@ -209,11 +215,13 @@ hypothesis <- function(x, hypothesis, class = "b", group = "",
 #' @aliases posterior.samples posterior_samples.brmsfit posterior.samples.brmsfit
 #' 
 #' @param x An \code{R} object typically of class \code{brmsfit}
-#' @param parameters Name of parameters for which posterior samples should be returned, as given by a character vector or regular expressions.
+#' @param pars Names of parameters for which posterior samples should be returned, as given by a character vector or regular expressions.
 #'   By default, all posterior samples of all parameters are extracted
+#' @param parameters A deprecated alias of \code{pars}   
 #' @param exact_match Indicates whether parameter names should be matched exactly or treated as regular expression. Default is \code{FALSE}.
 #' @param add_chains A flag indicating if the returned data.frame should contain information on the chains
-#' @param ... Currently ignored
+#' @param as.matrix Should the output be a \code{matrix} instead of a \code{data.frame}? Defaults to \code{FALSE}
+#' @param ... additional arguments
 #'   
 #' @details Currently there are methods for \code{brmsfit} objects.
 #' @return A data frame containing the posterior samples, with one column per parameter.
@@ -235,14 +243,14 @@ hypothesis <- function(x, hypothesis, class = "b", group = "",
 #' }
 #' 
 #' @export 
-posterior_samples <- function(x, parameters = NA, exact_match = FALSE, 
-                              add_chains = FALSE,...)
+posterior_samples <- function(x, pars = NA, parameters = NA, exact_match = FALSE, 
+                              add_chains = FALSE, as.matrix = FALSE, ...)
   UseMethod("posterior_samples")
 
 # deprecated alias of posterior_samples
 #' @export 
-posterior.samples <- function(x, parameters = NA, exact_match = FALSE, 
-                              add_chains = FALSE,...)
+posterior.samples <- function(x, pars = NA, parameters = NA, exact_match = FALSE, 
+                              add_chains = FALSE, as.matrix = FALSE, ...)
   UseMethod("posterior_samples")
 
 #' Extract prior samples
@@ -252,8 +260,10 @@ posterior.samples <- function(x, parameters = NA, exact_match = FALSE,
 #' @aliases prior_samples.brmsfit
 #' 
 #' @param x An \code{R} object typically of class \code{brmsfit}
-#' @param parameters Name of parameters for which prior samples should be returned, as given by a character vector or regular expressions.
+#' @param pars Names of parameters for which prior samples should be returned, 
+#'   as given by a character vector or regular expressions.
 #'   By default, all prior samples are extracted
+#' @param parameters A deprecated alias of \code{pars}       
 #' @param ... Currently ignored
 #'   
 #' @details To make use of this function, the model must contain samples of prior distributions.
@@ -280,7 +290,7 @@ posterior.samples <- function(x, parameters = NA, exact_match = FALSE,
 #' }
 #' 
 #' @export 
-prior_samples <- function(x, parameters = NA, ...)
+prior_samples <- function(x, pars = NA, parameters = NA, ...)
   UseMethod("prior_samples")
 
 #' Extract Parameter Names
@@ -315,7 +325,7 @@ par.names <- function(x, ...)
 #' 
 #' @param x A fitted model object typically of class \code{brmsfit}. 
 #' @param ... Optionally more fitted model objects.
-#' @param compare A flag indicating if the WAICs of the models should be compared to each other
+#' @param compare A flag indicating if the WAICs of the models should be compared to each other.
 #' 
 #' @details When comparing models fitted to the same data, the smaller the WAIC, the better the fit.
 #' @return If just one object is provided, an object of class \code{ic}. 
@@ -358,7 +368,11 @@ WAIC <- function(x, ..., compare = TRUE)
 #' @aliases LOO.brmsfit
 #' 
 #' @inheritParams WAIC
-#' @param compare A flag indicating if the LOOs of the models should be compared to each other
+#' @param cores The number of cores to use for parallelization. 
+#'   This can be set for an entire R session by \code{options(loo.cores = NUMBER)}. 
+#'   The default is \code{\link[parallel:detectCores]{detectCores()}}.
+#' @param wcp,wtrunc Parameters used for the Pareto smoothed importance sampling. 
+#'   See \code{\link[loo:loo]{loo}} for details.
 #' 
 #' @details When comparing models fitted to the same data, the smaller the LOO, the better the fit.
 #' @return If just one object is provided, an object of class \code{ic}. 
@@ -424,6 +438,8 @@ launch_shiny <- function(x, rstudio = getOption("shinystan.rstudio"), ...)
 #' 
 #' Extract the model code in Stan language
 #' 
+#' @aliases stancode.brmsfit
+#' 
 #' @param object An object of class \code{brmsfit}
 #' @param ... Currently ignored
 #' 
@@ -437,6 +453,8 @@ stancode <- function(object, ...)
 #' 
 #' Extract all data that was used by Stan to fit the model
 #' 
+#' @aliases standata.brmsfit
+#' 
 #' @param object An object of class \code{brmsfit}
 #' @param ... Currently ignored
 #' 
@@ -445,3 +463,51 @@ stancode <- function(object, ...)
 #' @export
 standata <- function(object, ...)
   UseMethod("standata")
+
+#' Various Plotting Functions implemented in \pkg{rstan} 
+#' 
+#' Conveniant way to call plotting functions implemented in the \pkg{rstan} package. 
+#' 
+#' @inheritParams posterior_samples
+#' @param object An R object typically of class \code{brmsfit}
+#' @param type The type of the plot. Supported types are (as names) \code{plot},
+#'   \code{trace}, \code{hist}, \code{dens}, \code{scat}, \code{diag}, \code{rhat},
+#'   \code{ess}, \code{mcse}, \code{ac}. For an overview on the various plot types see
+#'   \code{\link[rstan:plotting-functions]{plotting-unctions}}.
+#' @param quiet A flag indicating whether messages produced by \pkg{ggplot2} during
+#'   the plotting process should be silenced. Default is \code{FALSE}.
+#' @param ... Additional arguments passed to the plotting functions.
+#' 
+#' @details Instead of using \code{stanplot(<brmsfit-object>)}, the plotting functions 
+#'   can be called directly via \code{stan_<plot-type>(<brmsfit-object>$fit)}. 
+#'   For more details on the plotting functions see 
+#'   \code{\link[rstan:stan_plot]{Plots}} as well as 
+#'   \code{\link[rstan:stan_diag]{Diagnostic plots}}.
+#'   Note that the plotting functions themselves only accept full parameter names,
+#'   while \code{stanplot} allows for partial matching and regular expressions.
+#'   You should also consider using the \pkg{shinystan} package available via 
+#'   method \code{\link[brms:launch_shiny]{launch_shiny}} in \pkg{brms} for 
+#'   flexible and interactive visual analysis. 
+#' 
+#' @examples
+#' \dontrun{
+#' model <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit),
+#'              data = epilepsy, family = "poisson")
+#' # plot 95% CIs
+#' stanplot(model, type = "plot", ci_level = 0.95)
+#' # equivalent to
+#' stan_plot(model$fit, ci_level = 0.95)
+#' 
+#' # only show fixed effects in the plots
+#' # this will not work when calling stan_plot directly
+#' stanplot(model, pars = "^b_", type = "plot", ci_level = 0.95)
+#' 
+#' # plot some diagnostics on the sampler
+#' stanplot(model, type = "diag")
+#' # equivalent to 
+#' stan_diag(model$fit)                           
+#' }
+#' 
+#' @export
+stanplot <- function(object, pars, type = "plot", ...)
+  UseMethod("stanplot")

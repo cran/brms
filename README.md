@@ -19,6 +19,7 @@ As a simple example, we use poisson regression to model the seizure counts in ep
 ``` r
 fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit) + (1|obs), 
            data = epilepsy, family = "poisson")
+#> Compiling the C++ model
 ```
 
 The results (i.e. posterior samples) can be investigated using
@@ -30,28 +31,28 @@ summary(fit)
 #>    Data: epilepsy (Number of observations: 236) 
 #> Samples: 2 chains, each with n.iter = 2000; n.warmup = 500; n.thin = 1; 
 #>          total post-warmup samples = 3000
-#>    WAIC: 1145.3
+#>    WAIC: 1144.7
 #>  
 #> Random Effects: 
 #> ~obs (Number of levels: 236) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.37      0.04     0.29     0.47        789    1
+#> sd(Intercept)     0.37      0.05     0.28     0.46       1089    1
 #> 
 #> ~patient (Number of levels: 59) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)      0.5      0.07     0.38     0.65        563    1
+#> sd(Intercept)     0.51      0.07     0.37     0.66        899    1
 #> 
 #> ~visit (Number of levels: 4) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.11      0.11        0     0.42        435    1
+#> sd(Intercept)     0.11      0.11        0     0.41        747    1
 #> 
 #> Fixed Effects: 
 #>                   Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> Intercept             1.56      0.10     1.33     1.76        458 1.01
-#> log_Age_c             0.49      0.38    -0.27     1.22        869 1.00
-#> log_Base4_c           1.07      0.11     0.86     1.29        762 1.01
-#> Trt_c                -0.33      0.16    -0.64    -0.01        761 1.00
-#> log_Base4_c:Trt_c     0.35      0.21    -0.06     0.76        783 1.00
+#> Intercept             1.56      0.10     1.35     1.76        724    1
+#> log_Age_c             0.48      0.36    -0.23     1.20       1078    1
+#> log_Base4_c           1.07      0.11     0.85     1.27       1211    1
+#> Trt_c                -0.34      0.16    -0.66    -0.03       1269    1
+#> log_Base4_c:Trt_c     0.36      0.22    -0.09     0.78       1046    1
 #> 
 #> Samples were drawn using NUTS(diag_e). For each parameter, Eff.Sample is a 
 #> crude measure of effective sample size, and Rhat is the potential scale 
@@ -83,14 +84,21 @@ methods(class = "brmsfit")
 #>  [9] ngrps             nobs              parnames          plot             
 #> [13] posterior_samples predict           print             prior_samples    
 #> [17] ranef             residuals         stancode          standata         
-#> [21] summary           VarCorr           WAIC             
+#> [21] stanplot          summary           update            VarCorr          
+#> [25] vcov              WAIC             
 #> see '?methods' for accessing help and source code
 ```
 
-For details on formula syntax, families and link functions, as well as prior distributions see the help page of the brm function:
+Details on formula syntax, families and link functions, as well as prior distributions can be found on the help page of the brm function:
 
 ``` r
 help(brm) 
+```
+
+More instructions on how to use <b>brms</b> are given in the package's vignette.
+
+``` r
+vignette("brms") 
 ```
 
 How to install brms
@@ -109,4 +117,4 @@ library(devtools)
 install_github("paul-buerkner/brms")
 ```
 
-Because <b>brms</b> is based on Stan, a C++ compiler is required. The program Rtools (available on <https://cran.r-project.org/bin/windows/Rtools/>) comes with a C++ compiler for Windows. On Mac, you should use Xcode. We recommend to install rstan (available on CRAN) before installing <b>brms</b>. For further instructions see <https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started>.
+Because <b>brms</b> is based on Stan, a C++ compiler is required. The program Rtools (available on <https://cran.r-project.org/bin/windows/Rtools/>) comes with a C++ compiler for Windows. On Mac, you should use Xcode. For further instructions on how to get the compilers running, see the prerequisites section on <https://github.com/stan-dev/rstan/wiki/RStan-Getting-Started>.
