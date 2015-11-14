@@ -1,4 +1,4 @@
-melt <- function(data, response, family) {
+melt_data <- function(data, response, family) {
   # melt data frame for multinormal models
   #
   # Args:
@@ -8,19 +8,29 @@ melt <- function(data, response, family) {
   #
   # Returns:
   #   data in long format 
-  if (length(response) > 1 && family != "gaussian") {
-    stop("multivariate models are currently only allowed for family 'gaussian'")
-  } else if (length(response) > 1 && family == "gaussian") {
+  is_linear <- is.linear(family)
+  is_hurdle <- is.hurdle(family)
+  is_zero_inflated <- is.zero_inflated(family)
+  nresp <- length(response)
+  if (nresp > 1 && is_linear || nresp == 2 && (is_hurdle || is_zero_inflated)) {
     if (!is(data, "data.frame"))
-      stop("data must be a data.frame in case of multiple responses")
+      stop("data must be a data.frame for multivarite models")
     if ("trait" %in% names(data))
-      stop("trait is a resevered variable name in case of multiple responses")
-    new_columns <- data.frame(unlist(lapply(response, rep, time = nrow(data))), 
+      stop("trait is a resevered variable name in multivariate models")
+    if (is_hurdle || is_zero_inflated) {
+      if (response[2] %in% names(data))
+        stop(paste(response[2], "is a resevered variable name"))
+      # dummy variable not actually used in Stan
+      data[response[2]] <- rep(0, nrow(data))
+    }
+    new_columns <- data.frame(ulapply(response, rep, time = nrow(data)), 
                               as.numeric(as.matrix(data[, response])))
     names(new_columns) <- c("trait", response[1])
     old_columns <- data[, which(!names(data) %in% response), drop = FALSE]
     old_columns <- do.call(rbind, lapply(response, function(i) old_columns))
     data <- cbind(old_columns, new_columns)
+  } else if (nresp > 1) {
+    stop("invalid multivariate model")
   }
   data
 }  
@@ -50,19 +60,25 @@ combine_groups <- function(data, ...) {
   data
 }
 
-update_data <- function(data, family, effects, ...) {
+update_data <- function(data, family, effects, ..., 
+                        drop.unused.levels = TRUE) {
   # update data for use in brm
   #
   # Args:
   #   data: the original data.frame
   #   family: the model family
   #   effects: output of extract_effects (see validate.R)
+  #   ...: More formulae passed to combine_groups
+  #        Currently only used for autocorrelation structures
+  #   drop.unused.levels: indicates if unused factor levels
+  #                       should be removed
   #
   # Returns:
   #   model.frame in long format with combined grouping variables if present
   if (!"brms.frame" %in% class(data)) {
-    data <- melt(data, response = effects$response, family = family)
-    data <- stats::model.frame(effects$all, data = data, drop.unused.levels = TRUE)
+    data <- melt_data(data, response = effects$response, family = family)
+    data <- stats::model.frame(effects$all, data = data, na.action = na.omit,
+                               drop.unused.levels = drop.unused.levels)
     if (any(grepl("__", colnames(data))))
       stop("Variable names may not contain double underscores '__'")
     data <- combine_groups(data, effects$group, ...)
@@ -71,45 +87,149 @@ update_data <- function(data, family, effects, ...) {
   data
 }
 
-#' Extract required data for \code{brms} models
+amend_newdata <- function(newdata, fit, re_formula = NULL, 
+                          allow_new_levels = FALSE) {
+  # amend newdata passed to predict and fitted methods
+  # 
+  # Args:
+  #   newdata: a data.frame containing new data for prediction 
+  #   fit: an object of class brmsfit
+  #   re.form: a random effects formula
+  #
+  # Notes:
+  #   used in predict.brmsfit, fitted.brmsfit and linear_predictor.brmsfit
+  #
+  # Returns:
+  #   updated data.frame being compatible with fit$formula
+  if (allow_new_levels) {
+    # TODO
+    stop("New random effects levels are not yet allowed")
+  }
+  if (use_cov(fit$autocor)) {
+    stop(paste("predictions with new data are not yet possible", 
+               "for ARMA covariance models"))
+  }
+  ee <- extract_effects(fit$formula, family = fit$family)
+  et <- extract_time(fit$autocor$formula)
+  if (has_arma(fit$autocor) && !use_cov(fit$autocor)
+      && !all(ee$response %in% names(newdata))) {
+    stop("response variables must be specified in newdata for autocorrelative models")
+  } else {
+    for (resp in ee$response) {
+      # add irrelevant response variables
+      newdata[[resp]] <- 0  
+    }
+  }
+  if (is.formula(ee$cens)) {
+    for (cens in all.vars(ee$cens)) 
+      newdata[[cens]] <- 0  # add irrelevant censor variables
+  }
+  newdata <- update_data(newdata, family = fit$family, effects = ee, 
+                         et$group, drop.unused.levels = FALSE)
+  # try to validate factor levels in newdata
+  if (is.data.frame(fit$data)) {
+    # validating is possible (implies brms > 0.5.0)
+    list_data <- as.list(fit$data)
+    is_factor <- sapply(list_data, is.factor)
+    factors <- list_data[is_factor]
+    if (length(factors)) {
+      factor_names <- names(factors)
+      factor_levels <- lapply(factors, levels) 
+      for (i in 1:length(factors)) {
+        new_factor <- newdata[[factor_names[i]]]
+        if (!is.null(new_factor)) {
+          if (!is.factor(new_factor)) {
+            factor <- factor(new_factor)
+          }
+          new_levels <- levels(new_factor)
+          if (any(!new_levels %in% factor_levels[[i]])) {
+            stop(paste("New factor levels are not allowed. \n",
+                       "Levels found:", paste(new_levels, collapse = ", ") , "\n",
+                       "Levels allowed:", paste(factor_levels[[i]], collapse = ", ")))
+          }
+          newdata[[factor_names[i]]] <- factor(new_factor, factor_levels[[i]])
+        }
+      }
+    }
+  } else {
+    warning(paste("Validity of factors cannot be checked for fitted model objects",
+                  "created with brms <= 0.5.0"))
+  }
+  # validate grouping factors
+  if (length(fit$ranef) && is.null(re_formula)) {
+    gnames <- names(fit$ranef)
+    for (i in 1:length(gnames)) {
+      gf <- as.character(get(gnames[i], newdata))
+      new_levels <- unique(gf)
+      old_levels <- attr(fit$ranef[[i]], "levels")
+      unknown_levels <- setdiff(new_levels, old_levels)
+      if (length(unknown_levels)) {
+        stop(paste("levels", paste0(unknown_levels, collapse = ", "), 
+                   "of grouping factor", gnames[i], "not found in the fitted model"))
+      } 
+      # transform grouping factor levels into their corresponding integers
+      # to match the output of make_standata
+      newdata[[gnames[i]]] <- sapply(gf, match, table = old_levels)
+    }
+  }
+  make_standata(fit$formula, data = newdata, family = fit$family, 
+                autocor =  fit$autocor, partial = fit$partial, 
+                newdata = TRUE, keep_intercept = TRUE,
+                save_order = TRUE)
+}
+
+#' Data for \pkg{brms} Models
+#' 
+#' Generate data for \pkg{brms} models to be passed to \pkg{Stan}
 #'
 #' @inheritParams brm
 #' @param ... Other arguments for internal usage only
 #' 
-#' @aliases brm.data
+#' @aliases brmdata brm.data
 #' 
-#' @return A named list of objects containing the required data to fit a \code{brms} model 
+#' @return A named list of objects containing the required data 
+#'   to fit a \pkg{brms} model with \pkg{Stan}. 
 #' 
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
 #' @examples
-#' data1 <- brmdata(rating ~ treat + period + carry + (1|subject), 
-#'                  data = inhaler, family = "cumulative")
+#' data1 <- make_standata(rating ~ treat + period + carry + (1|subject), 
+#'                        data = inhaler, family = "cumulative")
 #' names(data1)
 #' 
-#' data2 <- brmdata(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit), 
-#'                  data = epilepsy, family = "poisson")
+#' data2 <- make_standata(count ~ log_Age_c + log_Base4_c * Trt_c 
+#'                        + (1|patient) + (1|visit), 
+#'                        data = epilepsy, family = "poisson")
 #' names(data2)
 #'          
 #' @export
-brmdata <- function(formula, data = NULL, family = "gaussian", autocor = NULL, 
-                    partial = NULL, cov.ranef = NULL, ...) {
+make_standata <- function(formula, data = NULL, family = "gaussian", 
+                          autocor = NULL, partial = NULL, 
+                          cov.ranef = NULL, ...) {
+  # internal arguments:
+  #   newdata: logical; indicating if make_standata is called with new data
+  #   keep_intercept: logical; indicating if the Intercept column
+  #                   should be kept in the FE design matrix
+  #   save_order: logical; should the initial order of the data be saved?
   dots <- list(...)
-  family <- check_family(family[1])
-  is_linear <- family %in% c("gaussian", "student", "cauchy")
-  is_ordinal <- family %in% c("cumulative","cratio","sratio","acat")
-  is_count <- family %in% c("poisson", "negbinomial", "geometric")
-  is_skew <- family %in% c("gamma", "weibull", "exponential")
+  family <- check_family(family)$family
+  is_linear <- is.linear(family)
+  is_ordinal <- is.ordinal(family)
+  is_count <- is.count(family)
   if (is.null(autocor)) autocor <- cor_arma()
-  if (!is(autocor,"cor_brms")) stop("cor must be of class cor_brms")
+  if (!is(autocor, "cor_brms")) {
+    stop("cor must be of class cor_brms")
+  }
   
   et <- extract_time(autocor$formula)
   ee <- extract_effects(formula = formula, family = family, partial, et$all)
   data <- update_data(data, family = family, effects = ee, et$group)
   
   # sort data in case of autocorrelation models
-  if (sum(autocor$p, autocor$q) > 0) {
-    if (family == "gaussian" && length(ee$response) > 1) {
+  if (has_arma(autocor)) {
+    # amend if zero-inflated and hurdle models ever get 
+    # autocorrelation structures as they are also using 'trait'
+    if (is_linear && length(ee$response) > 1) {
       if (!grepl("^trait$|:trait$|^trait:|:trait:", et$group)) {
         stop(paste("autocorrelation structures for multiple responses must",
                    "contain 'trait' as grouping variable"))
@@ -119,15 +239,19 @@ brmdata <- function(formula, data = NULL, family = "gaussian", autocor = NULL,
     } else {
       to_order <- rmNULL(list(data[[et$group]], data[[et$time]]))
     }
-    if (length(to_order)) 
-      data <- data[do.call(order, to_order), ]
+    if (length(to_order)) {
+      new_order <- do.call(order, to_order)
+      data <- data[new_order, ]
+      # old_order will allow to retrieve the initial order of the data
+      attr(data, "old_order") <- order(new_order)
+    }
   }
   
   # response variable
   standata <- list(N = nrow(data), Y = unname(model.response(data)))
-  if (!is.numeric(standata$Y) && !(is_ordinal || family %in% c("bernoulli", "categorical"))) 
+  if (!(is_ordinal || family %in% c("bernoulli", "categorical")) 
+      && !is.numeric(standata$Y)) 
     stop(paste("family", family, "expects numeric response variable"))
-  
   # transform and check response variable for different families
   if (is_count || family == "binomial") {
     if (!all(is.wholenumber(standata$Y)) || min(standata$Y) < 0)
@@ -148,17 +272,31 @@ brmdata <- function(formula, data = NULL, family = "gaussian", autocor = NULL,
       stop(paste("family", family, "expects either integers or",
                  "ordered factors as response variables"))
     }
-  } else if (is_skew) {
+  } else if (is.skewed(family)) {
     if (min(standata$Y) < 0)
       stop(paste("family", family, "requires response variable to be non-negative"))
-  } else if (family == "gaussian" && length(ee$response) > 1) {
+  } else if (is_linear && length(ee$response) > 1) {
     standata$Y <- matrix(standata$Y, ncol = length(ee$response))
-    standata <- c(standata, list(N_trait = nrow(standata$Y), K_trait = ncol(standata$Y)),
-                   NC_trait = ncol(standata$Y) * (ncol(standata$Y)-1)/2) 
+    standata <- c(standata, list(N_trait = nrow(standata$Y), 
+                                 K_trait = ncol(standata$Y)),
+                                 NC_trait = ncol(standata$Y) * 
+                                            (ncol(standata$Y) - 1) / 2) 
+  } else if (is.hurdle(family) || is.zero_inflated(family)) {
+    # the second half of Y is not used because it is only dummy data
+    # that was put into data to make melt_data work correctly
+    standata$Y <- standata$Y[1:(nrow(data) / 2)] 
+    standata$N_trait <- length(standata$Y)
+  }
+  
+  # add an offset if present
+  model_offset <- model.offset(data)
+  if (!is.null(model_offset)) {
+    standata$offset <- model_offset
   }
   
   # fixed effects data
-  X <- get_model_matrix(ee$fixed, data, rm_intercept = is_ordinal)
+  rm_Intercept <- is_ordinal || !isTRUE(dots$keep_intercept)
+  X <- get_model_matrix(ee$fixed, data, rm_intercept = rm_Intercept)
   if (family == "categorical") {
     standata <- c(standata, list(Kp = ncol(X), Xp = X))
   } else {
@@ -204,27 +342,46 @@ brmdata <- function(formula, data = NULL, family = "gaussian", autocor = NULL,
           warning(paste("Covariance matrix of grouping factor",g,"may not be positive definite"))
         cov_mat <- cov_mat[order(found_level_names), order(found_level_names)]
         if (length(r[[i]]) == 1) {
+          # pivoting ensures that (numerically) semi-definite matrices can be used
           cov_mat <- suppressWarnings(chol(cov_mat, pivot = TRUE))
           cov_mat <- t(cov_mat[, order(attr(cov_mat, "pivot"))])
         } else if (length(r[[i]]) > 1 && !ee$cor[[i]]) {
-          cov_mat <- t(suppressWarnings(chol(kronecker(cov_mat, diag(ncolZ[[i]])), pivot = TRUE)))
+          # same here, but with a precomputed kronecker product
+          cov_mat <- kronecker(cov_mat, diag(ncolZ[[i]]))
+          cov_mat <- suppressWarnings(chol(cov_mat, pivot = TRUE))
+          cov_mat <- t(cov_mat[, order(attr(cov_mat, "pivot"))])
         }
         standata <- c(standata, setNames(list(cov_mat), paste0("cov_",i)))
       }
     }
   }
   
-  # addition and partial variables
+  # addition and category specific variables
   if (is.formula(ee$se)) {
-    standata <- c(standata, list(sigma = .addition(formula = ee$se, data = data)))
+    standata <- c(standata, list(se = .addition(formula = ee$se, data = data)))
   }
   if (is.formula(ee$weights)) {
     standata <- c(standata, list(weights = .addition(formula = ee$weights, data = data)))
-    if (family == "gaussian" && length(ee$response) > 1) 
+    if (is.linear(family) && length(ee$response) > 1) 
       standata$weights <- standata$weights[1:standata$N_trait]
   }
   if (is.formula(ee$cens)) {
     standata <- c(standata, list(cens = .addition(formula = ee$cens, data = data)))
+  }
+  if (is.formula(ee$trunc)) {
+    standata <- c(standata, .addition(formula = ee$trunc))
+    if (min(standata$Y) < standata$lb || max(standata$Y) > standata$ub) {
+      stop("some responses are outside of the truncation boundaries")
+    }
+  }
+  if (family == "inverse.gaussian") {
+    # save as data to reduce computation time in Stan
+    if (is.formula(ee[c("weights", "cens")])) {
+      standata$log_Y <- log(standata$Y) 
+    } else {
+      standata$log_Y <- sum(log(standata$Y))
+    }
+    standata$sqrt_Y <- sqrt(standata$Y)
   }
   if (family == "binomial") {
     standata$trials <- if (!length(ee$trials)) max(standata$Y)
@@ -267,29 +424,68 @@ brmdata <- function(formula, data = NULL, family = "gaussian", autocor = NULL,
   }
   
   # autocorrelation variables
-  if (is(autocor,"cor_arma") && autocor$p + autocor$q > 0) {
+  if (has_arma(autocor)) {
     tgroup <- data[[et$group]]
-    if (is.null(tgroup)) 
+    if (is.null(tgroup)) {
       tgroup <- rep(1, standata$N) 
-    if (autocor$p > 0) {
-      standata$Yar <- ar_design_matrix(Y = standata$Y, p = autocor$p, group = tgroup)
-      standata$Kar <- autocor$p
     }
-    if (autocor$q > 0 && is(autocor,"cor_arma")) {
-      standata$Ema_pre <- matrix(0, nrow = standata$N, ncol = autocor$q)
-      standata$Kma <- autocor$q
+    Kar <- get_ar(autocor)
+    Kma <- get_ma(autocor)
+    Karr <- get_arr(autocor)
+    if (Kar || Kma) {
+      # ARMA effects (of residuals)
       standata$tgroup <- as.numeric(as.factor(tgroup))
+      standata$E_pre <- matrix(0, nrow = standata$N, ncol = max(Kar, Kma))
+      standata$Kar <- Kar
+      standata$Kma <- Kma
+      standata$Karma <- max(Kar, Kma)
+      if (use_cov(autocor)) {
+        # Modeling ARMA effects using a special covariance matrix
+        # requires additional data
+        standata$N_tg <- length(unique(standata$tgroup))
+        if (standata$N_tg == 1) {
+          stop(paste("ARMA covariance models require a grouping factor",
+                     "with at least 2 levels"))
+        }
+        standata$begin_tg <- with(standata, ulapply(unique(tgroup), match, tgroup))
+        standata$nrows_tg <- with(standata, c(begin_tg[2:N_tg], N + 1) - begin_tg)
+        if (!is.null(standata$se)) {
+          standata$squared_se <- standata$se^2
+        } else {
+          standata$squared_se <- rep(0, standata$N)
+        }
+      } 
+    }
+    if (Karr) {
+      # ARR effects (autoregressive effects of the response)
+      standata$Yarr <- arr_design_matrix(Y = standata$Y, r = Karr, group = tgroup)
+      standata$Karr <- Karr
     }
   } 
+  if (!is.null(attr(data, "old_order")) && isTRUE(dots$save_order)) {
+    attr(standata, "old_order") <- attr(data, "old_order")
+  }
   standata
 }  
 
 #' @export
-brm.data <- function(formula, data = NULL, family = "gaussian", autocor = NULL, 
-                     partial = NULL, cov.ranef = NULL)  {
-  # deprectated alias of brmdata
-  brmdata(formula = formula, data = data, family = family, autocor = autocor,
-          partial = partial, cov.ranef = cov.ranef)
+brmdata <- function(formula, data = NULL, family = "gaussian", 
+                    autocor = NULL, partial = NULL, 
+                    cov.ranef = NULL, ...)  {
+  # deprectated alias of make_standata
+  make_standata(formula = formula, data = data, 
+                family = family, autocor = autocor,
+                partial = partial, cov.ranef = cov.ranef, ...)
+}
+
+#' @export
+brm.data <- function(formula, data = NULL, family = "gaussian", 
+                     autocor = NULL, partial = NULL, 
+                     cov.ranef = NULL, ...)  {
+  # deprectated alias of make_standata
+  make_standata(formula = formula, data = data, 
+                family = family, autocor = autocor,
+                partial = partial, cov.ranef = cov.ranef, ...)
 }
 
 get_model_matrix <- function(formula, data = environment(formula), rm_intercept = FALSE) {
@@ -316,32 +512,31 @@ get_model_matrix <- function(formula, data = environment(formula), rm_intercept 
   X   
 }
 
-ar_design_matrix <- function(Y, p, group)  { 
-  # calculate design matrix for autoregressive effects
+arr_design_matrix <- function(Y, r, group)  { 
+  # calculate design matrix for autoregressive effects of the response
   #
   # Args:
   #   Y: a vector containing the response variable
-  #   p: autocor$p
+  #   r: ARR order
   #   group: vector containing the grouping variable for each observation
   #
   # Notes: 
   #   expects Y to be sorted after group already
   # 
   # Returns:
-  #   the deisgn matrix for autoregressive effects
+  #   the design matrix for ARR effects
   if (length(Y) != length(group)) 
     stop("Y and group must have the same length")
-  if (p > 0) {
+  if (r > 0) {
     U_group <- unique(group)
     N_group <- length(U_group)
-    out <- matrix(0, nrow = length(Y), ncol = p)
+    out <- matrix(0, nrow = length(Y), ncol = r)
     ptsum <- rep(0, N_group + 1)
-    meanY <- mean(Y) 
     for (j in 1:N_group) {
       ptsum[j+1] <- ptsum[j] + sum(group == U_group[j])
-      for (i in 1:p) {
+      for (i in 1:r) {
         if (ptsum[j]+i+1 <= ptsum[j+1])
-          out[(ptsum[j]+i+1):ptsum[j+1], i] <- Y[(ptsum[j]+1):(ptsum[j+1]-i)] - meanY
+          out[(ptsum[j]+i+1):ptsum[j+1], i] <- Y[(ptsum[j]+1):(ptsum[j+1]-i)]
       }
     }
   }
@@ -349,7 +544,7 @@ ar_design_matrix <- function(Y, p, group)  {
   out
 }
 
-.addition <- function(formula, data) {
+.addition <- function(formula, data = NULL) {
   # computes data for addition arguments
   if (!is.formula(formula))
     formula <- as.formula(formula)
@@ -396,5 +591,14 @@ ar_design_matrix <- function(Y, p, group)  {
                  "(abbreviations are allowed) or -1, 0, and 1. TRUE and FALSE are also accepted \n",
                  "and refer to 'right' and 'none' respectively."))
   cens
+}
+
+.trunc <- function(lb = -Inf, ub = Inf) {
+  lb <- as.numeric(lb)
+  ub <- as.numeric(ub)
+  if (length(lb) != 1 || length(ub) != 1) {
+    stop("Invalid truncation values")
+  }
+  list(lb = lb, ub = ub)
 }
   

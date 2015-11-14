@@ -42,9 +42,12 @@ rename_pars <- function(x) {
   
   # order parameter samples after parameter class
   chains <- length(x$fit@sim$samples) 
-  all_class <- c("b", "bp", "ar", "ma", "sd", "cor", "sigma", "rescor", 
-                 "nu", "shape", "delta", "r", "prior", "lp")
-  class <- regmatches(x$fit@sim$fnames_oi, regexpr("^[^_\\[]+",  x$fit@sim$fnames_oi))
+  all_class <- c("b_Intercept", "b", "bp", "ar", "ma", "sd", "cor", 
+                 "sigma", "rescor", "nu", "shape", "delta", "r", "prior", "lp")
+  class <- regmatches(x$fit@sim$fnames_oi, regexpr("^[^_\\[]+", x$fit@sim$fnames_oi))
+  # make sure that the fixed effects intercept comes first
+  pos_intercept <- which(grepl("^b_Intercept($|\\[)", x$fit@sim$fnames_oi))
+  class[pos_intercept] <- "b_Intercept"
   ordered <- order(factor(class, levels = all_class))
   x$fit@sim$fnames_oi <- x$fit@sim$fnames_oi[ordered]
   for (i in 1:chains) {
@@ -52,6 +55,9 @@ rename_pars <- function(x) {
     x$fit@sim$samples[[i]] <- keep_attr(x$fit@sim$samples[[i]], ordered)
   }
   mclass <- regmatches(x$fit@sim$pars_oi, regexpr("^[^_]+", x$fit@sim$pars_oi))
+  # make sure that the fixed effects intercept comes first
+  pos_intercept <- which(grepl("^b_Intercept($|\\[)", x$fit@sim$pars_oi))
+  mclass[pos_intercept] <- "b_Intercept"
   ordered <- order(factor(mclass, levels = all_class))
   x$fit@sim$dims_oi <- x$fit@sim$dims_oi[ordered]
   x$fit@sim$pars_oi <- names(x$fit@sim$dims_oi)
@@ -60,9 +66,10 @@ rename_pars <- function(x) {
   pars <- parnames(x)
   ee <- extract_effects(x$formula, family = x$family)
   change <- list()
+  standata <- standata(x)
   
   # find positions of parameters and define new names
-  f <- colnames(x$data$X)
+  f <- colnames(standata$X)
   if (length(f) && x$family != "categorical") {
     change <- lc(change, list(pos = grepl("^b\\[", pars), oldname = "b", 
                               pnames = paste0("b_",f), fnames = paste0("b_",f)))
@@ -71,19 +78,18 @@ rename_pars <- function(x) {
   
   if (is.formula(x$partial) || x$family == "categorical") {
     if (x$family == "categorical") {
-      p <- colnames(x$data$X)
+      p <- colnames(standata$X)
     } else {
-      p <- colnames(x$data$Xp)
+      p <- colnames(standata$Xp)
     }
     lp <- length(p)
-    thres <- max(x$data$max_obs) - 1
+    thres <- max(standata$max_obs) - 1
     pfnames <- paste0("b_",t(outer(p, paste0("[",1:thres,"]"), FUN = paste0)))
     change <- lc(change, list(pos = grepl("^bp\\[", pars), oldname = "bp", 
                               pnames = paste0("b_",p), fnames = pfnames,
                               sort = ulapply(1:lp, seq, to = thres*lp, by = lp),
                               dim = thres))
-    change <- c(change, prior_names(class = "bp", pars = pars, 
-                                    names = p, new_class = "b"))
+    change <- c(change, prior_names(class = "bp", pars = pars, names = p))
   }  
   
   if (length(x$ranef)) {
@@ -130,14 +136,14 @@ rename_pars <- function(x) {
       }  
     }
   }
-  if (x$family %in% c("gaussian", "student", "cauchy") && !is.formula(ee$se)) {
+  if (has_sigma(x$family, se = is.formula(ee$se), autocor = x$autocor)) {
     corfnames <- paste0("sigma_",ee$response)
     change <- lc(change, list(pos = grepl("^sigma", pars), oldname = "sigma",
                               pnames = corfnames, fnames = corfnames))
     change <- c(change, prior_names(class = "sigma", pars = pars, 
                                      names = ee$response))
     # residual correlation paramaters
-    if (x$family == "gaussian" && length(ee$response) > 1) {
+    if (is.linear(x$family) && length(ee$response) > 1) {
        rescor_names <- get_cornames(ee$response, type = "rescor", brackets = FALSE)
        change <- lc(change, list(pos = grepl("^rescor\\[", pars), oldname = "rescor",
                                  pnames = rescor_names, fnames = rescor_names))
