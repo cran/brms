@@ -1,15 +1,16 @@
 Package: brms
 Type: Package
 Title: Bayesian Regression Models using Stan
-Version: 0.6.0
-Date: 2015-11-13
+Version: 0.7.0
+Date: 2016-01-17
 Authors@R: person("Paul-Christian", "Buerkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
-Depends: R (>= 3.1.0), rstan (>= 2.8.0), ggplot2 (>= 1.0.1)
-Imports: loo (>= 0.1.3), shinystan (>= 2.0.0), gridExtra (>= 2.0.0),
-        abind, statmod, methods, stats, utils, parallel, grDevices,
-        grid
-Suggests: testthat (>= 0.9.1), R.rsp
+Depends: R (>= 3.1.0), rstan (>= 2.9.0), ggplot2 (>= 2.0.0)
+Imports: loo (>= 0.1.4), shinystan (>= 2.1.0), gridExtra (>= 2.0.0),
+        lme4 (>= 1.1-8), nlme (>= 3.1-123), abind, statmod, methods,
+        stats, graphics, utils, parallel, grDevices, grid
+Suggests: testthat (>= 0.9.1), mvtnorm, KernSmooth, R.rsp, knitr,
+        rmarkdown
 Description: Fit Bayesian generalized linear mixed models using Stan for full
     Bayesian inference.
 LazyData: true
@@ -17,10 +18,10 @@ NeedsCompilation: yes
 License: GPL (>= 3)
 URL: http://github.com/paul-buerkner/brms
 BugReports: http://github.com/paul-buerkner/brms/issues
-VignetteBuilder: R.rsp
+VignetteBuilder: R.rsp, knitr
 RoxygenNote: 5.0.1
-Packaged: 2015-11-13 13:51:32 UTC; Paul
+Packaged: 2016-01-18 10:50:54 UTC; Paul
 Author: Paul-Christian Buerkner [aut, cre]
 Maintainer: Paul-Christian Buerkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2015-11-14 00:06:49
+Date/Publication: 2016-01-18 13:17:34

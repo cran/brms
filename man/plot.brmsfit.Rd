@@ -4,8 +4,8 @@
 \alias{plot.brmsfit}
 \title{Trace and Density Plots for MCMC Samples}
 \usage{
-\method{plot}{brmsfit}(x, pars = NA, parameters = NA, N = 5, ask = TRUE,
-  ...)
+\method{plot}{brmsfit}(x, pars = NA, parameters = NA, N = 5,
+  theme = "classic", ask = TRUE, do_plot = TRUE, newpage = TRUE, ...)
 }
 \arguments{
 \item{x}{An object of class \code{brmsfit}.}
@@ -18,21 +18,40 @@ are plotted.}
 
 \item{N}{The number of parameters plotted per page.}
 
-\item{ask}{logical; Indicates if the user is prompted before a new page is plotted.}
+\item{theme}{The ggplot theme to use. For details see
+\code{\link[ggplot2:ggtheme]{ggtheme}}.}
 
-\item{...}{Further arguments passed to \code{\link[gridExtra:arrangeGrob]{arrangeGrob}}.}
+\item{ask}{logical; indicates if the user is prompted 
+before a new page is plotted. 
+Only used if \code{do_plot} is \code{TRUE}.}
+
+\item{do_plot}{logical; indicates if plots should be
+plotted directly in the active graphic device.
+Defaults to \code{TRUE}.}
+
+\item{newpage}{logical; indicates if the first set of plots
+should be plotted to a new page. 
+Only used if \code{do_plot} is \code{TRUE}.}
+
+\item{...}{Further arguments passed to 
+\code{\link[gridExtra:arrangeGrob]{arrangeGrob}}.}
+}
+\value{
+A (possibly invisible) list of 
+  \code{\link[gtable:gtable]{gtable}} objects.
 }
 \description{
 Trace and Density Plots for MCMC Samples
 }
 \examples{
 \dontrun{ 
-fit_e <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit), 
-             data = epilepsy, family = "poisson")
+fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c 
+           + (1|patient) + (1|visit), 
+           data = epilepsy, family = "poisson")
 ## plot fixed effects as well as standard devations of the random effects
-plot(fit_e)
-## plot fixed effects only and combine the chains into one posterior
-plot(fit_e, pars = "^b_", combine = TRUE) 
+plot(fit)
+## plot fixed effects only
+plot(fit, pars = "^b_") 
 }
 
 }

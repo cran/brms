@@ -9,6 +9,10 @@ rmNULL <- function(x) {
   lapply(x, function(x) if (is.list(x)) rmNULL(x) else x)
 }
 
+isFALSE <- function(x) {
+  identical(FALSE, x)
+}
+
 rmNum <- function(x) {
   # remove all numeric elements from an object
   x[sapply(x, Negate(is.numeric))]
@@ -34,7 +38,7 @@ keep_attr <- function(x, y) {
   x
 } 
 
-is.wholenumber <- function(x, tol = .Machine$double.eps^0.5) {  
+is.wholenumber <- function(x, tol = .Machine$double.eps) {  
   # check if x is a whole number (integer)
   if (!is.numeric(x)) {
     return(FALSE)
@@ -46,6 +50,15 @@ is.wholenumber <- function(x, tol = .Machine$double.eps^0.5) {
 ulapply <- function(X, FUN, ...) {
   # short for unlist(lapply(.))
   unlist(lapply(X = X, FUN = FUN, ...))
+}
+
+as_matrix <- function(x, ...) {
+  # wrapper around as.matrix that can handle NULL
+  if (is.null(x)) {
+    NULL
+  } else {
+    as.matrix(x, ...) 
+  }
 }
 
 lc <- function(l, x) {
@@ -72,6 +85,28 @@ collapse_lists <- function(ls) {
                            SIMPLIFY = FALSE))
   names(out) <- elements
   out
+}
+
+nlist <- function(...) {
+  # create a named list using object names
+  m <- match.call()
+  dots <- list(...)
+  no_names <- is.null(names(dots))
+  has_name <- if (no_names) FALSE 
+              else nzchar(names(dots))
+  if (all(has_name)) return(dots)
+  nms <- as.character(m)[-1]
+  if (no_names) {
+    names(dots) <- nms
+  } else {
+    names(dots)[!has_name] <- nms[!has_name]
+  }
+  dots
+}
+
+get_matches <- function(pattern, text, ...) {
+  # get pattern matches in text as vector
+  unlist(regmatches(text, gregexpr(pattern, text, ...)))
 }
 
 logit <- function(p) {
@@ -109,7 +144,8 @@ formula2string <- function(formula, rm = c(0, 0)) {
   #
   # Args:
   #   formula: a model formula
-  #   rm: a vector of to elements indicating how many characters should be removed at the beginning
+  #   rm: a vector of to elements indicating how many characters 
+  #       should be removed at the beginning
   #       and end of the string respectively
   #
   # Returns:
@@ -124,15 +160,27 @@ formula2string <- function(formula, rm = c(0, 0)) {
 
 is.linear <- function(family) {
   # indicate if family is for a linear model
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
   family %in% c("gaussian", "student", "cauchy")
 }
 
+is.lognormal <- function(family, link = "identity", nresp = 1) {
+  # indicate transformation to lognormal model
+  # Args:
+  #   link: A character string
+  #   nresp: number of response variables
+  if (is(family, "family")) {
+    link <- family$link
+    family <- family$family
+  }
+  family == "gaussian" && link == "log" && nresp == 1
+}
+
 is.binary <- function(family) {
   # indicate if family is bernoulli or binomial
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
   family %in% c("binomial", "bernoulli")
@@ -140,15 +188,22 @@ is.binary <- function(family) {
 
 is.ordinal <- function(family) {
   # indicate if family is for an ordinal model
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
   family %in% c("cumulative", "cratio", "sratio", "acat") 
 }
 
+is.categorical <- function(family) {
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family == "categorical" 
+}
+
 is.skewed <- function(family) {
   # indicate if family is for model with postive skewed response
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
   family %in% c("gamma", "weibull", "exponential")
@@ -156,7 +211,7 @@ is.skewed <- function(family) {
 
 is.count <- function(family) {
   # indicate if family is for a count model
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
   family %in% c("poisson", "negbinomial", "geometric")
@@ -164,7 +219,7 @@ is.count <- function(family) {
 
 is.hurdle <- function(family) {
   # indicate if family is for a hurdle model
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
   family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma")
@@ -172,15 +227,65 @@ is.hurdle <- function(family) {
 
 is.zero_inflated <- function(family) {
   # indicate if family is for a zero inflated model
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
-  family %in% c("zero_inflated_poisson", "zero_inflated_negbinomial")
+  family %in% c("zero_inflated_poisson", "zero_inflated_negbinomial",
+                "zero_inflated_binomial")
+}
+
+is.2PL <- function(family) {
+  if (!is(family, "brmsfamily")) {
+    out <- FALSE
+  } else {
+    out <- family$family == "bernoulli" && identical(family$type, "2PL")
+  }
+  out
+}
+
+is.forked <- function(family) {
+  # indicate if family has two separate model parts
+  is.hurdle(family) || is.zero_inflated(family) || is.2PL(family)
+}
+
+use_real <- function(family) {
+  # indicate if family uses real responses
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  is.linear(family) || is.skewed(family) || 
+    family %in% c("inverse.gaussian", "beta", "hurdle_gamma")
+}
+
+use_int <- function(family) {
+  # indicate if family uses integer responses
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  is.binary(family) || has_cat(family) || 
+    is.count(family) || is.zero_inflated(family) || 
+    family %in% c("hurdle_poisson", "hurdle_negbinomial")
+}
+
+has_trials <- function(family) {
+  # indicate if family makes use of argument trials
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("binomial", "zero_inflated_binomial")
+}
+
+has_cat <- function(family) {
+  # indicate if family makes use of argument cat
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family == "categorical" || is.ordinal(family)
 }
 
 has_shape <- function(family) {
   # indicate if family needs a shape parameter
-  if (class(family) == "family") {
+  if (is(family, "family")) {
     family <- family$family
   }
   family %in% c("gamma", "weibull", "inverse.gaussian", 
@@ -202,19 +307,34 @@ has_sigma <- function(family, autocor = cor_arma(), se = FALSE,
     (!se || get_ar(autocor) || get_ma(autocor)) 
 }
 
-needs_kronecker <- function(names_ranef, names_group, 
-                            names_cov_ranef) {
+check_intercept <- function(names) {
+  # check if model contains fixed effects intercept
+  #
+  # Args:
+  #   names: The names of the design matrix
+  #          to be checked for an intercept
+  # Returns:
+  #   a list containing the updated effect names
+  #   as well as an indicator if the model has an intercept
+  if (!is.null(names)) {
+    has_intercept <- "Intercept" == names[1]
+    if (has_intercept) names <- names[-1]
+  } else {
+    has_intercept <- FALSE
+  }
+  nlist(names, has_intercept)
+}
+
+needs_kronecker <- function(ranef, names_cov_ranef) {
   # checks if a model needs the kronecker product
   # Args: 
-  #   names_ranef: names of the random effects coefficients
-  #   names_group: names of the grouping factors
+  #   ranef: named list returned by gather_ranef
   #   names_cov_ranef: names of the grouping factors that
   #                    have a cov.ranef matrix 
-  ranef_list <- mapply(list, names_ranef, names_group, SIMPLIFY = FALSE)
   .fun <- function(x, names) {
-    length(x[[1]]) > 1 && x[[2]] %in% names
+    length(x) > 1 && attr(x, "group") %in% names && attr(x, "cor")
   }
-  any(sapply(ranef_list, .fun, names = names_cov_ranef))
+  any(sapply(ranef, .fun, names = names_cov_ranef))
 }
 
 get_boundaries <- function(trunc) {

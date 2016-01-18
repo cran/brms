@@ -6,59 +6,79 @@
 \usage{
 \method{fitted}{brmsfit}(object, newdata = NULL, re_formula = NULL,
   scale = c("response", "linear"), allow_new_levels = FALSE,
-  summary = TRUE, probs = c(0.025, 0.975), ...)
+  subset = NULL, nsamples = NULL, summary = TRUE, probs = c(0.025,
+  0.975), ...)
 }
 \arguments{
 \item{object}{An object of class \code{brmsfit}}
 
-\item{newdata}{An optional data.frame containing new data to make predictions for.
-If \code{NULL} (default), the data used to fit the model is applied.}
+\item{newdata}{An optional data.frame for which to evaluate predictions.
+If \code{NULL} (default), the orginal data of the model is used.}
 
-\item{re_formula}{formula containing random effects to be considered in the prediction. 
-If \code{NULL} (default), include all random effects; if \code{NA}, include no random effects.
-Other options will be implemented in the future.}
+\item{re_formula}{formula containing random effects 
+to be considered in the prediction. 
+If \code{NULL} (default), include all random effects; 
+if \code{NA}, include no random effects.}
 
-\item{scale}{Either \code{"response"} or \code{"linear"}. If \code{scale = "response"} 
-results are returned on the scale of the response variable. If \code{scale = "linear"} 
+\item{scale}{Either \code{"response"} or \code{"linear"}. 
+If \code{scale = "response"} results are returned on the scale 
+of the response variable. If \code{scale = "linear"} 
 fitted values are returned on the scale of the linear predictor.}
 
-\item{allow_new_levels}{Currenly, \code{FALSE} (no new levels allowed) is the only option. 
-This will change in future versions of the package.}
+\item{allow_new_levels}{A flag indicating if new
+levels of random effects are allowed (defaults to \code{FALSE}). 
+Only relevant if \code{newdata} is provided.}
 
-\item{summary}{logical. Should summary statistics (i.e. means, sds, and 95\% intervals) be returned
-instead of the raw values. Default is \code{TRUE}}
+\item{subset}{A numeric vector specifying
+the posterior samples to be used. 
+If \code{NULL} (the default), all samples are used.}
 
-\item{probs}{The percentiles to be computed by the \code{quantile} function. 
+\item{nsamples}{Positive integer indicating how many 
+posterior samples should be used. 
+If \code{NULL} (the default) all samples are used.
+Ignored if \code{subset} is not \code{NULL}.}
+
+\item{summary}{Should summary statistics 
+ (i.e. means, sds, and 95\% intervals) be returned
+instead of the raw values? Default is \code{TRUE}.}
+
+\item{probs}{The percentiles to be computed 
+by the \code{quantile} function. 
 Only used if \code{summary} is \code{TRUE}.}
 
 \item{...}{Currently ignored}
 }
 \value{
-Fitted values extracted from \code{object}. The output depends on the family:
-  If \code{summary = TRUE} it is a N x E x C array for categorical and ordinal models 
-  and a N x E matrix else.
-  If \code{summary = FALSE} it is a S x N x C array for categorical and ordinal models 
-  and a S x N matrix else.
-  N is the number of observations, S is the number of samples, C is the number of categories,
-  and E is equal to \code{length(probs) + 2}.
+Fitted values extracted from \code{object}. 
+ The output depends on the family:
+ If \code{summary = TRUE} it is a N x E x C array 
+ for categorical and ordinal models and a N x E matrix else.
+ If \code{summary = FALSE} it is a S x N x C array 
+ for categorical and ordinal models and a S x N matrix else.
+ N is the number of observations, S is the number of samples, 
+ C is the number of categories, and E is equal to \code{length(probs) + 2}.
 }
 \description{
 Extract Model Fitted Values of \code{brmsfit} Objects
 }
 \details{
 For models fitted with \pkg{brms} <= 0.5.0 only: 
- Be careful when using \code{newdata} with factors in fixed or random effects. 
- The predicted results are only valid if all factor levels present in the initial 
- data are also defined and ordered correctly for the factors in \code{newdata}.
- Grouping factors may contain fewer levels than in the inital data without causing problems.
- When using higher versions of \pkg{brms}, all factors are automatically checked 
- for correctness and amended if necessary.
+  Be careful when using \code{newdata} with factors 
+  in fixed or random effects. The predicted results are only valid 
+  if all factor levels present in the initial 
+  data are also defined and ordered correctly 
+  for the factors in \code{newdata}.
+  Grouping factors may contain fewer levels than in the 
+  inital data without causing problems.
+  When using higher versions of \pkg{brms}, 
+  all factors are automatically checked 
+  for correctness and amended if necessary.
 }
 \examples{
 \dontrun{
 ## fit a model
-fit <- brm(rating ~ treat + period + carry + (1|subject), data = inhaler,
-           n.cluster = 2)
+fit <- brm(rating ~ treat + period + carry + (1|subject), 
+           data = inhaler)
 
 ## extract fitted values
 fitted_values <- fitted(fit)

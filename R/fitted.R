@@ -7,54 +7,69 @@ fitted_response <- function(x, eta, data) {
   # Returns: 
   #   (usually) an S x N matrix containing samples of 
   #   the response distribution's mean 
-  family <- x$family
+  family <- family(x)
   nresp <- length(extract_effects(x$formula, family = family)$response)
-  is_catordinal <- is.ordinal(family) || family == "categorical"
-  if (family == "gaussian" && x$link == "log" && nresp == 1) {
-    family <- "lognormal"
+  is_catordinal <- is.ordinal(family) || is.categorical(family)
+  if (is.lognormal(family, nresp = nresp)) {
+    family$family <- "lognormal"
+    family$link <- "identity"
+  }
+  if (is.2PL(family)) {
+    # the second part of eta is the log discriminability
+    eta <- eta[, 1:data$N_trait] * exp(eta[, (data$N_trait + 1):data$N])
   }
   is_trunc <- !(is.null(data$lb) && is.null(data$ub))
   
   # compute (mean) fitted values
-  if (family == "binomial") {
-    max_obs <- matrix(rep(data$max_obs, nrow(eta)), nrow = nrow(eta), byrow = TRUE)
-    mu <- ilink(eta, x$link) 
+  if (family$family == "binomial") {
+    if (length(data$max_obs) > 1) {
+      trials <- matrix(rep(data$max_obs, nrow(eta)), 
+                       nrow = nrow(eta), byrow = TRUE)
+    } else {
+      trials <- data$max_obs
+    }
+    mu <- ilink(eta, family$link) 
     if (!is_trunc) {
       # scale eta from [0,1] to [0,max_obs]
-      mu <- mu * max_obs 
+      mu <- mu * trials 
     }
-  } else if (family == "lognormal") {
+  } else if (family$family == "lognormal") {
     sigma <- get_sigma(x, data = data, method = "fitted", n = nrow(eta))
     mu <- eta
     if (!is_trunc) {
       # compute untruncated lognormal mean
-      mu <- ilink(mu + sigma^2 / 2, x$link)  
+      mu <- ilink(mu + sigma^2 / 2, family$link)  
     }
-  } else if (family == "weibull") {
+  } else if (family$family == "weibull") {
     shape <- posterior_samples(x, "^shape$")$shape
-    mu <- ilink(eta / shape, x$link)
+    mu <- ilink(eta / shape, family$link)
     if (!is_trunc) {
       # compute untruncated weibull mean
       mu <- mu * gamma(1 + 1 / shape) 
     }
   } else if (is_catordinal) {
-    mu <- fitted_catordinal(eta, max_obs = data$max_obs, family = x$family,
-                            link = x$link)
+    mu <- fitted_catordinal(eta, max_obs = data$max_obs, family = family)
   } else if (is.hurdle(family)) {
     shape <- posterior_samples(x, "^shape$")$shape 
     mu <- fitted_hurdle(eta, shape = shape, N_trait = data$N_trait,
-                        family = x$family, link = x$link)
+                        family = family)
   } else if (is.zero_inflated(family)) {
-    mu <- fitted_zero_inflated(eta, N_trait = data$N_trait, link = x$link)
+    mu <- fitted_zero_inflated(eta, N_trait = data$N_trait, family = family)
+    if (family$family == "zero_inflated_binomial") {
+      trials <- data$max_obs[1:ceiling(length(data$max_obs) / 2)]
+      trials <- matrix(rep(trials, nrow(eta)), nrow = nrow(eta), 
+                       byrow = TRUE)
+      mu <- mu * trials
+    }
   } else {
     # for any other distribution, ilink(eta) is already the mean fitted value
-    mu <- ilink(eta, x$link)
+    mu <- ilink(eta, family$link)
   }
   # fitted values for truncated models
   if (is_trunc) {
     lb <- ifelse(is.null(data$lb), -Inf, data$lb)
     ub <- ifelse(is.null(data$ub), Inf, data$ub)
-    fitted_trunc_fun <- try(get(paste0("fitted_trunc_",family), 
+    fitted_trunc_fun <- try(get(paste0("fitted_trunc_", family$family), 
                                 mode = "function"))
     if (is(fitted_trunc_fun, "try-error")) {
       stop(paste("fitted values on the respone scale not implemented",
@@ -66,29 +81,29 @@ fitted_response <- function(x, eta, data) {
   mu
 }
 
-fitted_catordinal <- function(eta, max_obs, family, link) {
+fitted_catordinal <- function(eta, max_obs, family) {
   # compute fitted values for categorical and ordinal families
   ncat <- max(max_obs)
   # get probabilities of each category
   get_density <- function(n) {
-    do.call(paste0("d", family), 
-            list(1:ncat, eta = eta[, n, ], ncat = ncat, link = link))
+    do.call(paste0("d", family$family), 
+            list(1:ncat, eta = eta[, n, ], ncat = ncat, link = family$link))
   }
   aperm(abind(lapply(1:ncol(eta), get_density), along = 3), perm = c(1, 3, 2))
 }
 
-fitted_hurdle <- function(eta, shape, N_trait, family, link) {
+fitted_hurdle <- function(eta, shape, N_trait, family) {
   # Args:
   #   eta: untransformed linear predictor
   #   shape: shape parameter samples
   #   N_trait: Number of observations of the main response variable
   n_base <- 1:N_trait
   n_hu <- n_base + N_trait
-  pre_mu <- ilink(eta[, n_base], link)
+  pre_mu <- ilink(eta[, n_base], family$link)
   # adjust pre_mu as it is no longer the mean of the truncated distributions
-  if (family == "hurdle_poisson") {
+  if (family$family == "hurdle_poisson") {
     adjusted_mu <- pre_mu / (1 - exp(-pre_mu))
-  } else if (family == "hurdle_negbinomial") {
+  } else if (family$family == "hurdle_negbinomial") {
     adjusted_mu <- pre_mu / (1 - (shape / (pre_mu + shape))^shape)
   } else {
     adjusted_mu <- pre_mu
@@ -97,14 +112,14 @@ fitted_hurdle <- function(eta, shape, N_trait, family, link) {
   pre_mu * (1 - ilink(eta[, n_hu], "logit")) 
 }
 
-fitted_zero_inflated <- function(eta, N_trait, link) {
+fitted_zero_inflated <- function(eta, N_trait, family) {
   # Args:
   #   eta: untransformed linear predictor
   #   N_trait: Number of observations of the main response variable
   n_base <- 1:N_trait
   n_zi <- n_base + N_trait
   # incorporate zero-inflation part
-  ilink(eta[, n_base], link) * (1 - ilink(eta[, n_zi], "logit")) 
+  ilink(eta[, n_base], family$link) * (1 - ilink(eta[, n_zi], "logit")) 
 }
 
 #------------- helper functions for truncated models ----------------
@@ -141,6 +156,7 @@ fitted_trunc_student <- function(mu, lb, ub, x, data) {
 }
 
 fitted_trunc_lognormal <- function(mu, lb, ub, x, data) {
+  # mu has to be on the linear scale
   sigma <- get_sigma(x, data = data, method = "fitted", n = nrow(mu))
   m1 <- exp(mu + sigma^2 / 2) * (pnorm((log(ub) - mu) / sigma - sigma) - 
                                    pnorm((log(lb) - mu) / sigma - sigma))

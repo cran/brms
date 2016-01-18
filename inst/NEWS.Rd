@@ -2,6 +2,85 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 0.7.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item allow to use variational inference algorithms
+      as alternative to the NUTS sampler by specifying
+      argument \code{algorithm} in the \code{brm} function
+      \item implement beta regression models through family
+      \code{Beta}
+      \item implement zero-inflated binomial models through family
+      \code{zero_inflated_binomial}
+      \item implement multiplicative effects for family
+      \code{bernoulli} to fit (among others) 2PL IRT models
+      \item allow to combine fixed and random effects estimates using
+      the new \code{coef} method
+      \item allow to call the \code{residuals} method with \code{newdata}
+      \item allow new levels of random effects grouping
+      factors in the \code{predict}, \code{fitted}, and \code{residuals}
+      methods using argument \code{allow_new_levels}
+      \item allow to selectively exclude random effects
+      in the \code{predict}, \code{fitted}, and \code{residuals}
+      methods using argument \code{re_formula}
+      \item add a \code{plot} method for objects returned by
+      method \code{hypothesis} to visualize prior and posterior
+      distributions of the hypotheses being tested
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item improve evaluation of the response
+      part of the \code{formula} argument to
+      reliably allow terms with more than one variable
+      (e.g., \code{y/x ~ 1})
+      \item improve sampling efficiency of models containing
+      many fixed effects through centering the fixed effects
+      design matrix
+      \item improve sampling efficiency of models containing
+      uncorrelated random effects specified by means
+      of \code{(random || group)} terms in \code{formula}
+      \item utilize user-defined functions in the Stan code 
+      of ordinal models to improve readability as well as
+      sampling efficiency
+      \item make sure that model comparisons using \code{LOO} 
+      or \code{WAIC} are only performed when models are 
+      based on the same responses
+      \item use some generic functions of the \pkg{lme4}
+      package to avoid unnecessary function masking. This 
+      leads to a change in the argument order of
+      method \code{VarCorr}
+      \item allow to change the \code{ggplot} theme in the
+      \code{plot} method through argument \code{theme}
+      \item remove the \code{n.} prefix in arguments
+      \code{n.iter}, \code{n.warmup}, \code{n.thin}, \code{n.chains}, 
+      and \code{n.cluster} of the \code{brm} function.
+      The old argument names remain usable as deprecated aliases
+      \item amend names of random effects parameters to simplify
+      matching with their respective grouping factor levels
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item fix a bug in the \code{hypothesis} method 
+      that could cause valid model parameters to be falsely 
+      reported as invalid
+      \item fix a bug in the \code{prior_samples} method 
+      that could cause prior samples of parameters 
+      of the same class to be artifically correlated
+      \item fix Stan code of linear models with 
+      moving-average effects and non-identity link functions 
+      so that they no longer contain code related solely 
+      to autoregressive effects
+      \item fix a bug in the evaluation of \code{formula} that
+      could cause complicated random effects terms to be 
+      falsely treated as fixed effects
+      \item fix several bugs when calling the \code{fitted} 
+      and \code{predict} methods with \code{newdata}
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 0.6.0}{
   \subsection{NEW FEATURES}{
     \itemize{
@@ -52,7 +131,7 @@
   \subsection{BUG FIXES}{
     \itemize{
       \item fix a bug that could cause an unexpected error
-      when predict is called with new data
+      when the \code{predict} method was called with \code{newdata}
       \item avoid side effects of the \code{rstan} compilation routines that could 
       occasionally cause R to crash
       \item make \pkg{brms} work correctly with \pkg{loo} version 0.1.3

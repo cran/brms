@@ -9,7 +9,8 @@
 \arguments{
 \item{object}{An object of class \code{brmsfit}}
 
-\item{correlation}{logical; if \code{FALSE} (the default), compute the covariance matrix,
+\item{correlation}{logical; if \code{FALSE} (the default), 
+compute the covariance matrix,
 if \code{TRUE}, compute the correlation matrix}
 
 \item{...}{Currently ignored}
@@ -18,7 +19,8 @@ if \code{TRUE}, compute the correlation matrix}
 covariance or correlation matrix of fixed effects parameters
 }
 \description{
-Get a point estimate of the covariance or correlation matrix of fixed effects parameters
+Get a point estimate of the covariance or 
+correlation matrix of fixed effects parameters
 }
 \details{
 Estimates are obtained by calculating the maximum likelihood 

@@ -4,13 +4,13 @@
 \alias{brm}
 \title{Fit Bayesian Generalized Linear and Ordinal Mixed Models}
 \usage{
-brm(formula, data = NULL, family = "gaussian", prior = NULL,
+brm(formula, data = NULL, family = gaussian(), prior = NULL,
   addition = NULL, autocor = NULL, partial = NULL,
   threshold = c("flexible", "equidistant"), cov.ranef = NULL,
   ranef = TRUE, sample.prior = FALSE, fit = NA, inits = "random",
-  n.chains = 2, n.iter = 2000, n.warmup = 500, n.thin = 1,
-  n.cluster = 1, cluster_type = "PSOCK", silent = TRUE, seed = 12345,
-  save.model = NULL, ...)
+  chains = 2, iter = 2000, warmup = 500, thin = 1, cluster = 1,
+  cluster_type = "PSOCK", algorithm = c("sampling", "meanfield",
+  "fullrank"), silent = TRUE, seed = 12345, save.model = NULL, ...)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): 
@@ -18,20 +18,22 @@ a symbolic description of the model to be fitted.
 The details of model specification are given under 'Details'.}
 
 \item{data}{An optional data frame, list or environment  (or object coercible by 
-\code{as.data.frame} to a data frame) containing the variables in the model. If not found in data, 
-the variables are taken from \code{environment(formula)}, 
+\code{as.data.frame} to a data frame) containing the variables in the model. 
+If not found in data, the variables are taken from \code{environment(formula)}, 
 typically the environment from which \code{brm} is called. 
 Although it is optional, we strongly recommend to supply a data.frame.}
 
-\item{family}{A description of the error distribution and link function to be used in the model. 
-This can be a family function, a call to a family function or a character string naming the family.
+\item{family}{A description of the error distribution and link function 
+to be used in the model. This can be a family function, 
+a call to a family function or a character string naming the family.
 Currently, the following families are supported:
-\code{gaussian}, \code{student}, \code{cauchy}, \code{binomial}, \code{bernoulli}, 
-\code{categorical}, \code{poisson}, \code{negbinomial}, \code{geometric},
-\code{gamma}, \code{inverse.gaussian}, \code{exponential}, \code{weibull},
-\code{cumulative}, \code{cratio}, \code{sratio}, \code{acat},
-\code{hurdle_poisson}, \code{hurdle_negbinomial}, \code{hurdle_gamma}, 
-\code{zero_inflated_poisson}, and \code{zero_inflated_negbinomial}.
+\code{gaussian}, \code{student}, \code{cauchy}, \code{binomial}, 
+\code{bernoulli}, \code{Beta}, \code{poisson}, \code{negbinomial}, 
+\code{geometric}, \code{Gamma}, \code{inverse.gaussian}, 
+\code{exponential}, \code{weibull}, \code{categorical}, \code{cumulative}, 
+\code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
+\code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{zero_inflated_binomial},
+\code{zero_inflated_negbinomial}, and \cr \code{zero_inflated_poisson}
 Every family function has a \code{link} argument allowing to specify
 the link function to be applied on the response variable.
 If not specified, default links are used.
@@ -49,75 +51,101 @@ See also  \code{\link[brms:get_prior]{get_prior}} for more help.}
 
 \item{addition}{Deprecated.
 All additional information on the response variable should be incorporated 
-directly into \code{formula}. See 'Formula Syntax' under 'Details' for further information.}
+directly into \code{formula}. 
+See 'Formula Syntax' under 'Details' for further information.}
 
-\item{autocor}{An optional \code{\link{cor_brms}} object describing the correlation structure 
+\item{autocor}{An optional \code{\link{cor_brms}} object describing 
+the correlation structure 
 within the response variable (i.e. the 'autocorrelation'). 
 See the documentation of \code{\link{cor_brms}} for a description 
-of the available correlation structures. Defaults to NULL, corresponding to no correlations.}
+of the available correlation structures. Defaults to NULL, 
+corresponding to no correlations.}
 
-\item{partial}{A one sided formula of the form \code{~expression} specifying the predictors with 
-category specific effects in non-cumulative ordinal models
+\item{partial}{A one sided formula of the form \code{~expression} 
+allowing to specify predictors with category specific effects 
+in non-cumulative ordinal models 
 (i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).}
 
-\item{threshold}{A character string indicating the type of thresholds (i.e. intercepts) 
-used in an ordinal model. \code{"flexible"} provides the standard unstructured thresholds and 
-\code{"equidistant"} restricts the distance between consecutive thresholds to the same value.}
+\item{threshold}{A character string indicating the type of thresholds 
+(i.e. intercepts) used in an ordinal model. 
+\code{"flexible"} provides the standard unstructured thresholds and 
+\code{"equidistant"} restricts the distance between 
+consecutive thresholds to the same value.}
 
-\item{cov.ranef}{A list of matrices that are proportional to the (within) covariance structure of the random effects. 
-The names of the matrices should correspond to columns in \code{data} that are used as grouping factors. 
-All levels of the grouping factor should appear as rownames of the corresponding matrix.}
+\item{cov.ranef}{A list of matrices that are proportional to the 
+(within) covariance structure of the random effects. 
+The names of the matrices should correspond to columns 
+in \code{data} that are used as grouping factors. 
+All levels of the grouping factor should appear as rownames 
+of the corresponding matrix.}
 
-\item{ranef}{A flag to indicate if random effects for each level of the grouping factor(s) 
-should be saved (default is \code{TRUE}). Set to \code{FALSE} to save memory. 
+\item{ranef}{A flag to indicate if random effects 
+for each level of the grouping factor(s) 
+should be saved (default is \code{TRUE}). 
+Set to \code{FALSE} to save memory. 
 The argument has no impact on the model fitting itself.}
 
 \item{sample.prior}{A flag to indicate if samples from all specified proper priors 
 should be additionally drawn. Among others, these samples can be used to calculate 
 Bayes factors for point hypotheses. Default is \code{FALSE}.}
 
-\item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; defaults to \code{NA}. 
- If \code{fit} is of class \code{brmsfit}, the compiled model associated 
- with the fitted result is re-used and the arguments \code{formula}, \code{data}, 
- \code{family}, \code{prior}, \code{addition}, \code{autocor}, \code{partial}, \code{threshold},
-\code{cov.ranef}, and \code{ranef}, are ignored.}
+\item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; 
+defaults to \code{NA}. 
+If \code{fit} is of class \code{brmsfit}, the compiled model associated 
+with the fitted result is re-used and all arguments 
+modifying the model code or data are ignored.}
 
-\item{inits}{Either \code{"random"} or \code{"0"}. If inits is \code{"random"} (the default), 
+\item{inits}{Either \code{"random"} or \code{"0"}. 
+If inits is \code{"random"} (the default), 
 Stan will randomly generate initial values for parameters. 
 If it is \code{"0"}, all parameters are initiliazed to zero. 
-This option is recommended for \code{exponential} and \code{weibull} models, as it
-happens that default (\code{"random"}) inits cause samples to be essentially constant. 
-Generally, setting \code{inits = "0"} is worth a try, if chains do not behave well.
-Alternatively, \code{inits} can be a list of lists containing the initial values, 
-or a function (or function name) generating initial values. 
+This option is recommended for \code{exponential} and \code{weibull} models, 
+as it happens that default (\code{"random"}) inits cause samples 
+to be essentially constant. 
+Generally, setting \code{inits = "0"} is worth a try, 
+if chains do not behave well.
+Alternatively, \code{inits} can be a list of lists containing 
+the initial values, or a function (or function name) generating initial values. 
 The latter options are mainly implemented for internal testing.}
 
-\item{n.chains}{Number of Markov chains (default: 2)}
+\item{chains}{Number of Markov chains (defaults to 2). 
+A deprecated alias is \code{n.chains}.}
 
-\item{n.iter}{Number of total iterations per chain (including burnin; default: 2000)}
+\item{iter}{Number of total iterations per chain (including warmup; defaults to 2000).
+A deprecated alias is \code{n.iter}.}
 
-\item{n.warmup}{A positive integer specifying number of warmup (aka burnin) iterations. 
+\item{warmup}{A positive integer specifying number of warmup (aka burnin) iterations. 
 This also specifies the number of iterations used for stepsize adaptation, 
 so warmup samples should not be used for inference. The number of warmup should not 
-be larger than \code{n.iter} and the default is 500.}
+be larger than \code{iter} and the default is 500.
+A deprecated alias is \code{n.warmup}.}
 
-\item{n.thin}{Thinning rate. Must be a positive integer. 
-Set \code{n.thin > 1} to save memory and computation time if \code{n.iter} is large. 
-Default is 1, that is no thinning.}
+\item{thin}{Thinning rate. Must be a positive integer. 
+Set \code{thin > 1} to save memory and computation time if \code{iter} is large. 
+Default is 1, that is no thinning. A deprecated alias is \code{n.thin}.}
 
-\item{n.cluster}{Number of clusters to use to run parallel chains. Default is 1.}
+\item{cluster}{Number of clusters to use to run parallel chains. Default is 1.
+A deprecated alias is \code{n.cluster}.}
 
 \item{cluster_type}{A character string specifying the type of cluster created by 
 \code{\link[parallel:makeCluster]{makeCluster}} when sampling in parallel 
-(i.e. when \code{n.cluster} is greater \code{1}). Default is \code{"PSOCK"} working on all platforms. 
+(i.e. when \code{cluster} is greater \code{1}). 
+Default is \code{"PSOCK"} working on all platforms. 
 For OS X and Linux, \code{"FORK"} may be a faster and more stable option, 
 but it does not work on Windows.}
+
+\item{algorithm}{Character string indicating the estimation approach to use. 
+Can be \code{"sampling"} for MCMC (the default), \code{"meanfield"} for
+variational inference with independent normal distributions, or
+\code{"fullrank"} for variational inference with a multivariate normal
+distribution.}
 
 \item{silent}{logical; If \code{TRUE}, warning messages of the sampler are suppressed.}
 
 \item{seed}{Positive integer. Used by \code{set.seed} to make results reproducable.}
 
-\item{save.model}{Either \code{NULL} or a character string. In the latter case, the model code is
+\item{save.model}{Either \code{NULL} or a character string. 
+In the latter case, the model code is
 saved in a file named after the string supplied in \code{save.model}, 
 which may also contain the full path where to save the file.
 If only a name is given, the file is save in the current working directory.}
@@ -133,8 +161,10 @@ An object of class \code{brmsfit}, which contains the posterior samples along
 Fit a Bayesian generalized linear or ordinal mixed model using Stan
 }
 \details{
-Fit a generalized linear mixed model, which incorporates both fixed-effects parameters 
-  and random effects in a linear predictor via full bayesian inference using Stan. 
+Fit a generalized linear mixed model, 
+  which incorporates both fixed-effects parameters 
+  and random effects in a linear predictor 
+  via full bayesian inference using Stan. 
   
   \bold{Formula syntax}
   
@@ -166,14 +196,16 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   and that \code{yi} is the response variable. Then, formula \code{yi | weights(wei) ~ predictors} 
   implements a weighted regression. 
   
-  For family \code{binomial}, addition may contain a variable indicating the number of trials 
+  For families \code{binomial} and \code{zero_inflated_binomial}, 
+  addition should contain a variable indicating the number of trials 
   underlying each observation. In \code{lme4} syntax, we may write for instance 
   \code{cbind(success, n - success)}, which is equivalent
   to \code{success | trials(n)} in \code{brms} syntax. If the number of trials
   is constant across all observation (say \code{10}), we may also write \code{success | trials(10)}. 
   
-  For family \code{categorical} and all ordinal families, \code{addition} may contain a term \code{cat(number)} to
-  specify the number categories (e.g, \code{cat(7)}. 
+  For family \code{categorical} and all ordinal families, 
+  \code{addition} may contain a term \code{cat(number)} to
+  specify the number categories (e.g, \code{cat(7)}). 
   If not given, the number of categories is calculated from the data.
   
   With the expection of \code{categorical} and ordinal families, left and right censoring 
@@ -209,55 +241,93 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   as random effect within a grouping factor. Note that variable \code{trait} is generated 
   internally and may not be specified in the data passed to \code{brm}. \cr
   
-  Zero-inflated and hurdle families are bivariate and also make use of the special internal
-  variable \code{trait} having two levels in this case. 
+  Zero-inflated and hurdle families are bivariate and also make use 
+  of the special internal variable \code{trait} having two levels in this case. 
   However, only the actual response must be specified in \code{formula}, 
-  as the second response variable used for the zero-inflation / hurdle part 
-  is internally generated.
+  as the second response variable used for the zero-inflation / hurdle
+  (ZIH) part is internally generated.
   A \code{formula} for this type of models may, for instance, look like this: \cr
   \code{y ~ 0 + trait * (x1 + x2) + (0 + trait | g)}. In this example, the fixed effects
-  \code{x1} and \code{x1} influence the zero-inflation / hurdle part differently
+  \code{x1} and \code{x1} influence the ZIH part differently
   than the actual response part as indicated by their interaction with \code{trait}.
   In addition, a random effect of \code{trait} was added while the random intercept 
   was removed leading to the estimation of two random effects, 
-  one for the zero-inflation / hurdle part and one for the actual response. 
-  In the example above, the correlation between the two random effects will also be estimated.
+  one for the ZIH part and one for the actual response. 
+  In the example above, the correlation between the two random effects 
+  will also be estimated.
+  Sometimes, predictors should only influence the ZIH part
+  but not the actual response (or vice versa). As this cannot be modeled
+  with the \code{trait} variable, two other internally generated and 
+  reserved (numeric) variables, namely \code{main} and \code{spec}, are supported.
+  \code{main} is \code{1} for the response part and \code{0} for the
+  ZIH part of the model. For \code{spec} it is the other way round.
+  Suppose that \code{x1} should only influence the actual response,
+  and \code{x2} only the ZIH process. We can write this as follows:
+  \code{formula = y ~ 0 + main + spec + main:x1 + spec:x2}. 
+  The main effects of \code{main} or \code{spec} serve as intercepts,
+  while the interaction terms \code{main:x1} and \code{spec:x2} ensure
+  that \code{x1} and \code{x2} only predict one part of the model, respectively.
+  
+  Using the same syntax as for zero-inflated and hurdle models, it is
+  possible to specify multiplicative effects in family \code{bernoulli}
+  (make sure to set argument \code{type} to \code{"2PL"}; 
+  see \code{\link[brms:brmsfamily]{brmsfamily}} for more details).
+  In Item Response Theory (IRT), these models are known as 2PL models.
+  Suppose that we have the variables \code{item} and \code{person} and
+  want to model fixed effects for items and random effects for persons.
+  The discriminality (multiplicative effect) should depend only on the items. 
+  We can specify this by setting
+  \code{formula = response ~ 0 + (main + spec):item + (0 + main|person)}. 
+  The random term \code{0 + main} ensures that \code{person} does 
+  not influence discriminalities. Of course it is possible
+  to predict only discriminalities by using
+  variable \code{spec} in the model formulation. 
+  To identify the model, multiplicative effects
+  are estimated on the log scale. 
+  In addition, we strongly recommend setting proper priors 
+  on fixed effects in this case to increase sampling efficiency 
+  (for details on priors see \code{\link[brms:set_prior]{set_prior}}).          
   
   \bold{Families and link functions}
   
   Family \code{gaussian} with \code{identity} link leads to linear regression. 
   Families \code{student}, and \code{cauchy} with \code{identity} link leads to 
   robust linear regression that is less influenced by outliers. 
-  Families \code{poisson}, \code{negbinomial}, and \code{geometric} with \code{log} link lead to 
-  regression models for count data. 
+  Families \code{poisson}, \code{negbinomial}, and \code{geometric} 
+  with \code{log} link lead to regression models for count data. 
   Families \code{binomial} and \code{bernoulli} with \code{logit} link leads to 
   logistic regression and family \code{categorical} to multi-logistic regression 
   when there are more than two possible outcomes.
-  Families \code{cumulative}, \code{cratio} ('contiuation ratio'), \code{sratio} ('stopping ratio'), 
-  and \code{acat} ('adjacent category') leads to ordinal regression. Families \code{gamma}, 
-  \code{weibull}, \code{exponential}, and \code{inverse.gaussian} can be used (among others) 
+  Families \code{cumulative}, \code{cratio} ('contiuation ratio'), 
+  \code{sratio} ('stopping ratio'), and \code{acat} ('adjacent category') 
+  leads to ordinal regression. Families \code{Gamma}, \code{weibull}, 
+  \code{exponential}, and \code{inverse.gaussian} can be used (among others) 
   for survival regression when combined with the \code{log} link. 
   Families \code{hurdle_poisson}, \code{hurdle_negbinomial}, \code{hurdle_gamma}, 
   \code{zero_inflated_poisson}, and \cr
   \code{zero_inflated_negbinomial} combined with the 
-  \code{log} link allow to estimate zero-inflated and hurdle models. These models 
+  \code{log} link, and  \code{zero_inflated_binomial} with the \code{logit} link, 
+  allow to estimate zero-inflated and hurdle models. These models 
   can be very helpful when there are many zeros in the data that cannot be explained 
   by the primary distribution of the response. Family \code{hurdle_gamma} is 
-  especially useful, as a traditional \code{gamma} model cannot be reasonably fitted for
-  data containing zeros in the response. 
+  especially useful, as a traditional \code{Gamma} model cannot be reasonably 
+  fitted for data containing zeros in the response. 
   
   In the following, we list all possible links for each family.
-  The families \code{gaussian}, \code{student}, and \code{cauchy} accept the links (as names) 
-  \code{identity}, \code{log}, and \code{inverse};
+  The families \code{gaussian}, \code{student}, and \code{cauchy} 
+  accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
   families \code{poisson}, \code{negbinomial}, and \code{geometric} the links 
   \code{log}, \code{identity}, and \code{sqrt}; 
-  families \code{binomial}, \code{bernoulli}, \code{cumulative}, \code{cratio}, \code{sratio}, 
-  and \code{acat} the links \code{logit}, \code{probit}, \code{probit_approx}, 
+  families \code{binomial}, \code{bernoulli}, \code{Beta},
+  \code{cumulative}, \code{cratio}, \code{sratio}, and \code{acat} 
+  the links \code{logit}, \code{probit}, \code{probit_approx}, 
   \code{cloglog}, and \code{cauchit}; 
-  family \code{categorical} the link \code{logit}; families \code{gamma}, \code{weibull}, 
-  and \code{exponential} the links \code{log}, \code{identity}, and \code{inverse};
-  family \code{inverse.gaussian} the links \code{1/mu^2}, \code{inverse}, \code{identity} 
-  and \code{log}; families \code{hurdle_poisson}, \code{hurdle_negbinomial},
+  family \code{categorical} the link \code{logit}; 
+  families \code{Gamma}, \code{weibull}, and \code{exponential} 
+  the links \code{log}, \code{identity}, and \code{inverse};
+  family \code{inverse.gaussian} the links \code{1/mu^2}, 
+  \code{inverse}, \code{identity} and \code{log}; 
+  families \code{hurdle_poisson}, \code{hurdle_negbinomial},
   \code{hurdle_gamma}, \code{zero_inflated_poisson}, and
   \code{zero_inflated_negbinomial} the link \code{log}. 
   The first link mentioned for each family is the default.     
@@ -277,8 +347,9 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   
   As of \pkg{brms} 0.5.0, priors should be specified using the 
   \code{\link[brms:set_prior]{set_prior}} function. 
-  Its documentation contains detailed information on how to correctly specify priors. 
-  To find out on which parameters or parameter classes priors can be defined, 
+  Its documentation contains detailed information 
+  on how to correctly specify priors. To find out on 
+  which parameters or parameter classes priors can be defined, 
   use \code{\link[brms:get_prior]{get_prior}}. \cr
   
   \bold{Adjusting the sampling behavior of \pkg{Stan}}
@@ -295,7 +366,7 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
   Increasing adapt_delta may help." 
   you should really think about increasing \code{adapt_delta}.
   To do this, write \code{control = list(adapt_delta = <x>)}, where \code{<x>}
-  should usually be value between \code{0.95} (default) and \code{1}.
+  should usually be value between \code{0.8} (default) and \code{1}.
   Increasing \code{adapt_delta} will slow down the sampler but will 
   decrease the number of divergent transitions threatening
   the validity of your posterior samples. 
@@ -304,44 +375,47 @@ Fit a generalized linear mixed model, which incorporates both fixed-effects para
 }
 \examples{
 \dontrun{ 
-## Poisson Regression for the number of seizures in epileptic patients
+## Poisson regression for the number of seizures in epileptic patients
 ## using student_t priors for fixed effects 
 ## and half cauchy priors for standard deviations of random effects 
-fit_e <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit), 
-           data = epilepsy, family = "poisson", 
-           prior = c(set_prior("student_t(5,0,10)", class = "b"),
-                     set_prior("cauchy(0,2)", class = "sd")))
+fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c 
+            + (1|patient) + (1|visit) + (1|obs), 
+            data = epilepsy, family = poisson(), 
+            prior = c(set_prior("student_t(5,0,10)", class = "b"),
+                      set_prior("cauchy(0,2)", class = "sd")))
 ## generate a summary of the results
-summary(fit_e)
+summary(fit1)
 ## plot the MCMC chains as well as the posterior distributions
-plot(fit_e)
-## extract random effects standard devations, correlation and covariance matrices
-VarCorr(fit_e)
+plot(fit1)
+## extract random effects standard devations and covariance matrices
+VarCorr(fit1)
 ## extract random effects for each level
-ranef(fit_e)
+ranef(fit1)
+## predict responses based on the fitted model
+head(predict(fit1))  
  
 ## Ordinal regression modeling patient's rating 
-## of inhaler instructions using normal priors for fixed effects parameters
-fit_i <- brm(rating ~ treat + period + carry, data = inhaler, 
-             family = sratio("cloglog"), prior = set_prior("normal(0,5)"))
-summary(fit_i)
-plot(fit_i)    
+## of inhaler instructions with normal priors on fixed effects
+fit2 <- brm(rating ~ treat + period + carry, 
+            data = inhaler, family = sratio("cloglog"), 
+            prior = set_prior("normal(0,5)"))
+summary(fit2)
+plot(fit2)    
 
-## Surivival Regression (with family 'weibull') modeling time between 
-## first and second recurrence of an infection in kidney patients
-## time | cens indicates which values in variable time are right censored
-fit_k <- brm(time | cens(censored) ~ age + sex + disease + (1|patient), 
-             data = kidney, family = "weibull", inits = "0")
-summary(fit_k) 
-plot(fit_k)    
+## Surivival regression (with family 'weibull') modeling time between 
+## first and second recurrence of an infection in kidney patients.
+fit3 <- brm(time | cens(censored) ~ age + sex + disease + (1|patient), 
+            data = kidney, family = weibull(), inits = "0")
+summary(fit3) 
+plot(fit3)    
 
-## Logisitic Regression (with family 'binomial') to illustrate model specification
-## variable n contains the number of trials, success contains the number of successes
-n <- sample(1:10, 100, TRUE)
+## Probit regression using the binomial family
+n <- sample(1:10, 100, TRUE)  # number of trials
 success <- rbinom(100, size = n, prob = 0.4)
 x <- rnorm(100)
-fit_b <- brm(success | trials(n) ~ x, family = binomial("probit"))
-summary(fit_b)
+fit4 <- brm(success | trials(n) ~ x, 
+            family = binomial("probit"))
+summary(fit4)
 }
 
 }

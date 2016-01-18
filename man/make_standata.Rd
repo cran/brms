@@ -7,7 +7,7 @@
 \title{Data for \pkg{brms} Models}
 \usage{
 make_standata(formula, data = NULL, family = "gaussian", autocor = NULL,
-  partial = NULL, cov.ranef = NULL, ...)
+  partial = NULL, cov.ranef = NULL, control = NULL, ...)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): 
@@ -15,20 +15,22 @@ a symbolic description of the model to be fitted.
 The details of model specification are given under 'Details'.}
 
 \item{data}{An optional data frame, list or environment  (or object coercible by 
-\code{as.data.frame} to a data frame) containing the variables in the model. If not found in data, 
-the variables are taken from \code{environment(formula)}, 
+\code{as.data.frame} to a data frame) containing the variables in the model. 
+If not found in data, the variables are taken from \code{environment(formula)}, 
 typically the environment from which \code{brm} is called. 
 Although it is optional, we strongly recommend to supply a data.frame.}
 
-\item{family}{A description of the error distribution and link function to be used in the model. 
-This can be a family function, a call to a family function or a character string naming the family.
+\item{family}{A description of the error distribution and link function 
+to be used in the model. This can be a family function, 
+a call to a family function or a character string naming the family.
 Currently, the following families are supported:
-\code{gaussian}, \code{student}, \code{cauchy}, \code{binomial}, \code{bernoulli}, 
-\code{categorical}, \code{poisson}, \code{negbinomial}, \code{geometric},
-\code{gamma}, \code{inverse.gaussian}, \code{exponential}, \code{weibull},
-\code{cumulative}, \code{cratio}, \code{sratio}, \code{acat},
-\code{hurdle_poisson}, \code{hurdle_negbinomial}, \code{hurdle_gamma}, 
-\code{zero_inflated_poisson}, and \code{zero_inflated_negbinomial}.
+\code{gaussian}, \code{student}, \code{cauchy}, \code{binomial}, 
+\code{bernoulli}, \code{Beta}, \code{poisson}, \code{negbinomial}, 
+\code{geometric}, \code{Gamma}, \code{inverse.gaussian}, 
+\code{exponential}, \code{weibull}, \code{categorical}, \code{cumulative}, 
+\code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
+\code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{zero_inflated_binomial},
+\code{zero_inflated_negbinomial}, and \cr \code{zero_inflated_poisson}
 Every family function has a \code{link} argument allowing to specify
 the link function to be applied on the response variable.
 If not specified, default links are used.
@@ -39,20 +41,28 @@ For backwards compatibility, \code{family} may also be a vector of two
 character strings, the first naming the family and the second naming the link.
 Further information is provided under 'Details'.}
 
-\item{autocor}{An optional \code{\link{cor_brms}} object describing the correlation structure 
+\item{autocor}{An optional \code{\link{cor_brms}} object describing 
+the correlation structure 
 within the response variable (i.e. the 'autocorrelation'). 
 See the documentation of \code{\link{cor_brms}} for a description 
-of the available correlation structures. Defaults to NULL, corresponding to no correlations.}
+of the available correlation structures. Defaults to NULL, 
+corresponding to no correlations.}
 
-\item{partial}{A one sided formula of the form \code{~expression} specifying the predictors with 
-category specific effects in non-cumulative ordinal models
+\item{partial}{A one sided formula of the form \code{~expression} 
+allowing to specify predictors with category specific effects 
+in non-cumulative ordinal models 
 (i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).}
 
-\item{cov.ranef}{A list of matrices that are proportional to the (within) covariance structure of the random effects. 
-The names of the matrices should correspond to columns in \code{data} that are used as grouping factors. 
-All levels of the grouping factor should appear as rownames of the corresponding matrix.}
+\item{cov.ranef}{A list of matrices that are proportional to the 
+(within) covariance structure of the random effects. 
+The names of the matrices should correspond to columns 
+in \code{data} that are used as grouping factors. 
+All levels of the grouping factor should appear as rownames 
+of the corresponding matrix.}
 
-\item{...}{Other arguments for internal usage only}
+\item{control}{A named list currently for internal usage only}
+
+\item{...}{Other potential arguments}
 }
 \value{
 A named list of objects containing the required data 

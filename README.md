@@ -1,4 +1,6 @@
 <!-- README.md is generated from README.Rmd. Please edit that file -->
+[![Build Status](https://travis-ci.org/paul-buerkner/brms.svg?branch=master)](https://travis-ci.org/paul-buerkner/brms) [![Coverage](https://img.shields.io/codecov/c/github/paul-buerkner/brms/master.svg)](https://codecov.io/github/paul-buerkner/brms) [![CRAN Version](http://www.r-pkg.org/badges/version/brms)](http://cran.r-project.org/package=brms)
+
 brms
 ====
 
@@ -27,36 +29,36 @@ The results (i.e. posterior samples) can be investigated using
 ``` r
 summary(fit) 
 #>  Family: poisson (log) 
-#> Formula: count ~ log_Age_c + log_Base4_c + Trt_c + (1 | patient) + (1 | visit) + (1 | obs) + log_Base4_c:Trt_c 
+#> Formula: count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient) + (1 | visit) + (1 | obs) 
 #>    Data: epilepsy (Number of observations: 236) 
-#> Samples: 2 chains, each with n.iter = 2000; n.warmup = 500; n.thin = 1; 
+#> Samples: 2 chains, each with iter = 2000; warmup = 500; thin = 1; 
 #>          total post-warmup samples = 3000
-#>    WAIC: 1144.7
+#>    WAIC: 1143.12
 #>  
 #> Random Effects: 
 #> ~obs (Number of levels: 236) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.37      0.05     0.28     0.46       1089    1
+#> sd(Intercept)     0.37      0.04     0.29     0.46       1096    1
 #> 
 #> ~patient (Number of levels: 59) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.51      0.07     0.37     0.66        899    1
+#> sd(Intercept)     0.51      0.07     0.38     0.67        964    1
 #> 
 #> ~visit (Number of levels: 4) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.11      0.11        0     0.41        747    1
+#> sd(Intercept)      0.1       0.1        0     0.39        611    1
 #> 
 #> Fixed Effects: 
 #>                   Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> Intercept             1.56      0.10     1.35     1.76        724    1
-#> log_Age_c             0.48      0.36    -0.23     1.20       1078    1
-#> log_Base4_c           1.07      0.11     0.85     1.27       1211    1
-#> Trt_c                -0.34      0.16    -0.66    -0.03       1269    1
-#> log_Base4_c:Trt_c     0.36      0.22    -0.09     0.78       1046    1
+#> Intercept             1.56      0.10     1.34     1.76        843 1.00
+#> log_Age_c             0.48      0.38    -0.25     1.23       1097 1.01
+#> log_Base4_c           1.06      0.11     0.84     1.28       1045 1.00
+#> Trt_c                -0.33      0.16    -0.65    -0.01        956 1.00
+#> log_Base4_c:Trt_c     0.35      0.22    -0.08     0.77        917 1.00
 #> 
-#> Samples were drawn using NUTS(diag_e). For each parameter, Eff.Sample is a 
-#> crude measure of effective sample size, and Rhat is the potential scale 
-#> reduction factor on split chains (at convergence, Rhat = 1).
+#> Samples were drawn using sampling(NUTS). For each parameter, Eff.Sample 
+#> is a crude measure of effective sample size, and Rhat is the potential 
+#> scale reduction factor on split chains (at convergence, Rhat = 1).
 ```
 
 On the top of the output, some general information on the model is given, such as family, formula, number of iterations and chains, as well as the WAIC, which is an information criterion for Bayesian models. Next, random effects are displayed seperately for each grouping factor in terms of standard deviations and (in case of more than one random effect per grouping factor; not displayed here) correlations between random effects. On the bottom of the output, fixed effects are displayed. If incorporated, autocorrelation effects and family specific parameters (e.g., the residual standard deviation 'sigma' in normal models) are also given.
@@ -79,13 +81,14 @@ For a complete list of methods to apply on <b>brms</b> models see
 
 ``` r
 methods(class = "brmsfit") 
-#>  [1] family            fitted            fixef             formula          
-#>  [5] hypothesis        launch_shiny      logLik            LOO              
-#>  [9] ngrps             nobs              parnames          plot             
-#> [13] posterior_samples predict           print             prior_samples    
-#> [17] ranef             residuals         stancode          standata         
-#> [21] stanplot          summary           update            VarCorr          
-#> [25] vcov              WAIC             
+#>  [1] coef              family            fitted            fixef            
+#>  [5] formula           hypothesis        launch_shiny      logLik           
+#>  [9] LOO               model.frame       ngrps             nobs             
+#> [13] pairs             parnames          plot              posterior_samples
+#> [17] predict           print             prior_samples     ranef            
+#> [21] residuals         stancode          standata          stanplot         
+#> [25] summary           update            VarCorr           vcov             
+#> [29] WAIC             
 #> see '?methods' for accessing help and source code
 ```
 
