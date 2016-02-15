@@ -23,8 +23,6 @@ test_that("get_cornames returns desired correlation names", {
                c("cor_Intercept_x", "cor_Intercept_y", "cor_x_y"))
   expect_equal(get_cornames(names, type = "rescor"),
                c("rescor(Intercept,x)", "rescor(Intercept,y)", "rescor(x,y)"))
-  expect_equal(get_cornames(names, subset = c("cor_Intercept_x", "cor_Intercept_y")), 
-               c("cor(Intercept,x)", "cor(Intercept,y)"))
 })
 
 test_that("get_cov_matrix returns appropriate dimensions", {
@@ -37,31 +35,31 @@ test_that("ARMA covariance matrices are computed correctly", {
   ar <- 0.5
   ma <- 0.3
   sigma <- 2
-  sq_se <- 1:4
+  se2 <- 1:4
   # test for AR1 cov matrix
   ar_mat <- get_cov_matrix_ar1(ar = matrix(ar), sigma = matrix(sigma), 
-                               sq_se = sq_se, nrows = length(sq_se))
+                               se2 = se2, nrows = length(se2))
   expected_ar_mat <- sigma^2 / (1 - ar^2) * 
                      cbind(c(1, ar, ar^2, ar^3),
                            c(ar, 1, ar, ar^2),
                            c(ar^2, ar, 1, ar),
                            c(ar^3, ar^2, ar, 1))
-  expected_ar_mat <- expected_ar_mat + diag(sq_se)
+  expected_ar_mat <- expected_ar_mat + diag(se2)
   expect_equal(ar_mat[1, , ], expected_ar_mat)
   # test for MA1 cov matrix
   ma_mat <- get_cov_matrix_ma1(ma = matrix(ma), sigma = matrix(sigma), 
-                               sq_se = sq_se, nrows = length(sq_se))
+                               se2 = se2, nrows = length(se2))
   expected_ma_mat <- sigma^2 * 
                      cbind(c(1+ma^2, ma, 0, 0),
                            c(ma, 1+ma^2, ma, 0),
                            c(0, ma, 1+ma^2, ma),
                            c(0, 0, ma, 1+ma^2))
-  expected_ma_mat <- expected_ma_mat + diag(sq_se)
+  expected_ma_mat <- expected_ma_mat + diag(se2)
   expect_equal(ma_mat[1, , ], expected_ma_mat)
   # test for ARMA1 cov matrix
   arma_mat <- get_cov_matrix_arma1(ar = matrix(ar), ma = matrix(ma), 
                                  sigma = matrix(sigma), 
-                                 sq_se = sq_se, nrows = length(sq_se))
+                                 se2 = se2, nrows = length(se2))
   g0 <- 1 + ma^2 + 2 * ar * ma
   g1 <- (1 + ar * ma) * (ar + ma)
   expected_arma_mat <- sigma^2 / (1 - ar^2) * 
@@ -69,7 +67,7 @@ test_that("ARMA covariance matrices are computed correctly", {
                              c(g1, g0, g1, g1 * ar),
                              c(g1 * ar, g1, g0, g1),
                              c(g1 * ar^2, g1 * ar, g1, g0))
-  expected_arma_mat <- expected_arma_mat + diag(sq_se)
+  expected_arma_mat <- expected_arma_mat + diag(se2)
   expect_equal(arma_mat[1, , ], expected_arma_mat)
 })
 
@@ -82,7 +80,8 @@ test_that("evidence_ratio returns expected results", {
 
 test_that("expand_matrix returns expected results", {
   A <- matrix(1:6, 3, 2); x <- c(1,2,1)
-  expect_equal(expand_matrix(A, x), matrix(c(1,0,3,4,0,6,0,2,0,0,5,0), 3, 4))
+  expect_equivalent(as.matrix(expand_matrix(A, x)), 
+                    rbind(c(1, 4, 0, 0), c(0, 0, 2, 5), c(3, 6, 0, 0)))
 })
 
 test_that("find_names finds all valid variable names in a string", {
@@ -147,16 +146,17 @@ test_that("arma_predictor runs without errors", {
   ar <- matrix(rnorm(ns * nobs), nrow = ns, ncol = nobs)
   ma <- matrix(rnorm(ns * nobs), nrow = ns, ncol = nobs)
   eta <- matrix(rnorm(ns * nobs), nrow = ns, ncol = nobs)
-  expect_equal(arma_predictor(data = data, eta = eta), eta)
-  expect_silent(arma_predictor(data = data, eta = eta, ar = ar))
-  expect_silent(arma_predictor(data = data, eta = eta, ma = ma))
-  expect_silent(arma_predictor(data = data, eta = eta, ar = ar, ma = ma))
+  expect_equal(arma_predictor(standata = data, eta = eta), eta)
+  expect_silent(arma_predictor(standata = data, eta = eta, ar = ar))
+  expect_silent(arma_predictor(standata = data, eta = eta, ma = ma))
+  expect_silent(arma_predictor(standata = data, eta = eta, ar = ar, ma = ma))
 })
 
-test_that("partial_predictor runs without errors", {
+test_that("cse_predictor runs without errors", {
   Xp <- matrix(rnorm(300), nrow = 100, ncol = 3)
   p <- matrix(rnorm(30 * 9), nrow = 30, ncol = 9)
-  expect_equal(dim(partial_predictor(Xp = Xp, p = p, ncat = 4)),
+  eta <- matrix(rnorm(3000), nrow = 30, ncol = 100)
+  expect_equal(dim(cse_predictor(Xp = Xp, p = p, eta = eta, ncat = 4)),
                c(30, 100, 3))
 })
 

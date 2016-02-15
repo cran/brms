@@ -11,8 +11,8 @@
 #' @param link A specification for the model link function. 
 #'   This can be a name/expression or character string. 
 #'   The following list only refers to \pkg{brms} specific family functions.
-#'   Families \code{student}, and \code{cauchy} accept the links (as names) 
-#'   \code{identity}, \code{log}, and \code{inverse};
+#'   Families \code{student}, and \code{cauchy} (deprecated) accept the links 
+#'   (as names) \code{identity}, \code{log}, and \code{inverse};
 #'   families \code{negbinomial}, and \code{geometric} the links 
 #'   \code{log}, \code{identity}, and \code{sqrt}; 
 #'   families \code{bernoulli}, \code{Beta}, \code{cumulative}, 
@@ -24,7 +24,9 @@
 #'   the links \code{log}, \code{identity}, and \code{inverse};
 #'   families \code{hurdle_poisson}, \code{hurdle_gamma}, 
 #'   \code{hurdle_negbinomial}, \code{zero_inflated_poisson}, 
-#'   and \code{zero_inflated_negbinomial} the link \code{log}.  
+#'   and \code{zero_inflated_negbinomial} the link \code{log};
+#'   families \code{zero_inflated_binomial} and 
+#'   \code{zero_inflated_beta} the link \code{logit}. 
 #'   The first link mentioned for each family is the default.
 #'   A full list of families and link functions supported by \pkg{brms}, 
 #'   is provided in the 'Details' section of \code{\link[brms:brm]{brm}}.
@@ -256,6 +258,26 @@ hurdle_gamma <- function(link = "log") {
 
 #' @rdname brmsfamily
 #' @export
+zero_inflated_beta <- function(link = "logit") {
+  linktemp <- substitute(link)
+  if (!is.character(linktemp)) {
+    linktemp <- deparse(linktemp)
+  } 
+  okLinks <- c("logit")
+  if (!linktemp %in% okLinks && is.character(link)) {
+    linktemp <- link
+  }
+  if (!linktemp %in% okLinks) {
+    stop(paste(linktemp, "is not a supported link", 
+               "for family zero_inflated_beta. ", 
+               "Supported links are: \n", paste(okLinks, collapse = ", ")))
+  }
+  structure(list(family = "zero_inflated_beta", link = linktemp), 
+            class = c("brmsfamily", "family"))
+}
+
+#' @rdname brmsfamily
+#' @export
 zero_inflated_poisson <- function(link = "log") {
   linktemp <- substitute(link)
   if (!is.character(linktemp)) {
@@ -423,13 +445,13 @@ family.character <- function(object, link = NA, type = NULL, ...) {
     stop("family 'multigaussian' is deprecated. Use family 'gaussian' instead",
          call. = FALSE)
   okFamilies <- c("gaussian", "student", "cauchy", 
-                  "binomial", "bernoulli", "categorical", 
+                  "binomial", "bernoulli", "categorical", "beta",
                   "poisson", "negbinomial", "geometric", 
                   "gamma", "weibull", "exponential", "inverse.gaussian", 
                   "cumulative", "cratio", "sratio", "acat",
                   "hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
                   "zero_inflated_poisson", "zero_inflated_negbinomial",
-                  "zero_inflated_binomial", "beta")
+                  "zero_inflated_binomial", "zero_inflated_beta")
   if (!family %in% okFamilies) {
     stop(paste(family, "is not a supported family. Supported families are: \n",
                paste(okFamilies, collapse = ", ")), call. = FALSE)
@@ -442,14 +464,15 @@ family.character <- function(object, link = NA, type = NULL, ...) {
     okLinks <- c("1/mu^2", "inverse", "identity", "log")
   } else if (is.count(family)) {
     okLinks <- c("log", "identity", "sqrt")
-  } else if (is.binary(family) || is.ordinal(family) || family == "beta") {
+  } else if (is.binary(family) || is.ordinal(family) || 
+             family %in% c("beta", "zero_inflated_beta")) {
     okLinks <- c("logit", "probit", "probit_approx", "cloglog", "cauchit")
   } else if (family %in% c("categorical", "zero_inflated_binomial")) {
     okLinks <- c("logit")
   } else if (is.skewed(family)) {
     okLinks <- c("log", "identity", "inverse")
   } else if (is.hurdle(family) || is.zero_inflated(family)) {
-    # does not include zero_inflated_binomial
+    # does not include zi_binomial or zi_beta
     okLinks <- c("log")
   } 
   if (is.na(link)) {

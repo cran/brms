@@ -55,8 +55,8 @@ test_that("predict for ARMA covariance models runs without errors", {
             nu = matrix(rgamma(ns, 5)),
             ar = matrix(rbeta(ns, 0.5, 0.5), ncol = 1),
             ma = matrix(rnorm(ns, 0.2, 1), ncol = 1))
-  data <- list(begin_tg = c(1, 5, 12), nrows_tg = c(4, 7, 3),
-               squared_se = rgamma(ns, 10))
+  data <- list(begin_tg = c(1, 5, 12), nobs_tg = c(4, 7, 3),
+               se2 = rgamma(ns, 10))
   
   pred <- predict_gaussian_cov(1, data = data, samples = s, link = "inverse")
   expect_equal(length(pred), ns * 4)
@@ -126,7 +126,7 @@ test_that("predict for zero-inflated and hurdle models runs without erros", {
   nobs <- 8
   trials <- sample(10:30, nobs, replace = TRUE)
   s <- list(eta = matrix(rnorm(ns * nobs * 2), ncol = nobs * 2),
-            shape = rgamma(ns, 4))
+            shape = rgamma(ns, 4), phi = rgamma(ns, 1))
   data <- list(N_trait = nobs, max_obs = trials)
   
   pred <- predict_hurdle_poisson(1, data = data, samples = s)
@@ -145,6 +145,9 @@ test_that("predict for zero-inflated and hurdle models runs without erros", {
   expect_equal(length(pred), ns)
   
   pred <- predict_zero_inflated_negbinomial(6, data = data, samples = s)
+  expect_equal(length(pred), ns)
+  
+  pred <- predict_zero_inflated_beta(8, data = data, samples = s)
   expect_equal(length(pred), ns)
 })
 

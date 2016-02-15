@@ -49,7 +49,7 @@ Models fitted with the \code{\link[brms:brms]{brms}} package are represented as 
     \item{\code{family}:}{model family; an object of class \code{family}}
     \item{\code{link}:}{link function; a character string (deprecated)}
     \item{\code{data.name}:}{name of the data frame; a character string} 
-    \item{\code{data}:}{data.frame containing all variables used in the model}
+    \item{\code{data}:}{model.frame containing all variables used in the model}
     \item{\code{model}:}{model in Stan language; a character string}
     \item{\code{exclude}:}{parameters for which samples are not saved; 
     a character vector}
@@ -59,7 +59,7 @@ Models fitted with the \code{\link[brms:brms]{brms}} package are represented as 
     containing the autocorrelation structure}
     \item{\code{partial}:}{formula of the category specific effects 
     applied in ordinal models}
-    \item{\code{cov.ranef}:}{a list of customized random effects 
+    \item{\code{cov_ranef}:}{a list of customized random effects 
     covariance matrices}
     \item{\code{fit}:}{fitted results including the posterior samples; 
     an object of class \code{stanfit}}

@@ -18,6 +18,7 @@
 \alias{sratio}
 \alias{student}
 \alias{weibull}
+\alias{zero_inflated_beta}
 \alias{zero_inflated_binomial}
 \alias{zero_inflated_negbinomial}
 \alias{zero_inflated_poisson}
@@ -45,6 +46,8 @@ hurdle_negbinomial(link = "log")
 
 hurdle_gamma(link = "log")
 
+zero_inflated_beta(link = "logit")
+
 zero_inflated_poisson(link = "log")
 
 zero_inflated_negbinomial(link = "log")
@@ -65,8 +68,8 @@ acat(link = "logit")
 \item{link}{A specification for the model link function. 
 This can be a name/expression or character string. 
 The following list only refers to \pkg{brms} specific family functions.
-Families \code{student}, and \code{cauchy} accept the links (as names) 
-\code{identity}, \code{log}, and \code{inverse};
+Families \code{student}, and \code{cauchy} (deprecated) accept the links 
+(as names) \code{identity}, \code{log}, and \code{inverse};
 families \code{negbinomial}, and \code{geometric} the links 
 \code{log}, \code{identity}, and \code{sqrt}; 
 families \code{bernoulli}, \code{Beta}, \code{cumulative}, 
@@ -78,7 +81,9 @@ families \code{weibull}, and \code{exponential}
 the links \code{log}, \code{identity}, and \code{inverse};
 families \code{hurdle_poisson}, \code{hurdle_gamma}, 
 \code{hurdle_negbinomial}, \code{zero_inflated_poisson}, 
-and \code{zero_inflated_negbinomial} the link \code{log}.  
+and \code{zero_inflated_negbinomial} the link \code{log};
+families \code{zero_inflated_binomial} and 
+\code{zero_inflated_beta} the link \code{logit}. 
 The first link mentioned for each family is the default.
 A full list of families and link functions supported by \pkg{brms}, 
 is provided in the 'Details' section of \code{\link[brms:brm]{brm}}.}

@@ -1,80 +1,3 @@
-test_that("melt_data returns data in long format", {
-  data <- data.frame(x = rep(c("a","b"), 5), y1 = 1:10, y2 = 11:20, 
-                     y3 = 21:30, z = 100:91)
-  effects <- extract_effects(y ~ x, family = "poisson")
-  expect_equal(melt_data(data, effects = effects, 
-                         family = "poisson"), data)
-  
-  target1 <- data.frame(x = rep(c("a","b"), 10), y1 = rep(1:10, 2), 
-                        y2 = rep(11:20, 2), y3 = rep(21:30, 2),
-                        z = rep(100:91, 2), 
-                        trait = factor(rep(c("y3", "y1"), each = 10),
-                                       levels = c("y3", "y1")), 
-                        response = c(21:30, 1:10))
-  effects <- extract_effects(cbind(y3,y1) ~ x, family = "gaussian")
-  expect_equal(melt_data(data, effects = effects, family = "gaussian"), 
-               target1)
-  
-  target2 <- data.frame(x = rep(c("a","b"), 15), y1 = rep(1:10, 3), 
-                        y2 = rep(11:20, 3), y3 = rep(21:30, 3),
-                        z = rep(100:91, 3),
-                        trait = factor(rep(c("y2", "y1", "y3"), each = 10),
-                                       levels = c("y2", "y1", "y3")), 
-                        response = c(11:20, 1:10, 21:30))
-  effects <- extract_effects(cbind(y2,y1,y3) ~ x, family = "gaussian")
-  expect_equal(melt_data(data, effects = effects, family = "gaussian"), 
-               target2)
-})
-
-test_that("melt_data returns expected errors", {
-  ee <- extract_effects(y1 ~ x, family = hurdle_poisson())
-  data <- data.frame(y1 = rnorm(10), y2 = rnorm(10), x = 1:10)
-  expect_error(melt_data(data = NULL, family = hurdle_poisson(), effects = ee),
-               "data must be a data.frame for multivariate models", 
-               fixed = TRUE)
-  data$main <- 1:10 
-  expect_error(melt_data(data = data, family = hurdle_poisson(), effects = ee),
-               "main is a resevered variable name", 
-               fixed = TRUE)
-  data$response <- 1:10 
-  expect_error(melt_data(data = data, family = hurdle_poisson(), effects = ee),
-               "response is a resevered variable name in multivariate models", 
-               fixed = TRUE)
-  data$trait <- 1:10 
-  expect_error(melt_data(data = data, family = hurdle_poisson(), effects = ee),
-               "trait is a resevered variable name in multivariate models", 
-               fixed = TRUE)
-  
-  ee <- extract_effects(cbind(y1, y2) ~ x)
-  data <- data.frame(y1 = rnorm(10), y2 = rnorm(10), x = 1:10)
-  expect_error(melt_data(data = data, family = poisson(), effects = ee),
-               "invalid multivariate model", fixed = TRUE)
-})
-
-test_that("combine_groups does the expected", {
-  data <- data.frame(x = rep(c("a","b"), 5), y1 = 1:10, 
-                     y2 = 11:20, y3 = 21:30, z = 100:91)
-  expected <- data 
-  expected[["y1:y2"]] <- paste0(data$y1, "_", data$y2)
-  expected[["y1:y2:y3"]] <- paste0(data$y1, "_", data$y2, "_", data$y3)
-  expect_equal(combine_groups(data, "y1:y2", "y1:y2:y3"), expected)
-})
-
-test_that("get_model_matrix removes intercepts correctly", {
-  data <- data.frame(x = factor(rep(1:2, 5)), y = 11:20)
-  expect_equal(get_model_matrix(y ~ x, data, rm_intercept = TRUE),
-               structure(matrix(rep(0:1, 5)), dimnames = list(1:10, "x2")))
-})
-
-test_that(paste("arr_design_matrix returns correct design", 
-                "matrices for autoregressive effects"), {
-  expect_equal(arr_design_matrix(1:10, 0, sort(rep(1:2, 5))), NULL)
-  expect_equal(arr_design_matrix(1:10, 1, sort(rep(1:2, 5))), 
-               matrix(c(0,1:4.5,0,6:9.5)))
-  expect_equal(arr_design_matrix(1:10, 2, sort(rep(1:2, 5))), 
-               cbind(c(0,1:4.5,0,6:9), c(0,0,1:3,0,0,6:8)))
-})
-
 test_that(paste("make_standata returns correct data names", 
                 "for fixed and random effects"), {
   expect_equal(names(make_standata(rating ~ treat + period + carry 
@@ -160,8 +83,8 @@ test_that(paste("make_standata accepts correct response variables",
   temp_data <- data.frame(y = factor(rep(-4:5,5), order = TRUE))
   expect_equal(make_standata(y ~ 1, data = temp_data, family = "acat")$Y, 
                rep(1:10,5))
-  expect_equal(make_standata(y ~ 1, data = data.frame(y = seq(0,10,0.1)), 
-                             family = "exponential")$Y, seq(0,10,0.1))
+  expect_equal(make_standata(y ~ 1, data = data.frame(y = seq(1,10,0.1)), 
+                             family = "exponential")$Y, seq(1,10,0.1))
   temp_data <- data.frame(y1 = 1:10, y2 = 11:20, w = 1:10, x = rep(0,10))
   expect_equal(make_standata(cbind(y1,y2) | weights(w) ~ x, family = "gaussian",
                              data = temp_data)$Y, 
@@ -188,7 +111,13 @@ test_that(paste("make_standata rejects incorrect response variables",
                      "as response variables"))
   expect_error(make_standata(y ~ 1, data = data.frame(y = rep(-7.5:7.5), 2), 
                              family = "gamma"),
-               "family gamma requires response variable to be non-negative")
+               "family gamma requires response variable to be positive")
+  expect_error(make_standata(y ~ 1, data = data.frame(y = c(0, 0.5, 1)),
+                             family = Beta()),
+               "beta regression requires responses between 0 and 1")
+  expect_error(make_standata(y ~ 1, data = data.frame(y = c(-1, 2, 5)),
+                             family = hurdle_gamma()),
+               "requires response variable to be non-negative")
 })
 
 test_that("make_standata suggests using family bernoulli if appropriate", {
@@ -269,16 +198,16 @@ test_that(paste("make_standata returns correct data",
                              autocor = cor_arr(~tim|g, r = 2))$Yarr,
                cbind(c(0,9,7,5,3,0,10,8,6,4), c(0,0,9,7,5,0,0,10,8,6)))
   expect_equal(make_standata(y ~ x, data = temp_data,
-                             autocor = cor_ma(~tim|g))$tgroup,
+                             autocor = cor_ma(~tim|g))$tg,
                c(rep(1,5), rep(2,5)))
   expect_equal(make_standata(y ~ x, data = temp_data,
-                             autocor = cor_ar(~tim|g))$tgroup,
+                             autocor = cor_ar(~tim|g))$tg,
                c(rep(1,5), rep(2,5)))
   standata <- make_standata(y ~ x, data = temp_data,
                             autocor = cor_ar(~tim|g, cov = TRUE))
   expect_equal(standata$begin_tg, as.array(c(1, 6)))
-  expect_equal(standata$nrows_tg, as.array(c(5, 5)))
-  expect_equal(standata$squared_se, rep(0, 10))
+  expect_equal(standata$nobs_tg, as.array(c(5, 5)))
+  expect_equal(standata$se2, rep(0, 10))
 })
 
 test_that("make_standata allows to retrieve the initial data order", {
@@ -308,23 +237,23 @@ test_that("make_standata rejects invalid input for argument partial", {
 test_that("make_standata handles covariance matrices correctly", {
   A <- structure(diag(1, 4), dimnames = list(1:4, NULL))
   expect_equivalent(make_standata(count ~ Trt_c + (1|visit), data = epilepsy,
-                             cov.ranef = list(visit = A))$cov_1, A)
+                                  cov_ranef = list(visit = A))$cov_1, A)
   B <- diag(1, 4)
   expect_error(make_standata(count ~ Trt_c + (1|visit), data = epilepsy,
-                             cov.ranef = list(visit = B)),
+                             cov_ranef = list(visit = B)),
                "rownames are required")
   B <- structure(diag(1, 4), dimnames = list(2:5, NULL))
   expect_error(make_standata(count ~ Trt_c + (1|visit), data = epilepsy,
-                             cov.ranef = list(visit = B)),
+                             cov_ranef = list(visit = B)),
                "rownames .* do not match")
   B <- structure(diag(1, 5), dimnames = list(1:5, NULL))
   expect_error(make_standata(count ~ Trt_c + (1|visit), data = epilepsy,
-                             cov.ranef = list(visit = B)),
+                             cov_ranef = list(visit = B)),
                "dimension .* is incorrect")
   B <- A
   B[1,2] <- 0.5
   expect_error(make_standata(count ~ Trt_c + (1|visit), data = epilepsy,
-                             cov.ranef = list(visit = B)),
+                             cov_ranef = list(visit = B)),
                "not symmetric")
 })
 
@@ -351,19 +280,6 @@ test_that("make_standata computes data for 2PL models", {
   expect_equal(standata$Y, rep(0:1, each = 5))
 })
 
-test_that("amend_newdata handles factors correctly", {
-  fit <- rename_pars(brmsfit_example)
-  fit$data$fac <- factor(sample(1:3, nrow(fit$data), replace = TRUE))
-  newdata <- fit$data[1:5, ]
-  expect_silent(amend_newdata(newdata, fit))
-  newdata$visit <- 1:5
-  expect_error(amend_newdata(newdata, fit), fixed = TRUE,
-               "levels 5 of grouping factor visit not found")
-  newdata$fac <- 1:5
-  expect_error(amend_newdata(newdata, fit), fixed = TRUE,
-               "New factor levels are not allowed")
-})
-
 test_that("brmdata and brm.data are backwards compatible", {
   temp_data <- data.frame(y = 1:10, x = sample(1:5, 10, TRUE))
   expect_identical(brmdata(y ~ x + (1|x), data = temp_data, 
@@ -371,7 +287,7 @@ test_that("brmdata and brm.data are backwards compatible", {
                    make_standata(y ~ x + (1|x), data = temp_data, 
                                  family = "poisson"))
   expect_identical(brmdata(y ~ 1, data = temp_data, 
-                            family = "acat", partial = ~ x), 
+                           family = "acat", partial = ~ x), 
                    make_standata(y ~ 1, data = temp_data, 
                                  family = "acat", partial = ~ x))
   expect_identical(brm.data(y ~ x + (1|x), data = temp_data, 
@@ -382,4 +298,16 @@ test_that("brmdata and brm.data are backwards compatible", {
                             family = "acat", partial = ~ x), 
                    make_standata(y ~ 1, data = temp_data, 
                                  family = "acat", partial = ~ x))
+})
+
+test_that("make_standata correctly prepares data for non-linear models", {
+  nonlinear <- list(a ~ x + (1|g), b ~ z + (1|g))
+  data <- data.frame(y = rnorm(9), x = rnorm(9), z = rnorm(9), g = rep(1:3, 3))
+  standata <- make_standata(y ~ a - b^z, data = data, nonlinear = nonlinear)
+  expect_equal(names(standata), c("N", "Y", "K_a", "X_a", "K_b", "X_b", "KC", "C", 
+                                  "J_a_1", "N_a_1", "K_a_1", "Z_a_1", "NC_a_1",
+                                  "J_b_1", "N_b_1", "K_b_1", "Z_b_1", "NC_b_1"))
+  expect_equal(colnames(standata$X_a), c("Intercept", "x"))
+  expect_equal(colnames(standata$C), "z")
+  expect_equal(standata$J_b_1, data$g)
 })

@@ -1,7 +1,7 @@
 test_that("extract_effects finds all variables in very long formulas", {
   expect_equal(extract_effects(t2_brand_recall ~ psi_expsi + psi_api_probsolv + 
                                  psi_api_ident + psi_api_intere + psi_api_groupint)$all, 
-               t2_brand_recall ~ psi_expsi + psi_api_probsolv + psi_api_ident + 
+               t2_brand_recall ~ t2_brand_recall + psi_expsi + psi_api_probsolv + psi_api_ident + 
                  psi_api_intere + psi_api_groupint)
 })
 
@@ -45,13 +45,16 @@ test_that("extract_effects handles addition arguments correctly", {
   expect_equal(extract_effects(y | se(I(a+2)) ~ x, family = gaussian())$se, 
                ~ .se(I(a+2)))
   expect_equal(extract_effects(y | se(I(a+2)) ~ x, family = gaussian())$all, 
-               y ~ x + a)
+               y ~ y + a + x)
   expect_equal(extract_effects(y | weights(1/n) ~ x, 
                                family = gaussian())$weights, 
                ~ .weights(1/n))
   expect_equal(extract_effects(y | se(a+2) | cens(log(b)) ~ x, 
                                family = gaussian())$cens, 
                ~ .cens(log(b)))
+  expect_equal(extract_effects(y | se(a+2) + cens(log(b)) ~ x, 
+                               family = gaussian())$se, 
+               ~ .se(a+2))
   expect_equal(extract_effects(y | trials(10) ~ x, family = binomial())$trials, 
                10)
   expect_equal(extract_effects(y | cat(cate) ~ x, family = cumulative())$cat, 
@@ -60,7 +63,7 @@ test_that("extract_effects handles addition arguments correctly", {
                ~ .cens(cens^2))
   expect_equal(extract_effects(y | cens(cens^2) ~ z + (x|patient), 
                                family = weibull())$all, 
-               y ~ z + x + patient + cens)
+               y ~ y + cens + z + x + patient)
 })
 
 test_that("extract_effects accepts complicated random terms", {
@@ -68,6 +71,55 @@ test_that("extract_effects accepts complicated random terms", {
                list(~I(as.numeric(x) - 1)))
   expect_equal(extract_effects(y ~ x + (I(exp(x)-1) + I(x/y) | z))$random$form,
                list(~I(exp(x)-1) + I(x/y)))
+})
+
+test_that("extract_effects accepts calls to the poly function", {
+  expect_equal(extract_effects(y ~ z + poly(x, 3))$all,
+               y ~ y + z + x + poly(x, 3))
+})
+
+test_that("extract_effects finds all variables in non-linear models", {
+  nonlinear <- list(a ~ z1 + (1|g1), b ~ z2 + (z3|g2))
+  ee <- extract_effects(y ~ a - b^x, nonlinear = nonlinear)
+  expect_equal(ee$all, y ~ y + x + z1 + g1 + z2 + z3 + g2)
+})
+
+test_that("extract_effects rejects REs in non-linear formulas", {
+  expect_error(extract_effects(y ~ exp(-x/a) + (1|g), nonlinear = a ~ 1),
+               "Random effects in non-linear models", fixed = TRUE)
+})
+
+test_that("nonlinear_effects rejects invalid non-linear models", {
+  expect_error(nonlinear_effects(list(a ~ 1, b ~ 1), model = y ~ a^x),
+               "missing in formula: b")
+  expect_error(nonlinear_effects(a~1, model = y ~ a^x),
+               "Argument 'nonlinear' must be a list of formulas")
+  expect_error(nonlinear_effects(list( ~ 1, a ~ 1), model = y ~ a),
+               "Non-linear formulas must be two-sided")
+  expect_error(nonlinear_effects(list(a + b ~ 1), model = y ~ exp(-x)),
+               "RHS of non-linear formula must contain exactly one variable")
+  expect_error(nonlinear_effects(list(a.b ~ 1), model = y ~ a^x),
+               "not contain dots or underscores")
+  expect_error(nonlinear_effects(list(a_b ~ 1), model = y ~ a^(x+b)),
+               "not contain dots or underscores")
+})
+
+test_that("nonlinear_effect accepts valid non-linear models", {
+  nle <- nonlinear_effects(list(a ~ 1 + (1+x|origin), b ~ 1 + z), y ~ b - a^x)
+  expect_equal(names(nle), c("a", "b"))
+  expect_equal(nle[["a"]]$all, ~x + origin)
+  expect_equal(nle[["b"]]$all, ~z)
+  expect_equal(nle[["a"]]$random$form[[1]], ~1+x)
+})
+
+test_that("nonlinear2list works correctly", {
+  expect_equal(nonlinear2list(a ~ 1), list(a ~ 1))
+  expect_equal(nonlinear2list(a + alpha ~ x + (x|g)), 
+               list(a ~ x + (x|g), alpha ~ x + (x|g)))
+  expect_equal(nonlinear2list(list(a ~ 1, b ~ 1 + z)),
+               list(a ~ 1, b ~ 1 + z))
+  expect_equal(nonlinear2list(NULL), NULL)
+  expect_error(nonlinear2list(1), "Invalid 'nonlinear' argument")
 })
 
 test_that("extract_time returns all desired variables", {
@@ -89,6 +141,13 @@ test_that("update_formula returns correct formulas", {
   expect_warning(update_formula(y~x, addition = list(se = ~I(sei+2))))
   expect_warning(update_formula(y~x, addition = list(se = ~sei, cens = ~censored)))
   expect_equal(update_formula(y~x+z, partial = ~ a + I(a^2)), y ~ x+z+partial(a + I(a^2)))
+})
+
+test_that("get_fixed works correctly", {
+  effects <- extract_effects(y ~ a - b^x, nonlinear = list(a ~ z, b ~ z + v))
+  expect_equivalent(get_fixed(effects), list(y ~ a - b^x, ~ z, ~ z + v))
+  effects <- extract_effects(y ~ x + z + (1|g))
+  expect_equivalent(get_fixed(effects), list(y ~ x + z))
 })
 
 test_that("get_group_formula rejects incorrect grouping terms", {
@@ -139,6 +198,9 @@ test_that("update_re_terms works correctly", {
                     y ~ x)
   expect_equivalent(update_re_terms(y ~ x + (1+visit|patient), NULL), 
                     y ~ x + (1+visit|patient))
+  expect_equivalent(update_re_terms(y ~ (1|patient), NA), y ~ 1)
+  expect_equivalent(update_re_terms(y ~ x + (1+x|visit), ~ (1|visit)), 
+                    y ~ x + (1|visit))
 })
 
 test_that("amend_terms performs expected changes to terms objects", {
@@ -160,7 +222,7 @@ test_that("gather_ranef works correctly", {
   attr(target$g, "levels") <- paste(1:10)
   attr(target$g, "group") <- "g"
   attr(target$g, "cor") <- FALSE
-  expect_equal(gather_ranef(extract_effects(y~(1+x||g))$random, data = data),
+  expect_equal(gather_ranef(extract_effects(y~(1+x||g)), data = data),
                target)
   expect_equal(gather_ranef(list()), list())
 })
@@ -175,12 +237,4 @@ test_that("check_brm_input returns correct warnings and errors", {
   expect_warning(check_brm_input(x))
   x$family <- poisson("sqrt")
   expect_warning(check_brm_input(x))
-})
-
-test_that("remove_chains runs without errors", {
-  fit <- rename_pars(brmsfit_example)
-  expect_silent(remove_chains(1, list(fit$fit)))
-  fit$fit@sim$samples <- NULL
-  expect_warning(remove_chains(1, list(fit$fit)),
-                 "chain 1 did not contain samples")
 })

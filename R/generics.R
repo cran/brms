@@ -1,11 +1,11 @@
 brmsfit <- function(formula = NULL, family = "", link = "", data.name = "", 
                     data = data.frame(), model = "", exclude = NULL,
                     prior = list(), ranef = NULL, autocor = NULL,
-                    partial = NULL, cov.ranef = NULL, fit = NA,
-                    algorithm = "sampling") {
+                    nonlinear = NULL, partial = NULL, cov_ranef = NULL, 
+                    fit = NA, algorithm = "sampling") {
   # brmsfit class
   x <- nlist(formula, family, link, data.name, data, model, exclude, prior, 
-             ranef, autocor, partial, cov.ranef, fit, algorithm)
+             ranef, autocor, nonlinear, partial, cov_ranef, fit, algorithm)
   class(x) <- "brmsfit"
   x
 }
@@ -59,7 +59,7 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #'  is a Bayes factor between the hypothesis and its alternative.
 #'  In order to calculate this Bayes factor, all parameters related 
 #'  to the hypothesis must have proper priors
-#'  and argument \code{sample.prior} of function \code{brm} 
+#'  and argument \code{sample_prior} of function \code{brm} 
 #'  must be set to \code{TRUE}. 
 #'  When interpreting Bayes factors, make sure 
 #'  that your priors are reasonable and carefully chosen,
@@ -81,7 +81,7 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' ## fit a linear mixed effects models
 #' fit <- brm(time ~ age + sex + disease + (1 + age|patient),
 #'            data = kidney, family = gaussian("log"),
-#'            prior = prior, sample.prior = TRUE, 
+#'            prior = prior, sample_prior = TRUE, 
 #'            control = list(adapt_delta = 0.95))
 #' 
 #' ## perform two-sided hypothesis testing
@@ -125,8 +125,12 @@ hypothesis <- function(x, hypothesis, ...)
 #' @param exact_match Indicates whether parameter names 
 #'   should be matched exactly or treated as regular expression. 
 #'   Default is \code{FALSE}.
-#' @param add_chains A flag indicating if the returned data.frame 
-#'   should contain information on the chains
+#' @param add_chain A flag indicating if the returned \code{data.frame} 
+#'   should contain two additional columns. The \code{chain} column 
+#'   indicates the chain in which each sample was generated, the \code{iter} 
+#'   column indicates the iteration number within each chain.
+#' @param add_chains A deprecated alias of \code{add_chain}.
+#'   Note that the \code{chain} column will be named \code{chains} instead.
 #' @param subset A numeric vector indicating the rows 
 #'   (i.e., posterior samples) to be returned. 
 #'   If \code{NULL} (the default), all  posterior samples are returned.
@@ -178,7 +182,7 @@ posterior.samples <- function(x, pars = NA, ...)
 #'   
 #' @details To make use of this function, 
 #'  the model must contain samples of prior distributions.
-#'  This can be ensured by setting \code{sample.prior = TRUE} 
+#'  This can be ensured by setting \code{sample_prior = TRUE} 
 #'  in function \code{brm}.
 #'  Currently there are methods for \code{brmsfit} objects.
 #' @return A data frame containing the prior samples.
@@ -190,7 +194,7 @@ posterior.samples <- function(x, pars = NA, ...)
 #' fit <- brm(rating ~ treat + period + carry + (1|subject), 
 #'            data = inhaler, family = "cumulative", 
 #'            prior = set_prior("normal(0,2)", class = "b"), 
-#'            sample.prior = TRUE)
+#'            sample_prior = TRUE)
 #' 
 #' #extract all prior samples
 #' samples1 <- prior_samples(fit)
@@ -240,6 +244,7 @@ par.names <- function(x, ...)
 #' @param ... Optionally more fitted model objects.
 #' @param compare A flag indicating if the WAICs 
 #'  of the models should be compared to each other.
+#' @inheritParams predict.brmsfit
 #' 
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the WAIC, the better the fit.
@@ -288,9 +293,7 @@ WAIC <- function(x, ..., compare = TRUE)
 #' 
 #' @inheritParams WAIC
 #' @param cores The number of cores to use for parallelization. 
-#'  This can be set for an entire R session 
-#'  by \code{options(loo.cores = NUMBER)}. 
-#'  The default is \code{\link[parallel:detectCores]{detectCores()}}.
+#'  Default is \code{1}.
 #' @param wcp,wtrunc Parameters used for 
 #'  the Pareto smoothed importance sampling. 
 #'  See \code{\link[loo:loo]{loo}} for details.
@@ -454,3 +457,59 @@ standata <- function(object, ...)
 #' @export
 stanplot <- function(object, pars, ...)
   UseMethod("stanplot")
+
+#' Display marginal effects of predictors
+#' 
+#' Display marginal effects of one or more numeric and/or categorical 
+#' predictors including interaction effects of order 2.
+#' 
+#' @param x An object usually of class \code{brmsfit}
+#' @param effects An optional character vector naming effects
+#'   (main effects or interactions) for which to compute marginal plots.
+#'   If \code{NULL} (the default), plots for all effects are generated.
+#' @param data An optional \code{data.frame} containing variable values
+#'   to marginalize on. Each effect defined in \code{effects} will
+#'   be plotted separately for each row of \code{data}. 
+#'   The row names of \code{data} will be treated as titles of the subplots. 
+#'   It is recommended to only define a few rows in order to keep the plots clear.
+#'   If \code{NULL} (the default), numeric variables will be marginalized
+#'   by using their means and factors will get their reference level assigned.   
+#' @param re_formula A formula containing random effects to be considered 
+#'   in the marginal predictions. If \code{NULL}, include all random effects; 
+#'   if \code{NA} (default), include no random effects.
+#' @param probs The quantiles to be used in the computation of credible
+#'   intervals (defaults to 2.5 and 97.5 percent quantiles)
+#' @param method Either \code{"fitted"} or \code{"predict"}. 
+#'   If \code{"fitted"}, plot marginal predictions of the regression curve. 
+#'   If \code{"predict"}, plot marginal predictions of the responses.
+#' @param ncol Number of plots to display per column for each effect.
+#'   If \code{NULL} (default), \code{ncol} is computed internally based
+#'   on the number of rows of \code{data}.
+#' @param rug Logical; indicating whether a rug representation of predictor
+#'   values should be added via \code{\link[ggplot2:geom_rug]{geom_rug}}.
+#'   Default is \code{FALSE}.
+#' @inheritParams plot.brmsfit
+#' @param ... Currently ignored.
+#' 
+#' @return A list of ggplot objects one for each effect.
+#' 
+#' @examples 
+#' \dontrun{
+#' fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient),
+#'            data = epilepsy, family = poisson()) 
+#' ## plot all marginal effects
+#' plot(marginal_effects(fit), ask = FALSE)
+#' ## only plot the marginal interaction effect of 'log_Base4_c:Trt_c'
+#' ## for different values for 'log_Age_c'
+#' mdata <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
+#' plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
+#'                       data = mdata))
+#' ## also incorporate random effects variance over patients
+#' ## and add a rug representation of predictor values
+#' plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
+#'                       data = mdata, re_formula = NULL), rug = TRUE)
+#' }
+#' 
+#' @export
+marginal_effects <- function(x, ...)
+  UseMethod("marginal_effects")

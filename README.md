@@ -1,10 +1,10 @@
 <!-- README.md is generated from README.Rmd. Please edit that file -->
-[![Build Status](https://travis-ci.org/paul-buerkner/brms.svg?branch=master)](https://travis-ci.org/paul-buerkner/brms) [![Coverage](https://img.shields.io/codecov/c/github/paul-buerkner/brms/master.svg)](https://codecov.io/github/paul-buerkner/brms) [![CRAN Version](http://www.r-pkg.org/badges/version/brms)](http://cran.r-project.org/package=brms)
+[![Build Status](https://travis-ci.org/paul-buerkner/brms.svg?branch=master)](https://travis-ci.org/paul-buerkner/brms) [![Coverage Status](https://codecov.io/github/paul-buerkner/brms/coverage.svg?branch=master)](https://codecov.io/github/paul-buerkner/brms?branch=master) [![CRAN Version](http://www.r-pkg.org/badges/version/brms)](http://cran.r-project.org/package=brms)
 
 brms
 ====
 
-The <b>brms</b> package provides an interface to fit bayesian generalized linear mixed models using Stan, which is a C++ package for obtaining Bayesian inference using the No-U-turn sampler (see <http://mc-stan.org/>). The formula syntax is very similar to that of the package lme4 to provide a familiar and simple interface for performing regression analyses.
+The <b>brms</b> package provides an interface to fit Bayesian generalized (non-)linear mixed models using Stan, which is a C++ package for obtaining Bayesian inference using the No-U-turn sampler (see <http://mc-stan.org/>). The formula syntax is very similar to that of the package lme4 to provide a familiar and simple interface for performing regression analyses.
 
 <!--
 
@@ -27,34 +27,34 @@ fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient) + (1|visit) + (
 The results (i.e. posterior samples) can be investigated using
 
 ``` r
-summary(fit) 
+summary(fit, waic = TRUE) 
 #>  Family: poisson (log) 
 #> Formula: count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient) + (1 | visit) + (1 | obs) 
 #>    Data: epilepsy (Number of observations: 236) 
-#> Samples: 2 chains, each with iter = 2000; warmup = 500; thin = 1; 
-#>          total post-warmup samples = 3000
-#>    WAIC: 1143.12
+#> Samples: 4 chains, each with iter = 2000; warmup = 1000; thin = 1; 
+#>          total post-warmup samples = 4000
+#>    WAIC: 1149.34
 #>  
 #> Random Effects: 
 #> ~obs (Number of levels: 236) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.37      0.04     0.29     0.46       1096    1
+#> sd(Intercept)     0.37      0.04     0.29     0.45       1433    1
 #> 
 #> ~patient (Number of levels: 59) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.51      0.07     0.38     0.67        964    1
+#> sd(Intercept)     0.51      0.07     0.38     0.66       1154    1
 #> 
 #> ~visit (Number of levels: 4) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)      0.1       0.1        0     0.39        611    1
+#> sd(Intercept)     0.11      0.11        0     0.41       1129    1
 #> 
 #> Fixed Effects: 
 #>                   Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> Intercept             1.56      0.10     1.34     1.76        843 1.00
-#> log_Age_c             0.48      0.38    -0.25     1.23       1097 1.01
-#> log_Base4_c           1.06      0.11     0.84     1.28       1045 1.00
-#> Trt_c                -0.33      0.16    -0.65    -0.01        956 1.00
-#> log_Base4_c:Trt_c     0.35      0.22    -0.08     0.77        917 1.00
+#> Intercept             1.56      0.10     1.37     1.76       1790    1
+#> log_Age_c             0.48      0.36    -0.24     1.20       1520    1
+#> log_Base4_c           1.06      0.11     0.85     1.28       1640    1
+#> Trt_c                -0.34      0.16    -0.65    -0.03       1724    1
+#> log_Base4_c:Trt_c     0.35      0.22    -0.09     0.77       1600    1
 #> 
 #> Samples were drawn using sampling(NUTS). For each parameter, Eff.Sample 
 #> is a crude measure of effective sample size, and Rhat is the potential 
@@ -77,18 +77,46 @@ An even more detailed investigation can be achieved by applying the shinystan pa
 launch_shiny(fit) 
 ```
 
+There are several methods to compute and visualize model predictions. Suppose that we want to predict responses (i.e. seizure counts) of a person in the treatment group (`Trt_c = 0.5`) and in the control group (`Trt_c = -0.5`) with average age and average number of previous seizures at the fourth visit. Than we can use
+
+``` r
+newdata <- data.frame(Trt_c = c(0.5, -0.5), log_Age_c = 0, 
+                      log_Base4_c = 0, visit = 4)
+predict(fit, newdata = newdata, allow_new_levels = TRUE, probs = c(0.05, 0.95))
+#>   Estimate Est.Error 5%ile 95%ile
+#> 1  4.75325  3.938558     0     12
+#> 2  6.66450  5.346362     1     17
+```
+
+We need to set `allow_new_levels = TRUE` because we want to predict responses of a person that was not present in the data used to fit the model. While the `predict` method returns predictions of the responses, the `fitted` method returns predictions of the regression line.
+
+``` r
+fitted(fit, newdata = newdata, allow_new_levels = TRUE, probs = c(0.05, 0.95))
+#>   Estimate Est.Error    5%ile   95%ile
+#> 1 4.770850  3.246336 1.363647 11.01045
+#> 2 6.678924  4.605785 1.939766 15.40695
+```
+
+Both methods return the same etimate (up to random error), while the latter has smaller variance, because the uncertainty in the regression line is smaller than the uncertainty in each response. If we want to predict values of the original data, we can just leave the `newdata` argument empty.
+
+A related feature is the computation and visualization of marginal effects, which can help in better understanding the influence of the predictors on the response.
+
+``` r
+plot(marginal_effects(fit, probs = c(0.05, 0.95)))
+```
+
 For a complete list of methods to apply on <b>brms</b> models see
 
 ``` r
 methods(class = "brmsfit") 
-#>  [1] coef              family            fitted            fixef            
-#>  [5] formula           hypothesis        launch_shiny      logLik           
-#>  [9] LOO               model.frame       ngrps             nobs             
-#> [13] pairs             parnames          plot              posterior_samples
-#> [17] predict           print             prior_samples     ranef            
-#> [21] residuals         stancode          standata          stanplot         
-#> [25] summary           update            VarCorr           vcov             
-#> [29] WAIC             
+#>  [1] as.mcmc           coef              family            fitted           
+#>  [5] fixef             formula           hypothesis        launch_shiny     
+#>  [9] logLik            LOO               marginal_effects  model.frame      
+#> [13] ngrps             nobs              pairs             parnames         
+#> [17] plot              posterior_samples predict           print            
+#> [21] prior_samples     ranef             residuals         stancode         
+#> [25] standata          stanplot          summary           update           
+#> [29] VarCorr           vcov              WAIC             
 #> see '?methods' for accessing help and source code
 ```
 

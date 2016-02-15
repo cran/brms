@@ -1,6 +1,14 @@
 test_that("all S3 methods have reasonable ouputs", {
   fit <- rename_pars(brmsfit_example)
   # test S3 methods in alphabetical order
+  # as.mcmc
+  chains <-fit$fit@sim$chains
+  mc <- as.mcmc(fit)
+  expect_equal(length(mc), chains)
+  expect_equal(dim(mc[[1]]), c(Nsamples(fit) / chains, length(parnames(fit))))
+  # test assumes thin = 1
+  expect_equal(dim(as.mcmc(fit, inc_warmup = TRUE)[[1]]), 
+               c(fit$fit@sim$iter, length(parnames(fit))))
   # coef
   expect_equal(dim(coef(fit)$visit), c(4, 2))
   # family
@@ -12,7 +20,8 @@ test_that("all S3 methods have reasonable ouputs", {
                c("Estimate", "Est.Error", "2.5%ile", "97.5%ile"))
   
   newdata <- data.frame(log_Age_c = c(0, -0.2), visit = c(1, 4),
-                        Trt_c = c(-0.2, 0.5), count = c(20, 13))
+                        Trt_c = c(-0.2, 0.5), count = c(20, 13),
+                        patient = c(1, 42))
   fitted2 <- fitted(fit, newdata = newdata)
   expect_equal(dim(fitted2), c(2, 4))
   newdata$visit <- c(1, 6)
@@ -56,7 +65,20 @@ test_that("all S3 methods have reasonable ouputs", {
   loo_compare3 <- suppressWarnings(LOO(fit, fit, fit, cores = 1))
   expect_equal(length(loo_compare3), 3)
   expect_equal(dim(attr(loo_compare3, "compare")), c(3, 2))
-  expect_output(print(loo_compare3), "Weights")
+  #expect_output(print(loo_compare3), "Weights")
+  # marginal_effects (the related plot method is tested in tests.plots)
+  mdata = data.frame(log_Age_c = c(-0.3, 0, 0.3), count = c(10, 20, 30), 
+                     visit = 1:3, patient = 1)
+  exp_nrow <- nrow(mdata) * nobs(fit)
+  expect_equal(nrow(marginal_effects(fit, data = mdata)[[1]]),
+               exp_nrow)
+  expect_equal(nrow(marginal_effects(fit, effects = "Trt_c", data = mdata)[[1]]), 
+               exp_nrow)
+  expect_equal(nrow(marginal_effects(fit, re_formula = NULL, data = mdata)[[1]]), 
+               exp_nrow)
+  expect_error(marginal_effects(fit), "Please specify argument 'data' manually")
+  expect_error(marginal_effects(fit, effects = "Trt_cc"), 
+               "No valid effects specified")
   # model.frame
   expect_equal(model.frame(fit), fit$data)
   # ngrps
@@ -64,7 +86,7 @@ test_that("all S3 methods have reasonable ouputs", {
   # nobs
   expect_equal(nobs(fit), nrow(epilepsy))
   # parnames 
-  expect_equal(parnames(fit)[c(1, 3, 7, 16, 18, 22)],
+  expect_equal(parnames(fit)[c(1, 3, 7, 16, 18, 21)],
                c("b_Intercept", "ar[1]", "cor_visit_Intercept_Trt_c", 
                  "r_visit[4,Trt_c]", "prior_sigma", "lp__"))
   # plot tested in tests.plots.R
@@ -83,7 +105,8 @@ test_that("all S3 methods have reasonable ouputs", {
                c(nrow(epilepsy), 3))
   
   newdata <- data.frame(log_Age_c = c(0, -0.2), visit = c(1, 4),
-                        Trt_c = c(-0.2, 0.5), count = c(2, 10))
+                        Trt_c = c(-0.2, 0.5), count = c(2, 10),
+                        patient = c(1, 42))
   predict2 <- predict(fit, newdata = newdata)
   expect_equal(dim(predict2), c(2, 4))
   
@@ -97,7 +120,7 @@ test_that("all S3 methods have reasonable ouputs", {
   prs1 <- prior_samples(fit)
   expect_equal(dimnames(prs1),
                list(as.character(1:Nsamples(fit)), 
-                    c("sd_visit", "sigma", "b_Intercept", "b", "cor_visit")))
+                    c("sd_visit", "sigma", "b", "cor_visit")))
   
   prs2 <- prior_samples(fit, pars = "b_Trt_c")
   expect_equal(dimnames(prs2), list(as.character(1:Nsamples(fit)), "b_Trt_c"))
@@ -125,10 +148,10 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(names(standata(fit)),
                c("N", "Y", "offset", "K", "X", "X_means",
                  "J_1", "N_1", "K_1", "Z_1", "NC_1",
-                 "tgroup", "E_pre", "Kar", "Kma", "Karma"))
+                 "tg", "E_pre", "Kar", "Kma", "Karma"))
   # stanplot tested in tests.plots.R
   # summary
-  .summary <- summary(fit)
+  .summary <- summary(fit, waic = TRUE)
   expect_true(is.numeric(.summary$fixed))
   expect_equal(rownames(.summary$fixed), c("Intercept", "Trt_c"))
   expect_equal(colnames(.summary$fixed), 

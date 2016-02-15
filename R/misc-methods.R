@@ -26,10 +26,10 @@ print.brmssummary <- function(x, digits = 2, ...) {
                "         total post-warmup samples = ", final_samples, "\n"))
     cat(paste0("   WAIC: ", waic, "\n \n"))
     
-    if (length(x$group)) {
+    if (length(x$random)) {
       cat("Random Effects: \n")
-      for (i in 1:length(x$group)) {
-        g <- x$group[i]
+      for (i in seq_along(x$random)) {
+        g <- names(x$random)[i]
         cat(paste0("~",g," (Number of levels: ",x$ngrps[[g]],") \n"))
         if (x$algorithm == "sampling") {
           x$random[[g]][, "Eff.Sample"] <- 
@@ -172,7 +172,10 @@ print.iclist <- function(x, digits = 2, ...) {
     # models were compared using the compare_ic function
     mat <- rbind(mat, attr(x, "compare"))
     weights <- c(attr(x, "weights"), rep(NA, nrow(attr(x, "compare")))) 
-    mat <- cbind(mat, Weights = weights)
+    if (length(na.omit(weights))) {
+      # no need to show the weights column if all weights are NA
+      mat <- cbind(mat, Weights = weights)
+    }
   }
   print(round(mat, digits = digits), na.print = "")
   invisible(x)
@@ -188,50 +191,8 @@ print.brmshypothesis <- function(x, digits = 2, ...) {
   invisible(x)
 }
 
-#' @rdname hypothesis
-#' @method plot brmshypothesis
 #' @export
-plot.brmshypothesis <- function(x, N = 5, ignore_prior = FALSE, 
-                                theme = "classic", ask = TRUE, 
-                                do_plot = TRUE, newpage = TRUE, ...) {
-  if (!is.data.frame(x$samples)) {
-    stop("No posterior samples found")
-  }
-  .plot_fun <- function(i) {
-    # create the ggplot object for each hypothesis
-    # Args: i: index variable
-    ggplot(x$samples, aes_string(x = hypnames[i])) + 
-      geom_density(aes_string(fill = "Type"), alpha = 0.5, na.rm = TRUE) + 
-      scale_fill_manual(values = c("red", "blue")) + 
-      xlab("") + ylab("") + ggtitle(hyps[i]) + 
-      do.call(paste0("theme_", theme), args = list())
-  }
-  if (ignore_prior) {
-    x$samples <- subset(x$samples, x$samples$Type == "posterior")
-  }
-  if (do_plot) {
-    default_ask <- devAskNewPage()
-    on.exit(devAskNewPage(default_ask))
-    devAskNewPage(ask = FALSE)
-  }
-  hyps <- rownames(x$hypothesis)
-  hypnames <- names(x$samples)[seq_along(hyps)]
-  n_plots <- ceiling(length(hyps) / N)
-  plots <- vector(mode = "list", length = n_plots)
-  for (i in 1:n_plots) {
-    I <- ((i - 1) * N + 1):min(i * N, length(hyps))
-    temp_plot <- lapply(I, .plot_fun)
-    plots[[i]] <- arrangeGrob(grobs = temp_plot, ncol = 1, 
-                              nrow = length(temp_plot), ...)
-    if (do_plot) {
-      if (newpage || i > 1) grid.newpage()
-      grid.draw(plots[[i]])
-      if (i == 1) devAskNewPage(ask = ask)
-    }
-  }
-  if (do_plot) {
-    invisible(plots) 
-  } else {
-    plots
-  }
+print.brmsMarginalEffects <- function(x, ...) {
+  plot(x, ...)
 }
+  

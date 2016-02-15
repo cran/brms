@@ -82,57 +82,51 @@ loglik_multi_cauchy <- function(n, data, samples, link = "identity") {
 
 loglik_gaussian_cov <- function(n, data, samples, link = "identity") {
   # currently, only ARMA1 processes are implemented
-  rows <- with(data, begin_tg[n]:(begin_tg[n] + nrows_tg[n] - 1))
-  Y_part <- data$Y[rows]
-  eta_part <- samples$eta[, rows, drop = FALSE]
-  squared_se_part <- data$squared_se[rows]
-  # different functions for different residucal cov matrices
+  obs <- with(data, begin_tg[n]:(begin_tg[n] + nobs_tg[n] - 1))
+  args <- list(sigma = samples$sigma, se2 = data$se2[obs], 
+               nrows = length(obs))
   if (!is.null(samples$ar) && is.null(samples$ma)) {
     # AR1 process
-    Sigma <- get_cov_matrix_ar1(ar = samples$ar, sigma = samples$sigma, 
-                                sq_se = squared_se_part, nrows = length(rows)) 
+    args$ar <- samples$ar
+    Sigma <- do.call(get_cov_matrix_ar1, args)
   } else if (is.null(samples$ar) && !is.null(samples$ma)) {
     # MA1 process
-    Sigma <- get_cov_matrix_ma1(ma = samples$ma, sigma = samples$sigma, 
-                                sq_se = squared_se_part, nrows = length(rows)) 
+    args$ma <- samples$ma
+    Sigma <- do.call(get_cov_matrix_ma1, args)
   } else {
     # ARMA1 process
-    Sigma <- get_cov_matrix_arma1(ar = samples$ar, ma = samples$ma, 
-                                  sigma = samples$sigma, sq_se = squared_se_part, 
-                                  nrows = length(rows))
+    args[c("ar", "ma")] <- samples[c("ar", "ma")]
+    Sigma <- do.call(get_cov_matrix_arma1, args)
   }
   out <- sapply(1:nrow(samples$eta), function(i)
-    dmulti_normal(Y_part, mu = ilink(eta_part[i, ], link), 
-                 Sigma = Sigma[i, , ], log = TRUE))
+    dmulti_normal(data$Y[obs], Sigma = Sigma[i, , ], log = TRUE,
+                  mu = ilink(samples$eta[i, obs], link)))
   # weights, truncation and censoring not allowed
   out
 }
 
 loglik_student_cov <- function(n, data, samples, link = "identity") {
   # currently, only ARMA1 processes are implemented
-  rows <- with(data, begin_tg[n]:(begin_tg[n] + nrows_tg[n] - 1))
-  Y_part <- data$Y[rows]
-  eta_part <- samples$eta[, rows, drop = FALSE]
-  squared_se_part <- data$squared_se[rows]
-  # different functions for different residucal cov matrices
+  obs <- with(data, begin_tg[n]:(begin_tg[n] + nobs_tg[n] - 1))
+  args <- list(sigma = samples$sigma, se2 = data$se2[obs], 
+               nrows = length(obs))
   if (!is.null(samples$ar) && is.null(samples$ma)) {
     # AR1 process
-    Sigma <- get_cov_matrix_ar1(ar = samples$ar, sigma = samples$sigma, 
-                                sq_se = squared_se_part, nrows = length(rows)) 
+    args$ar <- samples$ar
+    Sigma <- do.call(get_cov_matrix_ar1, args)
   } else if (is.null(samples$ar) && !is.null(samples$ma)) {
     # MA1 process
-    Sigma <- get_cov_matrix_ma1(ma = samples$ma, sigma = samples$sigma, 
-                                sq_se = squared_se_part, nrows = length(rows)) 
+    args$ma <- samples$ma
+    Sigma <- do.call(get_cov_matrix_ma1, args)
   } else {
     # ARMA1 process
-    Sigma <- get_cov_matrix_arma1(ar = samples$ar, ma = samples$ma, 
-                                  sigma = samples$sigma, sq_se = squared_se_part, 
-                                  nrows = length(rows))
+    args[c("ar", "ma")] <- samples[c("ar", "ma")]
+    Sigma <- do.call(get_cov_matrix_arma1, args)
   }
   out <- sapply(1:nrow(samples$eta), function(i)
-    dmulti_student(Y_part, df = samples$nu[i, ], 
-                  mu = ilink(eta_part[i, ], link), 
-                  Sigma = Sigma[i, , ], log = TRUE))
+    dmulti_student(data$Y[obs], df = samples$nu[i, ], 
+                   mu = ilink(samples$eta[i, obs], link), 
+                   Sigma = Sigma[i, , ], log = TRUE))
   # weights, truncation and censoring not yet allowed
   out
 }
@@ -232,16 +226,16 @@ loglik_beta <- function(n, data, samples, link = "logit") {
 loglik_hurdle_poisson <- function(n, data, samples, link = "log") {
   theta <- ilink(samples$eta[, n + data$N_trait], "logit")
   args <- list(lambda = ilink(samples$eta[, n], link))
-  out <- hurdle_loglik(pdf = dpois, theta = theta, 
-                       args = args, n = n, data = data)
+  out <- hurdle_loglik_discrete(pdf = dpois, theta = theta, 
+                                args = args, n = n, data = data)
   weight_loglik(out, n = n, data = data)
 }
 
 loglik_hurdle_negbinomial <- function(n, data, samples, link = "log") {
   theta <- ilink(samples$eta[, n + data$N_trait], "logit")
   args <- list(mu = ilink(samples$eta[, n], link), size = samples$shape)
-  out <- hurdle_loglik(pdf = dnbinom, theta = theta, 
-                       args = args, n = n, data = data)
+  out <- hurdle_loglik_discrete(pdf = dnbinom, theta = theta, 
+                                args = args, n = n, data = data)
   weight_loglik(out, n = n, data = data)
 }
 
@@ -249,8 +243,8 @@ loglik_hurdle_gamma <- function(n, data, samples, link = "log") {
   theta <- ilink(samples$eta[, n + data$N_trait], "logit")
   args <- list(shape = samples$shape, 
                scale = ilink(samples$eta[, n], link) / samples$shape)
-  out <- hurdle_loglik(pdf = dgamma, theta = theta, 
-                       args = args, n = n, data = data)
+  out <- hurdle_loglik_continuous(pdf = dgamma, theta = theta, 
+                                  args = args, n = n, data = data)
   weight_loglik(out, n = n, data = data)
 }
 
@@ -270,12 +264,22 @@ loglik_zero_inflated_negbinomial <- function(n, data, samples, link = "log") {
   weight_loglik(out, n = n, data = data)
 }
 
-loglik_zero_inflated_binomial <- function(n, data, samples, link = "log") {
+loglik_zero_inflated_binomial <- function(n, data, samples, link = "logit") {
   trials <- ifelse(length(data$max_obs) > 1, data$max_obs[n], data$max_obs) 
   theta <- ilink(samples$eta[, n + data$N_trait], "logit")
   args <- list(size = trials, prob = ilink(samples$eta[, n], link))
   out <- zero_inflated_loglik(pdf = dbinom, theta = theta, 
                               args = args, n = n, data = data)
+  weight_loglik(out, n = n, data = data)
+}
+
+loglik_zero_inflated_beta <- function(n, data, samples, link = "logit") {
+  theta <- ilink(samples$eta[, n + data$N_trait], "logit")
+  mu <- ilink(samples$eta[, n], link)
+  args <- list(shape1 = mu * samples$phi, shape2 = (1 - mu) * samples$phi)
+  # zi_beta is technically a hurdle model
+  out <- hurdle_loglik_continuous(pdf = dbeta, theta = theta, 
+                                  args = args, n = n, data = data)
   weight_loglik(out, n = n, data = data)
 }
 
@@ -418,8 +422,8 @@ weight_loglik <- function(x, n, data) {
   }
 }
 
-hurdle_loglik <- function(pdf, theta, args, n, data) {
-  # loglik values for hurdle modles
+hurdle_loglik_discrete <- function(pdf, theta, args, n, data) {
+  # loglik values for discrete hurdle models
   # Args:
   #  pdf: a probability density function 
   #  theta: bernoulli hurdle parameter
@@ -427,6 +431,20 @@ hurdle_loglik <- function(pdf, theta, args, n, data) {
   #  data: data initially passed to Stan
   # Returns:
   #   vector of loglik values
+  if (data$Y[n] == 0) {
+    dbinom(1, size = 1, prob = theta, log = TRUE)
+  } else {
+    dbinom(0, size = 1, prob = theta, log = TRUE) + 
+      do.call(pdf, c(data$Y[n], args, log = TRUE)) -
+      log(1 - do.call(pdf, c(0, args)))
+  }
+}
+
+hurdle_loglik_continuous <- function(pdf, theta, args, n, data) {
+  # loglik values for continuous hurdle models
+  # does not call log(1 - do.call(pdf, c(0, args)))
+  # Args:
+  #   same as hurdle_loglik_discrete
   if (data$Y[n] == 0) {
     dbinom(1, size = 1, prob = theta, log = TRUE)
   } else {

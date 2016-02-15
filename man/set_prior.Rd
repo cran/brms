@@ -4,7 +4,8 @@
 \alias{set_prior}
 \title{Prior Definitions for \pkg{brms} Models}
 \usage{
-set_prior(prior, class = "b", coef = "", group = "")
+set_prior(prior, class = "b", coef = "", group = "", nlpar = "",
+  lb = NULL, ub = NULL)
 }
 \arguments{
 \item{prior}{A character string defining a distribution in \pkg{Stan} language}
@@ -15,6 +16,14 @@ See 'Details' for other valid parameter classes.}
 \item{coef}{Name of the (fixed, category specific, or random effects) parameter}
 
 \item{group}{Grouping factor for random effects parameters.}
+
+\item{nlpar}{Name of a non-linear parameter. Only used in non-linear models.}
+
+\item{lb}{Lower bound for parameter restriction. Currently only allowed
+if \code{class = "b"}. Defaults to \code{NULL}, that is no restriction.}
+
+\item{ub}{Upper bound for parameter restriction. Currently only allowed
+if \code{class = "b"}. Defaults to \code{NULL}, that is no restriction.}
 }
 \value{
 An object of class \code{brmsprior} to be used in the \code{prior}
@@ -61,11 +70,19 @@ Define priors for specific parameters or classes of parameters
   This also leads to faster sampling, because priors can be vectorized in this case. 
   Both ways of defining priors can be combined using for instance 
   \code{set_prior("normal(0,2)", class = "b")} and \cr
-  \code{set_prior("normal(0,10)", class = "b", coef = "Intercept")}
+  \code{set_prior("normal(0,10)", class = "b", coef = "x1")}
   at the same time. This will set a \code{normal(0,10)} prior on 
-  the Intercept and a \code{normal(0,2)} prior on all other fixed effects. 
-  The intercept can have a separate prior without breaking vectorization. 
-  However, this is not the case for other fixed effects.
+  the fixed effect of \code{x1} and a \code{normal(0,2)} prior 
+  on all other fixed effects. However, this will break vectorization and
+  may slow down the sampling procedure a bit.
+  
+  In case of the default intercept parameterization 
+  (discussed in the 'Details' section of \code{\link[brms:brm]{brm}}),
+  the fixed effects intercept has its own parameter class 
+  named \code{"Intercept"} and priors can thus be 
+  specified via \code{set_prior("<prior>", class = "Intercept")}.
+  Setting a prior on the intercept will not break vectorization
+  of the other fixed effects.
   
   A special shrinkage prior to be applied on fixed effects is the horseshoe prior.
   It is symmetric around zero with fat tails and an infinitely large spike
@@ -73,28 +90,52 @@ Define priors for specific parameters or classes of parameters
   many regression coefficients,although only a minority of them is non-zero. 
   For more details see Carvalho et al. (2009).
   The horseshoe prior can be applied on all fixed effects at once 
-  (excluding the intercept) by using \code{set_prior("horseshoe(<df>)")}.
-  Replace \code{<df>} with the desired degrees of freedom of the student-t prior
-  of the local shrinkage parameters. 
-  In their paper, Carvalho et al. (2009) use one degrees of freedom, but this
-  my lead to an increased number of divergent transition in \pkg{Stan}
-  so that slightly higher values may often be a better option. 
+  (excluding the intercept) by using \code{set_prior("horseshoe(1)")}.
+  The \code{1} implies that the student-t prior of the local shrinkage 
+  parameters has 1 degrees of freedom. This may, however, lead to an 
+  increased number of divergent transition in \pkg{Stan}.
+  Accordingly, increasing the degrees of freedom to slightly higher values 
+  (e.g., \code{3}) may often be a better option, although the prior 
+  no longer resembles a horseshoe in this case. 
   Generally, models with horseshoe priors a more likely than other models
   to have divergent transitions so that increasing \code{adapt_delta} 
   from \code{0.8} to values closer to \code{1} will often be necessary.
   See the documentation of \code{\link[brms:brm]{brm}} for instructions
   on how to increase \code{adapt_delta}. \cr
   
+  In non-linear models, fixed effects are defined separately for each
+  non-linear parameter. Accordingly, it is necessary to specify
+  the corresponding non-linear parameter in \code{set_prior} so that priors
+  we can be assigned correctly. 
+  If, for instance, \code{alpha} is the parameter and \code{x} the predictor
+  for which we want to define the prior, we can write
+  \code{set_prior("<prior>", coef = "x", nlpar = "alpha")}. 
+  As a shortcut we can use \code{set_prior("<prior>", nlpar = "alpha")}
+  to set the same prior on all fixed effects of \code{alpha} at once.
+  
+  If desired, fixed effects parameters can be restricted to fall only 
+  within a certain interval using the \code{lb} and \code{ub} arguments
+  of \code{set_prior}. This is often required when defining priors
+  that are not defined everywhere on the real line, such as uniform
+  or gamma priors. When defining a \code{uniform(2,4)} prior, 
+  you should write \code{set_prior("uniform(2,4)", lb = 2, ub = 4)}. 
+  When using a prior that is defined on the postive reals only 
+  (such as a gamma prior) set \code{lb = 0}. 
+  In most situations, it is not useful to restrict fixed effects
+  parameters through bounded priors, but if you really want to
+  this is the way to go.
+  
   3. Autocorrelation parameters
   
   The autocorrelation parameters currently implemented are named 
   \code{ar} (autoregression), \code{ma} (moving average),
   and \code{arr} (autoregression of the response).
-  The default prior for autocorrelation parameters is an 
-  improper flat prior over the reals. 
-  Other priors can be defined by \cr
-  \code{set_prior("<prior>", class = "ar")} 
-  for \code{ar} effects and similar for \code{ma} and \code{arr} effects.
+  Priors can be defined by \code{set_prior("<prior>", class = "ar")} 
+  for \code{ar} and similar for \code{ma} and \code{arr} effects.
+  By default, \code{ar} and \code{ma} are bounded between \code{-1} 
+  and \code{1} and \code{arr} is unbounded (you may change this 
+  by using the arguments \code{lb} and \code{ub}). The default
+  prior is flat over the definition area.
   
   4. Standard deviations of random effects
   
@@ -106,9 +147,9 @@ Define priors for specific parameters or classes of parameters
   The corresponding standard deviation parameters are named as 
   \code{sd_g_Intercept} and \code{sd_g_x1} respectively. 
   These parameters are restriced to be non-negative and, by default, 
-  have a half cauchy prior with a scale parameter that depends on the 
-  standard deviation of the response after applying the link function.
-  Minimally, the scale parameter is 5. 
+  have a half student-t prior with 3 degrees of freedom and a 
+  scale parameter that depends on the standard deviation of the response 
+  after applying the link function. Minimally, the scale parameter is 5. 
   To define a prior distribution only for standard deviations 
   of a specific grouping factor,
   use \cr \code{set_prior("<prior>", class = "sd", group = "<group>")}. 
@@ -117,6 +158,10 @@ Define priors for specific parameters or classes of parameters
   \code{set_prior("<prior>", class = "sd", group = "<group>", coef = "<coef>")}. 
   Recommendations on useful prior distributions for 
   standard deviations are given in Gelman (2006). \cr
+  
+  When defining priors on random effects parameters in non-linear models, 
+  please make sure to specify the corresponding non-linear parameter 
+  through the \code{nlpar} argument in the same way as for fixed effects.
   
   5. Correlations of random effects 
   
@@ -141,7 +186,7 @@ Define priors for specific parameters or classes of parameters
   Families \code{gaussian}, \code{student}, and \code{cauchy} 
   need the parameter \code{sigma} 
   to account for the residual standard deviation.
-  By default, \code{sigma} has a half cauchy prior that scales 
+  By default, \code{sigma} has a half student-t prior that scales 
   in the same way as the random effects standard deviations. 
   Furthermore, family \code{student} needs the parameter 
   \code{nu} representing the degrees of freedom of students t distribution. 
@@ -149,7 +194,7 @@ Define priors for specific parameters or classes of parameters
   and a fixed lower bound of \code{1}.
   Families \code{gamma}, \code{weibull}, \code{inverse.gaussian}, and
   \code{negbinomial} need a \code{shape} parameter that has a 
-  \code{"cauchy(0,5)"} prior by default. 
+  \code{"student_t(3,0,5)"} prior by default. 
   For families \code{cumulative}, \code{cratio}, \code{sratio}, 
   and \code{acat}, and only if \code{threshold = "equidistant"}, 
   the parameter \code{delta} is used to model the distance between 

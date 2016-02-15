@@ -13,6 +13,10 @@ isFALSE <- function(x) {
   identical(FALSE, x)
 }
 
+is_equal <- function(x, y, ...) {
+  isTRUE(all.equal(x, y, ...))
+}
+
 rmNum <- function(x) {
   # remove all numeric elements from an object
   x[sapply(x, Negate(is.numeric))]
@@ -104,6 +108,18 @@ nlist <- function(...) {
   dots
 }
 
+rhs <- function(x) {
+  # return the righthand side of a formula
+  x <- as.formula(x)
+  if (length(x) == 3) x[-2] else x
+}
+
+lhs <- function(x) {
+  # return the lefthand side of a formula
+  x <- as.formula(x)
+  if (length(x) == 3) update(x, . ~ 1) else NULL
+}
+
 get_matches <- function(pattern, text, ...) {
   # get pattern matches in text as vector
   unlist(regmatches(text, gregexpr(pattern, text, ...)))
@@ -116,12 +132,22 @@ logit <- function(p) {
 
 ilogit <- function(x) { 
   # compute the inverse of logit
-  exp(x) / (1 + exp(x))
+  1 / (1 + exp(-x))
 }
 
 incgamma <- function(x, a) {
   # incomplete gamma funcion
   pgamma(x, shape = a) * gamma(a)
+}
+
+wsp <- function(x, nsp = 1) {
+  # add leading and trailing whitespaces
+  # Args:
+  #   x: object accepted by paste
+  #   nsp: number of whitespaces to add
+  sp <- paste(rep(" ", nsp), collapse = "")
+  if (length(x)) paste0(sp, x, sp)
+  else NULL
 }
 
 is.formula <- function(x, or = TRUE) {
@@ -175,7 +201,7 @@ is.lognormal <- function(family, link = "identity", nresp = 1) {
     link <- family$link
     family <- family$family
   }
-  family == "gaussian" && link == "log" && nresp == 1
+  family %in% "gaussian" && link == "log" && nresp == 1
 }
 
 is.binary <- function(family) {
@@ -198,7 +224,7 @@ is.categorical <- function(family) {
   if (is(family, "family")) {
     family <- family$family
   }
-  family == "categorical" 
+  family %in% "categorical" 
 }
 
 is.skewed <- function(family) {
@@ -222,7 +248,9 @@ is.hurdle <- function(family) {
   if (is(family, "family")) {
     family <- family$family
   }
-  family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma")
+  # zi_beta is technically a hurdle model
+  family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
+                "zero_inflated_beta")
 }
 
 is.zero_inflated <- function(family) {
@@ -238,7 +266,7 @@ is.2PL <- function(family) {
   if (!is(family, "brmsfamily")) {
     out <- FALSE
   } else {
-    out <- family$family == "bernoulli" && identical(family$type, "2PL")
+    out <- family$family %in% "bernoulli" && identical(family$type, "2PL")
   }
   out
 }
@@ -254,7 +282,8 @@ use_real <- function(family) {
     family <- family$family
   }
   is.linear(family) || is.skewed(family) || 
-    family %in% c("inverse.gaussian", "beta", "hurdle_gamma")
+    family %in% c("inverse.gaussian", "beta", "zero_inflated_beta", 
+                  "hurdle_gamma")
 }
 
 use_int <- function(family) {
@@ -280,7 +309,7 @@ has_cat <- function(family) {
   if (is(family, "family")) {
     family <- family$family
   }
-  family == "categorical" || is.ordinal(family)
+  is.categorical(family) || is.ordinal(family)
 }
 
 has_shape <- function(family) {
@@ -307,24 +336,6 @@ has_sigma <- function(family, autocor = cor_arma(), se = FALSE,
     (!se || get_ar(autocor) || get_ma(autocor)) 
 }
 
-check_intercept <- function(names) {
-  # check if model contains fixed effects intercept
-  #
-  # Args:
-  #   names: The names of the design matrix
-  #          to be checked for an intercept
-  # Returns:
-  #   a list containing the updated effect names
-  #   as well as an indicator if the model has an intercept
-  if (!is.null(names)) {
-    has_intercept <- "Intercept" == names[1]
-    if (has_intercept) names <- names[-1]
-  } else {
-    has_intercept <- FALSE
-  }
-  nlist(names, has_intercept)
-}
-
 needs_kronecker <- function(ranef, names_cov_ranef) {
   # checks if a model needs the kronecker product
   # Args: 
@@ -347,6 +358,27 @@ get_boundaries <- function(trunc) {
   } else {
     .trunc()
   }
+}
+
+use_alias <- function(arg, alias = NULL, warn = TRUE) {
+  # ensure that deprecated arguments still work
+  # Args:
+  #   arg: input to the new argument
+  #   alias: input to the deprecated argument
+  arg_name <- Reduce(paste, deparse(substitute(arg)))
+  alias_name <- Reduce(paste, deparse(substitute(alias)))
+  if (!is.null(alias)) {
+    arg <- alias
+    if (substr(alias_name, 1, 5) == "dots$") {
+      alias_name <- substr(alias_name, 6, nchar(alias_name))
+    }
+    if (warn) {
+      warning(paste0("Argument '", alias_name, "' is deprecated. ", 
+                     "Please use argument '", arg_name, "' instead."), 
+              call. = FALSE)
+    }
+  }
+  arg
 }
 
 # startup messages for brms

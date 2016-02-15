@@ -5,8 +5,8 @@
 \title{Overview on Priors for \pkg{brms} Models}
 \usage{
 get_prior(formula, data = NULL, family = gaussian(), autocor = NULL,
-  partial = NULL, threshold = c("flexible", "equidistant"),
-  internal = FALSE)
+  nonlinear = NULL, partial = NULL, threshold = c("flexible",
+  "equidistant"), internal = FALSE)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): 
@@ -23,13 +23,14 @@ Although it is optional, we strongly recommend to supply a data.frame.}
 to be used in the model. This can be a family function, 
 a call to a family function or a character string naming the family.
 Currently, the following families are supported:
-\code{gaussian}, \code{student}, \code{cauchy}, \code{binomial}, 
+\code{gaussian}, \code{student}, \code{cauchy} (deprecated), \code{binomial}, 
 \code{bernoulli}, \code{Beta}, \code{poisson}, \code{negbinomial}, 
 \code{geometric}, \code{Gamma}, \code{inverse.gaussian}, 
 \code{exponential}, \code{weibull}, \code{categorical}, \code{cumulative}, 
 \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
 \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{zero_inflated_binomial},
-\code{zero_inflated_negbinomial}, and \cr \code{zero_inflated_poisson}
+\code{zero_inflated_beta}, \code{zero_inflated_negbinomial}, 
+and \code{zero_inflated_poisson}.
 Every family function has a \code{link} argument allowing to specify
 the link function to be applied on the response variable.
 If not specified, default links are used.
@@ -47,6 +48,18 @@ See the documentation of \code{\link{cor_brms}} for a description
 of the available correlation structures. Defaults to NULL, 
 corresponding to no correlations.}
 
+\item{nonlinear}{An optional list of formuluas, specifying 
+linear models for non-linear parameters. If \code{NULL} (the default)
+\code{formula} is treated as an ordinary formula. 
+If not \code{NULL}, \code{formula} is treated as a non-linear model
+and \code{nonlinear} should contain a formula for each non-linear 
+parameter, which has the parameter on the left hand side and its
+linear predictor on the right hand side.
+Alternatively, it can be a single formula with all non-linear
+parameters on the left hand side (separated by a \code{+}) and a
+common linear predictor on the right hand side.
+More information is given under 'Details'.}
+
 \item{partial}{A one sided formula of the form \code{~expression} 
 allowing to specify predictors with category specific effects 
 in non-cumulative ordinal models 
@@ -63,7 +76,7 @@ Setting priors on these parameters is not recommended}
 }
 \value{
 A data.frame with columns \code{prior}, \code{class}, \code{coef}, and \code{group}
-  and several rows, each providing information on a paramter (or parameter class) on which
+  and several rows, each providing information on a parameter (or parameter class) on which
   priors can be specified. The prior column is empty except for internal default priors.
 }
 \description{

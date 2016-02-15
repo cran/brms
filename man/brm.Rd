@@ -2,15 +2,16 @@
 % Please edit documentation in R/brm.R
 \name{brm}
 \alias{brm}
-\title{Fit Bayesian Generalized Linear and Ordinal Mixed Models}
+\title{Fit Bayesian Generalized (Non-)Linear and Ordinal Mixed Models}
 \usage{
 brm(formula, data = NULL, family = gaussian(), prior = NULL,
-  addition = NULL, autocor = NULL, partial = NULL,
-  threshold = c("flexible", "equidistant"), cov.ranef = NULL,
-  ranef = TRUE, sample.prior = FALSE, fit = NA, inits = "random",
-  chains = 2, iter = 2000, warmup = 500, thin = 1, cluster = 1,
-  cluster_type = "PSOCK", algorithm = c("sampling", "meanfield",
-  "fullrank"), silent = TRUE, seed = 12345, save.model = NULL, ...)
+  addition = NULL, autocor = NULL, nonlinear = NULL, partial = NULL,
+  threshold = c("flexible", "equidistant"), cov_ranef = NULL,
+  ranef = TRUE, sample_prior = FALSE, fit = NA, inits = "random",
+  chains = 4, iter = 2000, warmup = floor(iter/2), thin = 1,
+  cluster = 1, cluster_type = "PSOCK", control = NULL,
+  algorithm = c("sampling", "meanfield", "fullrank"), silent = TRUE,
+  seed = 12345, save_model = NULL, ...)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): 
@@ -27,13 +28,14 @@ Although it is optional, we strongly recommend to supply a data.frame.}
 to be used in the model. This can be a family function, 
 a call to a family function or a character string naming the family.
 Currently, the following families are supported:
-\code{gaussian}, \code{student}, \code{cauchy}, \code{binomial}, 
+\code{gaussian}, \code{student}, \code{cauchy} (deprecated), \code{binomial}, 
 \code{bernoulli}, \code{Beta}, \code{poisson}, \code{negbinomial}, 
 \code{geometric}, \code{Gamma}, \code{inverse.gaussian}, 
 \code{exponential}, \code{weibull}, \code{categorical}, \code{cumulative}, 
 \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
 \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{zero_inflated_binomial},
-\code{zero_inflated_negbinomial}, and \cr \code{zero_inflated_poisson}
+\code{zero_inflated_beta}, \code{zero_inflated_negbinomial}, 
+and \code{zero_inflated_poisson}.
 Every family function has a \code{link} argument allowing to specify
 the link function to be applied on the response variable.
 If not specified, default links are used.
@@ -61,6 +63,18 @@ See the documentation of \code{\link{cor_brms}} for a description
 of the available correlation structures. Defaults to NULL, 
 corresponding to no correlations.}
 
+\item{nonlinear}{An optional list of formuluas, specifying 
+linear models for non-linear parameters. If \code{NULL} (the default)
+\code{formula} is treated as an ordinary formula. 
+If not \code{NULL}, \code{formula} is treated as a non-linear model
+and \code{nonlinear} should contain a formula for each non-linear 
+parameter, which has the parameter on the left hand side and its
+linear predictor on the right hand side.
+Alternatively, it can be a single formula with all non-linear
+parameters on the left hand side (separated by a \code{+}) and a
+common linear predictor on the right hand side.
+More information is given under 'Details'.}
+
 \item{partial}{A one sided formula of the form \code{~expression} 
 allowing to specify predictors with category specific effects 
 in non-cumulative ordinal models 
@@ -72,7 +86,7 @@ in non-cumulative ordinal models
 \code{"equidistant"} restricts the distance between 
 consecutive thresholds to the same value.}
 
-\item{cov.ranef}{A list of matrices that are proportional to the 
+\item{cov_ranef}{A list of matrices that are proportional to the 
 (within) covariance structure of the random effects. 
 The names of the matrices should correspond to columns 
 in \code{data} that are used as grouping factors. 
@@ -85,7 +99,7 @@ should be saved (default is \code{TRUE}).
 Set to \code{FALSE} to save memory. 
 The argument has no impact on the model fitting itself.}
 
-\item{sample.prior}{A flag to indicate if samples from all specified proper priors 
+\item{sample_prior}{A flag to indicate if samples from all specified proper priors 
 should be additionally drawn. Among others, these samples can be used to calculate 
 Bayes factors for point hypotheses. Default is \code{FALSE}.}
 
@@ -108,7 +122,7 @@ Alternatively, \code{inits} can be a list of lists containing
 the initial values, or a function (or function name) generating initial values. 
 The latter options are mainly implemented for internal testing.}
 
-\item{chains}{Number of Markov chains (defaults to 2). 
+\item{chains}{Number of Markov chains (defaults to 4). 
 A deprecated alias is \code{n.chains}.}
 
 \item{iter}{Number of total iterations per chain (including warmup; defaults to 2000).
@@ -117,7 +131,7 @@ A deprecated alias is \code{n.iter}.}
 \item{warmup}{A positive integer specifying number of warmup (aka burnin) iterations. 
 This also specifies the number of iterations used for stepsize adaptation, 
 so warmup samples should not be used for inference. The number of warmup should not 
-be larger than \code{iter} and the default is 500.
+be larger than \code{iter} and the default is \code{iter/2}.
 A deprecated alias is \code{n.warmup}.}
 
 \item{thin}{Thinning rate. Must be a positive integer. 
@@ -125,7 +139,8 @@ Set \code{thin > 1} to save memory and computation time if \code{iter} is large.
 Default is 1, that is no thinning. A deprecated alias is \code{n.thin}.}
 
 \item{cluster}{Number of clusters to use to run parallel chains. Default is 1.
-A deprecated alias is \code{n.cluster}.}
+A deprecated alias is \code{n.cluster}. To use the built-in parallel execution
+of \pkg{rstan}, specify argument \code{cores} instead of \code{cluster}.}
 
 \item{cluster_type}{A character string specifying the type of cluster created by 
 \code{\link[parallel:makeCluster]{makeCluster}} when sampling in parallel 
@@ -133,6 +148,11 @@ A deprecated alias is \code{n.cluster}.}
 Default is \code{"PSOCK"} working on all platforms. 
 For OS X and Linux, \code{"FORK"} may be a faster and more stable option, 
 but it does not work on Windows.}
+
+\item{control}{A named \code{list} of parameters to control the sampler's behavior. 
+It defaults to \code{NULL} so all the default values are used. 
+The most important control parameters are discussed in the 'Details'
+section below. For a comprehensive overview see \code{\link[rstan:stan]{stan}}.}
 
 \item{algorithm}{Character string indicating the estimation approach to use. 
 Can be \code{"sampling"} for MCMC (the default), \code{"meanfield"} for
@@ -144,9 +164,9 @@ distribution.}
 
 \item{seed}{Positive integer. Used by \code{set.seed} to make results reproducable.}
 
-\item{save.model}{Either \code{NULL} or a character string. 
+\item{save_model}{Either \code{NULL} or a character string. 
 In the latter case, the model code is
-saved in a file named after the string supplied in \code{save.model}, 
+saved in a file named after the string supplied in \code{save_model}, 
 which may also contain the full path where to save the file.
 If only a name is given, the file is save in the current working directory.}
 
@@ -158,7 +178,7 @@ An object of class \code{brmsfit}, which contains the posterior samples along
   Use \code{methods(class = "brmsfit")} for an overview on available methods.
 }
 \description{
-Fit a Bayesian generalized linear or ordinal mixed model using Stan
+Fit a Bayesian generalized (non-)linear or ordinal mixed model using Stan
 }
 \details{
 Fit a generalized linear mixed model, 
@@ -166,7 +186,7 @@ Fit a generalized linear mixed model,
   and random effects in a linear predictor 
   via full bayesian inference using Stan. 
   
-  \bold{Formula syntax}
+  \bold{Formula syntax for generalized linear mixed models}
   
   The \code{formula} argument accepts formulas of the following syntax: 
   
@@ -183,17 +203,22 @@ Fit a generalized linear mixed model,
   
   For families \code{gaussian}, \code{student}, and \code{cauchy} it is possible to specify
   standard errors of the observation, thus allowing to perform meta-analysis. 
-  Suppose that the variable \code{yi} contains the effect sizes from the studies and \code{sei} the 
-  corresponding standard errors. Then, fixed and random effects meta-analyses can be conducted
-  using the formulae \code{yi | se(sei) ~ 1} and \code{yi | se(sei) ~ 1 + (1|study)}, respectively, where 
+  Suppose that the variable \code{yi} contains the effect sizes from the studies 
+  and \code{sei} the corresponding standard errors. 
+  Then, fixed and random effects meta-analyses can be conducted
+  using the formulae \code{yi | se(sei) ~ 1} and 
+  \code{yi | se(sei) ~ 1 + (1|study)}, respectively, where 
   \code{study} is a variable uniquely identifying every study.
-  If desired, meta-regressen can be performed via \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1|study)} 
+  If desired, meta-regressen can be performed via 
+  \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1|study)} 
   or \cr \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1 + mod1 + mod2|study)}, where
   \code{mod1} and \code{mod2} represent moderator variables. 
   
   For all families, weighted regression may be performed using
-  \code{weights} in the addition part. Suppose that variable \code{wei} contains the weights 
-  and that \code{yi} is the response variable. Then, formula \code{yi | weights(wei) ~ predictors} 
+  \code{weights} in the addition part. 
+  Suppose that variable \code{wei} contains the weights 
+  and that \code{yi} is the response variable. 
+  Then, formula \code{yi | weights(wei) ~ predictors} 
   implements a weighted regression. 
   
   For families \code{binomial} and \code{zero_inflated_binomial}, 
@@ -201,7 +226,8 @@ Fit a generalized linear mixed model,
   underlying each observation. In \code{lme4} syntax, we may write for instance 
   \code{cbind(success, n - success)}, which is equivalent
   to \code{success | trials(n)} in \code{brms} syntax. If the number of trials
-  is constant across all observation (say \code{10}), we may also write \code{success | trials(10)}. 
+  is constant across all observation (say \code{10}), 
+  we may also write \code{success | trials(10)}. 
   
   For family \code{categorical} and all ordinal families, 
   \code{addition} may contain a term \code{cat(number)} to
@@ -221,8 +247,9 @@ Fit a generalized linear mixed model,
   \code{yi | trunc(lb = 0, ub = 100) ~ predictors}. Defining only one of the two arguments 
   in \code{trunc} leads to one-sided truncation.
 
-  Mutiple \code{addition} terms may be specified at the same time, for instance \cr 
-  \code{formula = yi | se(sei) | cens(censored) ~ 1} for a censored meta-analytic model. \cr
+  Mutiple \code{addition} terms may be specified at the same time using 
+  the \code{+} operator, for instance \code{formula = yi | se(sei) + cens(censored) ~ 1} 
+  for a censored meta-analytic model. \cr
   
   For families \code{gaussian}, \code{student}, and \code{cauchy} 
   multivariate models may be specified using \code{cbind} notation. 
@@ -286,7 +313,66 @@ Fit a generalized linear mixed model,
   are estimated on the log scale. 
   In addition, we strongly recommend setting proper priors 
   on fixed effects in this case to increase sampling efficiency 
-  (for details on priors see \code{\link[brms:set_prior]{set_prior}}).          
+  (for details on priors see \code{\link[brms:set_prior]{set_prior}}).     
+  
+  \bold{Parameterization of the fixed effects intercept}
+  
+  The fixed effects intercept (if incorporated) is estimated separately 
+  and not as part of the fixed effects parameter vector \code{b}. 
+  This has the side effect that priors on the intercept 
+  also have to be specified separately
+  (see \code{\link[brms:set_prior]{set_prior}} for more details).
+  Furthermore, to increase sampling efficiency, the fixed effects 
+  design matrix \code{X} is centered around its column means 
+  \code{X_means} if the intercept is incorporated. 
+  This leads to a temporary bias in the intercept equal to 
+  \code{<X_means, b>}, where \code{<,>} is the scalar product. 
+  The bias is corrected after fitting the model, but be aware 
+  that you are effectively defining a prior on the temporary
+  intercept of the centered design matrix not on the real intercept.
+  
+  This behavior can be avoided by using the reserved 
+  (and internally generated) variable \code{intercept}. 
+  Instead of \code{y ~ x}, you may write
+  \code{y ~ -1 + intercept + x}. This way, priors can be
+  defined on the real intercept, directly. In addition,
+  the intercept is just treated as an ordinary fixed effect
+  and thus priors defined on \code{b} will also apply to it. 
+  Note that this parameterization may be a bit less efficient
+  than the default parameterization discussed above.  
+  
+  \bold{Formula syntax for non-linear mixed models}
+  
+  Using the \code{nonlinear} argument, it is possible to specify
+  non-linear models in \pkg{brms}. Contrary to what the name might suggest,
+  \code{nonlinear} should not contain the non-linear model itself
+  but rather information on the non-linear parameters. 
+  The non-linear model will just be specified within the \code{formula}
+  argument. Suppose, that we want to predict the response \code{y}
+  through the predictor \code{x}, where \code{x} is linked to \code{y}
+  through \code{y = alpha - beta * lambda^x}, with parameters
+  \code{alpha}, \code{beta}, and \code{lambda}. This is certainly a
+  non-linear model, which is readily defined via
+  \code{formula = y ~ alpha - beta * lambda^x} (addition arguments 
+  can be added in the same way as for ordinary formulas).
+  Now we have to tell \pkg{brms} the names of the non-linear parameters 
+  and specfiy a (linear mixed) model for each of them using the \code{nonlinear}
+  argument. Let's say we just want to estimate those three parameters
+  with not further covariates or random effects. Then we can write
+  \code{nonlinear = alpha + beta + lambda ~ 1} or equivalently
+  (and more flexible) \code{nonlinear = list(alpha ~ 1, beta ~ 1, lambda ~ 1)}. 
+  This can, of course, be extended. If we have another predictor \code{z} and 
+  observations nested within the grouping factor \code{g}, we may write for 
+  instance \code{nonlinear = list(alpha ~ 1, beta ~ 1 + z + (1|g), lambda ~ 1)}.
+  The formula syntax of fixed and random effects described above applies here as well.
+  In this example, we are using \code{z} and \code{g} only for the 
+  prediction of \code{beta}, but we might also use them for the other
+  non-linear parameters (provided that the resulting model is still 
+  scientifically reasonable). 
+  
+  Non-linear models may not be uniquely identified and / or show bad convergence.
+  For this reason it is mandatory to specify priors on the non-linear parameters.
+  For instructions on how to do that, see \code{\link[brms:set_prior]{set_prior}}.
   
   \bold{Families and link functions}
   
@@ -332,8 +418,8 @@ Fit a generalized linear mixed model,
   \code{zero_inflated_negbinomial} the link \code{log}. 
   The first link mentioned for each family is the default.     
   
-  Please note that when calling the \code{\link[stats:family]{Gamma}} family function, 
-  the default link will be \code{inverse} not \code{log}. 
+  Please note that when calling the \code{\link[stats:family]{Gamma}} 
+  family function, the default link will be \code{inverse} not \code{log}. 
   Also, the \code{probit_approx} link cannot be used when calling the
   \code{\link[stats:family]{binomial}} family function. 
   
@@ -354,24 +440,31 @@ Fit a generalized linear mixed model,
   
   \bold{Adjusting the sampling behavior of \pkg{Stan}}
   
-  Despite choosing the number of iterations, chains, etc., 
-  users can directly change the sampling behavior of the NUTS sampler, 
-  by using the \code{control} argument (a named list), 
-  which is passed directly to \pkg{Stan} when specified in \code{brm}. 
+  In addition to choosing the number of iterations, warmup samples, 
+  and chains, users can control the behavior of the NUTS sampler, 
+  by using the \code{control} argument.
   The most important reason to use \code{control} is to decrease 
   (or eliminate at best) the number of divergent transitions
   that cause a bias in the obtained posterior samples. 
   Whenever you see the warning
-  "There were x divergent transitions after warmup. 
-  Increasing adapt_delta may help." 
+  "There were x divergent transitions after warmup." 
   you should really think about increasing \code{adapt_delta}.
-  To do this, write \code{control = list(adapt_delta = <x>)}, where \code{<x>}
-  should usually be value between \code{0.8} (default) and \code{1}.
-  Increasing \code{adapt_delta} will slow down the sampler but will 
-  decrease the number of divergent transitions threatening
-  the validity of your posterior samples. 
-  For more details on the \code{control} argument see 
-  \code{\link[rstan:stan]{stan}}.
+  To do this, write \code{control = list(adapt_delta = <x>)}, 
+  where \code{<x>} should usually be value between \code{0.8} 
+  (current default) and \code{1}. Increasing \code{adapt_delta} 
+  will slow down the sampler but will decrease the number of 
+  divergent transitions threatening the validity of your 
+  posterior samples.
+  
+  Another problem arises when the depth of the tree being evaluated 
+  in each iteration is exceeded. This is less common than having 
+  divergent transitions, but may also bias the posterior samples.
+  When it happens, \pkg{Stan} will throw out a warning suggesting 
+  to increase \code{max_treedepth}, which can be accomplished by 
+  writing \code{control = list(max_treedepth = <x>)} with a positive 
+  integer \code{<x>} that should usually be larger than the current 
+  default of \code{10}. For more details on the \code{control} argument 
+  see \code{\link[rstan:stan]{stan}}.
 }
 \examples{
 \dontrun{ 
@@ -386,13 +479,15 @@ fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c
 ## generate a summary of the results
 summary(fit1)
 ## plot the MCMC chains as well as the posterior distributions
-plot(fit1)
+plot(fit1, ask = FALSE)
 ## extract random effects standard devations and covariance matrices
 VarCorr(fit1)
-## extract random effects for each level
+## extract group specific effects of each level
 ranef(fit1)
 ## predict responses based on the fitted model
 head(predict(fit1))  
+## plot marginal effects of each predictor
+plot(marginal_effects(fit1), ask = FALSE)
  
 ## Ordinal regression modeling patient's rating 
 ## of inhaler instructions with normal priors on fixed effects
@@ -400,14 +495,15 @@ fit2 <- brm(rating ~ treat + period + carry,
             data = inhaler, family = sratio("cloglog"), 
             prior = set_prior("normal(0,5)"))
 summary(fit2)
-plot(fit2)    
+plot(fit2, ask = FALSE)    
 
-## Surivival regression (with family 'weibull') modeling time between 
-## first and second recurrence of an infection in kidney patients.
-fit3 <- brm(time | cens(censored) ~ age + sex + disease + (1|patient), 
-            data = kidney, family = weibull(), inits = "0")
+## Survival regression modeling the time between the first 
+## and second recurrence of an infection in kidney patients.
+fit3 <- brm(time | cens(censored) ~ age * sex + disease + (1|patient), 
+            data = kidney, family = gaussian("log"))
 summary(fit3) 
-plot(fit3)    
+plot(fit3, ask = FALSE)
+plot(marginal_effects(fit3), ask = FALSE)   
 
 ## Probit regression using the binomial family
 n <- sample(1:10, 100, TRUE)  # number of trials
@@ -416,6 +512,15 @@ x <- rnorm(100)
 fit4 <- brm(success | trials(n) ~ x, 
             family = binomial("probit"))
 summary(fit4)
+
+## Simple non-linear gaussian model
+x <- rnorm(100)
+y <- rnorm(100, mean = 2 - 1.5^x, sd = 1)
+fit5 <- brm(y ~ a1 - a2^x, nonlinear = a1 + a2 ~ 1,
+            prior = c(set_prior("normal(0, 2)", nlpar = "a1"),
+                      set_prior("normal(0, 2)", nlpar = "a2")))
+summary(fit5)
+plot(marginal_effects(fit5), ask = FALSE)
 }
 
 }
