@@ -33,8 +33,8 @@ trace_density_plot <- function(x, theme = ggplot2::theme()) {
 #' @rdname marginal_effects
 #' @method plot brmsMarginalEffects
 #' @export 
-plot.brmsMarginalEffects <- function(x, ncol = NULL, rug = FALSE,
-                                     theme = ggplot2::theme(), 
+plot.brmsMarginalEffects <- function(x, ncol = NULL, points = FALSE, 
+                                     rug = FALSE, theme = ggplot2::theme(), 
                                      ask = TRUE, do_plot = TRUE, ...) {
   # Compute marginal effects plots using ggplot2
   # Returns:
@@ -51,12 +51,12 @@ plot.brmsMarginalEffects <- function(x, ncol = NULL, rug = FALSE,
     plots[[i]] <- ggplot(data = x[[i]]) + 
       aes_string(x = effects, y = "Estimate", ymin = "lowerCI",
                  ymax = "upperCI") + ylab(response) + theme
-    nMargins <- length(unique(x[[i]]$MargRow))
-    if (nMargins > 1) {
+    nCond <- length(unique(x[[i]]$MargCond))
+    if (nCond > 1) {
       # one plot per row of marginal_data
-      if (is.null(ncol)) ncol <- max(floor(sqrt(nMargins)), 3) 
+      if (is.null(ncol)) ncol <- max(floor(sqrt(nCond)), 3) 
       plots[[i]] <- plots[[i]] + 
-        facet_wrap("MargRow", ncol = ncol)
+        facet_wrap("MargCond", ncol = ncol)
     }
     if (length(effects) == 2) {
       # differentiate by colour in case of interaction effects
@@ -69,12 +69,19 @@ plot.brmsMarginalEffects <- function(x, ncol = NULL, rug = FALSE,
       if (rug) {
         plots[[i]] <- plots[[i]] + 
           geom_rug(aes_string(x = effects[1]), sides = "b", 
-                   data = attributes(x[[i]])$rug, inherit.aes = FALSE)
+                   data = attr(x[[i]], "points"), inherit.aes = FALSE)
       }
     } else {
       # pointrange for factors
       plots[[i]] <- plots[[i]] + 
-        geom_pointrange(position = position_dodge(width = 0.4), fatten = 7)
+        geom_pointrange(position = position_dodge(width = 0.4), 
+                        fatten = 8 / nCond^0.25)
+    }
+    if (points) {
+      plots[[i]] <- plots[[i]] + 
+        geom_point(aes_string(x = effects[1], y = ".RESP"), shape = 1,
+                   size = 4 / nCond^0.25, data = attr(x[[i]], "points"), 
+                   inherit.aes = FALSE)
     }
     if (do_plot) {
       plot(plots[[i]])
@@ -89,38 +96,39 @@ plot.brmsMarginalEffects <- function(x, ncol = NULL, rug = FALSE,
 #' @export
 plot.brmshypothesis <- function(x, N = 5, ignore_prior = FALSE, 
                                 theme = ggplot2::theme(), ask = TRUE, 
-                                do_plot = TRUE, newpage = TRUE, ...) {
+                                do_plot = TRUE, chars = 20, ...) {
   if (!is.data.frame(x$samples)) {
     stop("No posterior samples found")
   }
-  .plot_fun <- function(i) {
-    # create the ggplot object for each hypothesis
-    # Args: i: index variable
-    ggplot(x$samples, aes_string(x = hypnames[i])) + 
+  .plot_fun <- function(samples) {
+    ggplot(samples, aes_string(x = "values")) + 
+      facet_wrap("ind", ncol = 1, scales = "free") +
       geom_density(aes_string(fill = "Type"), alpha = 0.5, na.rm = TRUE) + 
       scale_fill_manual(values = c("red", "blue")) + 
-      xlab("") + ylab("") + ggtitle(hyps[i]) + theme
+      ggtitle(paste("Hypothesis for class", x$class)) + 
+      xlab("") + ylab("") + theme
   }
   if (ignore_prior) {
-    x$samples <- subset(x$samples, x$samples$Type == "posterior")
+    x$samples[x$samples$Type == "prior", ] <- NA
   }
   if (do_plot) {
     default_ask <- devAskNewPage()
     on.exit(devAskNewPage(default_ask))
     devAskNewPage(ask = FALSE)
   }
-  hyps <- rownames(x$hypothesis)
-  hypnames <- names(x$samples)[seq_along(hyps)]
+  hyps <- limit_chars(rownames(x$hypothesis), chars = chars)
+  names(x$samples)[seq_along(hyps)] <- hyps
   n_plots <- ceiling(length(hyps) / N)
   plots <- vector(mode = "list", length = n_plots)
   for (i in 1:n_plots) {
-    I <- ((i - 1) * N + 1):min(i * N, length(hyps))
-    temp_plot <- lapply(I, .plot_fun)
-    plots[[i]] <- arrangeGrob(grobs = temp_plot, ncol = 1, 
-                              nrow = length(temp_plot), ...)
+    rel_hyps <- hyps[((i - 1) * N + 1):min(i * N, length(hyps))]
+    sub_samples <- cbind(utils::stack(x$samples[, rel_hyps, drop = FALSE]),
+                         x$samples[, "Type", drop = FALSE])
+    # make sure that parameters appear in the original order
+    sub_samples$ind <- with(sub_samples, factor(ind, levels = unique(ind)))
+    plots[[i]] <- .plot_fun(sub_samples)
     if (do_plot) {
-      if (newpage || i > 1) grid.newpage()
-      grid.draw(plots[[i]])
+      plot(plots[[i]])
       if (i == 1) devAskNewPage(ask = ask)
     }
   }

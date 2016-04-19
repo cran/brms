@@ -45,7 +45,7 @@ loglik_lognormal <- function(n, data, samples, link = "identity") {
   weight_loglik(out, n = n, data = data)
 }
 
-loglik_multi_gaussian <- function(n, data, samples, link = "identity") {
+loglik_gaussian_multi <- function(n, data, samples, link = "identity") {
   nobs <- data$N_trait * data$K_trait
   nsamples <- nrow(samples$eta)
   obs <- seq(n, nobs, data$N_trait)
@@ -56,7 +56,7 @@ loglik_multi_gaussian <- function(n, data, samples, link = "identity") {
   weight_loglik(out, n = n, data = data)
 }
 
-loglik_multi_student <- function(n, data, samples, link = "identity") {
+loglik_student_multi <- function(n, data, samples, link = "identity") {
   nobs <- data$N_trait * data$K_trait
   nsamples <- nrow(samples$eta)
   obs <- seq(n, nobs, data$N_trait)
@@ -68,7 +68,7 @@ loglik_multi_student <- function(n, data, samples, link = "identity") {
   weight_loglik(out, n = n, data = data)
 }
 
-loglik_multi_cauchy <- function(n, data, samples, link = "identity") {
+loglik_cauchy_multi <- function(n, data, samples, link = "identity") {
   nobs <- data$N_trait * data$K_trait
   nsamples <- nrow(samples$eta)
   obs <- seq(n, nobs, data$N_trait)
@@ -135,7 +135,28 @@ loglik_cauchy_cov <- function(n, data, samples, link = "identity") {
   samples$nu <- matrix(rep(1, nrow(samples$eta)))
   loglik_student_cov(n = n, data = data, samples = samples, link = link)
 }
-                  
+
+loglik_gaussian_fixed <- function(n, data, samples, link = "identity") {
+  stopifnot(n == 1)
+  ulapply(1:nrow(samples$eta), function(i) 
+    dmulti_normal(data$Y, Sigma = data$V, log = TRUE,
+                  mu = ilink(samples$eta[i, ], link)))
+}
+
+loglik_student_fixed <- function(n, data, samples, link = "identity") {
+  stopifnot(n == 1)
+  sapply(1:nrow(samples$eta), function(i) 
+    dmulti_student(data$Y, df = samples$nu[i, ], Sigma = data$V, log = TRUE,
+                  mu = ilink(samples$eta[i, ], link)))
+}
+  
+loglik_cauchy_fixed <- function(n, data, samples, link = "identity") {
+  stopifnot(n == 1)
+  sapply(1:nrow(samples$eta), function(i) 
+    dmulti_student(data$Y, df = 1, Sigma = data$V, log = TRUE,
+                   mu = ilink(samples$eta[i, ], link)))
+}
+
 loglik_binomial <- function(n, data, samples, link = "logit") {
   trials <- ifelse(length(data$max_obs) > 1, data$max_obs[n], data$max_obs) 
   args <- list(size = trials, prob = ilink(samples$eta[, n], link))
@@ -172,7 +193,8 @@ loglik_poisson <- function(n, data, samples, link = "log") {
 }
 
 loglik_negbinomial <- function(n, data, samples, link = "log") {
-  args <- list(mu = ilink(samples$eta[, n], link), size = samples$shape)
+  shape <- get_shape(samples$shape, data = data, method = "logLik", n = n)
+  args <- list(mu = ilink(samples$eta[, n], link), size = shape)
   out <- censor_loglik(dist = "nbinom", args = args, n = n, data = data)
   out <- truncate_loglik(out, cdf = pnbinom, args = args, data = data)
   weight_loglik(out, n = n, data = data)
@@ -193,16 +215,16 @@ loglik_exponential <-  function(n, data, samples, link = "log") {
 }
 
 loglik_gamma <- function(n, data, samples, link = "inverse") {
-  args <- list(shape = samples$shape,
-               scale = ilink(samples$eta[, n], link) / samples$shape)
+  shape <- get_shape(samples$shape, data = data, method = "logLik", n = n)
+  args <- list(shape = shape, scale = ilink(samples$eta[, n], link) / shape)
   out <- censor_loglik(dist = "gamma", args = args, n = n, data = data)
   out <- truncate_loglik(out, cdf = pgamma, args = args, data = data)
   weight_loglik(out, n = n, data = data)
 }
 
 loglik_weibull <- function(n, data, samples, link = "log") {
-  args <- list(shape = samples$shape,
-               scale = ilink(samples$eta[, n] / samples$shape, link))
+  shape <- get_shape(samples$shape, data = data, method = "logLik", n = n)
+  args <- list(shape = shape, scale = ilink(samples$eta[, n] / shape, link))
   out <- censor_loglik(dist = "weibull", args = args, n = n, data = data)
   out <- truncate_loglik(out, cdf = pweibull, args = args, data = data)
   weight_loglik(out, n = n, data = data)

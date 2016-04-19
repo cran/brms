@@ -88,7 +88,8 @@ bernoulli <- function(link = "logit", type = NULL) {
     type <- match.arg(type, choices = "2PL")
     okLinks <- "logit"
   } else {
-    okLinks <- c("logit", "probit", "probit_approx", "cloglog", "cauchit")
+    okLinks <- c("logit", "probit", "probit_approx", 
+                 "cloglog", "cauchit", "identity")
   }
   if (!linktemp %in% okLinks && is.character(link)) {
     linktemp <- link
@@ -187,7 +188,8 @@ Beta <- function(link = "logit") {
   if (!is.character(linktemp)) {
     linktemp <- deparse(linktemp)
   } 
-  okLinks <- c("logit", "probit", "probit_approx", "cloglog", "cauchit")
+  okLinks <- c("logit", "probit", "probit_approx", "cloglog", 
+               "cauchit", "identity")
   if (!linktemp %in% okLinks && is.character(link)) {
     linktemp <- link
   }
@@ -464,9 +466,11 @@ family.character <- function(object, link = NA, type = NULL, ...) {
     okLinks <- c("1/mu^2", "inverse", "identity", "log")
   } else if (is.count(family)) {
     okLinks <- c("log", "identity", "sqrt")
-  } else if (is.binary(family) || is.ordinal(family) || 
-             family %in% c("beta", "zero_inflated_beta")) {
+  } else if (is.ordinal(family) || family %in% "zero_inflated_beta") {
     okLinks <- c("logit", "probit", "probit_approx", "cloglog", "cauchit")
+  } else if (is.binary(family) || family %in% "beta") {
+    okLinks <- c("logit", "probit", "probit_approx", 
+                 "cloglog", "cauchit", "identity")
   } else if (family %in% c("categorical", "zero_inflated_binomial")) {
     okLinks <- c("logit")
   } else if (is.skewed(family)) {
@@ -517,4 +521,181 @@ print.brmsfamily <- function(x, ...) {
   }
   cat("\n")
   invisible(x)
+}
+
+is.linear <- function(family) {
+  # indicate if family is for a linear model
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("gaussian", "student", "cauchy")
+}
+
+is.lognormal <- function(family, link = "identity", nresp = 1) {
+  # indicate transformation to lognormal model
+  # Args:
+  #   link: A character string
+  #   nresp: number of response variables
+  if (is(family, "family")) {
+    link <- family$link
+    family <- family$family
+  }
+  family %in% "gaussian" && link == "log" && nresp == 1
+}
+
+is.binary <- function(family) {
+  # indicate if family is bernoulli or binomial
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("binomial", "bernoulli")
+}
+
+is.ordinal <- function(family) {
+  # indicate if family is for an ordinal model
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("cumulative", "cratio", "sratio", "acat") 
+}
+
+is.categorical <- function(family) {
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% "categorical" 
+}
+
+is.skewed <- function(family) {
+  # indicate if family is for model with postive skewed response
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("gamma", "weibull", "exponential")
+}
+
+is.count <- function(family) {
+  # indicate if family is for a count model
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("poisson", "negbinomial", "geometric")
+}
+
+is.hurdle <- function(family) {
+  # indicate if family is for a hurdle model
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  # zi_beta is technically a hurdle model
+  family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
+                "zero_inflated_beta")
+}
+
+is.zero_inflated <- function(family) {
+  # indicate if family is for a zero inflated model
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("zero_inflated_poisson", "zero_inflated_negbinomial",
+                "zero_inflated_binomial")
+}
+
+is.2PL <- function(family) {
+  if (!is(family, "brmsfamily")) {
+    out <- FALSE
+  } else {
+    out <- family$family %in% "bernoulli" && identical(family$type, "2PL")
+  }
+  out
+}
+
+is.forked <- function(family) {
+  # indicate if family has two separate model parts
+  is.hurdle(family) || is.zero_inflated(family) || is.2PL(family)
+}
+
+is.mv <- function(family, response = NULL) {
+  # indicate if the model uses multivariate formula syntax
+  nresp <- length(response)
+  is_mv <- nresp > 1L && is.linear(family) || is.categorical(family) || 
+           nresp == 2L && is.forked(family)
+  if (nresp > 1L && !is_mv) {
+    stop("invalid multivariate model", call. = FALSE)
+  }
+  is_mv
+}
+
+use_real <- function(family) {
+  # indicate if family uses real responses
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  is.linear(family) || is.skewed(family) || 
+    family %in% c("inverse.gaussian", "beta", "zero_inflated_beta", 
+                  "hurdle_gamma")
+}
+
+use_int <- function(family) {
+  # indicate if family uses integer responses
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  is.binary(family) || has_cat(family) || 
+    is.count(family) || is.zero_inflated(family) || 
+    family %in% c("hurdle_poisson", "hurdle_negbinomial")
+}
+
+has_trials <- function(family) {
+  # indicate if family makes use of argument trials
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("binomial", "zero_inflated_binomial")
+}
+
+has_cat <- function(family) {
+  # indicate if family makes use of argument cat
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  is.categorical(family) || is.ordinal(family)
+}
+
+has_shape <- function(family) {
+  # indicate if family needs a shape parameter
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("gamma", "weibull", "inverse.gaussian", 
+                "negbinomial", "hurdle_negbinomial", 
+                "hurdle_gamma", "zero_inflated_negbinomial")
+}
+
+has_sigma <- function(family, autocor = cor_arma(), se = FALSE,
+                      is_multi = FALSE) {
+  # indicate if the model needs a sigma parameter
+  # Args:
+  #  family: model family
+  #  se: does the model contain user defined SEs?
+  #  autocor: object of class cor_arma
+  #  is_multi: is the model multivariate?
+  if (is.null(se)) se <- FALSE
+  if (is.formula(se)) se <- TRUE
+  is.linear(family) && !is_multi && !is(autocor, "cor_fixed") &&
+    (!se || get_ar(autocor) || get_ma(autocor)) 
+}
+
+allows_cse <- function(family) {
+  # checks if category specific effects are allowed
+  if (is(family, "family")) {
+    family <- family$family
+  }
+  family %in% c("sratio", "cratio", "acat")
+}
+
+is.old_categorical <- function(x) {
+  # indicate if the model is categorical fitted with brms <= 0.8.0
+  stopifnot(is(x, "brmsfit"))
+  is(x$fit, "stanfit") && is.categorical(x$family) && "bp" %in% x$fit@model_pars
 }

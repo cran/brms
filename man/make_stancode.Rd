@@ -6,8 +6,9 @@
 \usage{
 make_stancode(formula, data = NULL, family = gaussian(), prior = NULL,
   autocor = NULL, nonlinear = NULL, partial = NULL,
-  threshold = c("flexible", "equidistant"), cov_ranef = NULL,
-  sample_prior = FALSE, save_model = NULL, ...)
+  threshold = c("flexible", "equidistant"), sparse = FALSE,
+  cov_ranef = NULL, sample_prior = FALSE, stan_funs = NULL,
+  save_model = NULL, ...)
 }
 \arguments{
 \item{formula}{An object of class "formula" (or one that can be coerced to that class): 
@@ -30,7 +31,7 @@ Currently, the following families are supported:
 \code{exponential}, \code{weibull}, \code{categorical}, \code{cumulative}, 
 \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
 \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{zero_inflated_binomial},
-\code{zero_inflated_beta}, \code{zero_inflated_negbinomial}, 
+\code{zero_inflated_beta}, \cr \code{zero_inflated_negbinomial}, 
 and \code{zero_inflated_poisson}.
 Every family function has a \code{link} argument allowing to specify
 the link function to be applied on the response variable.
@@ -66,10 +67,12 @@ parameters on the left hand side (separated by a \code{+}) and a
 common linear predictor on the right hand side.
 More information is given under 'Details'.}
 
-\item{partial}{A one sided formula of the form \code{~expression} 
-allowing to specify predictors with category specific effects 
-in non-cumulative ordinal models 
-(i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).}
+\item{partial}{(Deprecated) A one sided formula of the form 
+\code{~expression} allowing to specify predictors with 
+category specific effects in non-cumulative ordinal models 
+(i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).
+As of \pkg{brms} > 0.8.0 category specific effects should be 
+specified directly within \code{formula} using function \code{cse}.}
 
 \item{threshold}{A character string indicating the type of thresholds 
 (i.e. intercepts) used in an ordinal model. 
@@ -77,22 +80,41 @@ in non-cumulative ordinal models
 \code{"equidistant"} restricts the distance between 
 consecutive thresholds to the same value.}
 
+\item{sparse}{Logical; indicates whether the fixed effects design matrix
+should be treated as sparse (defaults to \code{FALSE}). 
+For design matrices with many zeros, this can considerably 
+reduce required memory. For all models using multivariate syntax 
+(i.e. multivariate linear models, zero-inflated and hurdle models 
+as well as categorical models), setting \code{sparse = TRUE}, 
+is generally worth a try to decrease memory requirements.
+However, sampling speed is currently not improved or even
+slightly decreased.}
+
 \item{cov_ranef}{A list of matrices that are proportional to the 
 (within) covariance structure of the random effects. 
 The names of the matrices should correspond to columns 
 in \code{data} that are used as grouping factors. 
 All levels of the grouping factor should appear as rownames 
-of the corresponding matrix.}
+of the corresponding matrix. This argument can be used,
+among others, to model pedigrees and phylogenetic effects.}
 
-\item{sample_prior}{A flag to indicate if samples from all specified proper priors 
-should be additionally drawn. Among others, these samples can be used to calculate 
-Bayes factors for point hypotheses. Default is \code{FALSE}.}
+\item{sample_prior}{A flag to indicate if samples from all specified 
+proper priors should be drawn additionally to the posterior samples
+(defaults to \code{FALSE}). Among others, these samples can be used 
+to calculate Bayes factors for point hypotheses. 
+Alternatively, \code{sample_prior} can be set to \code{"only"} to
+sample solely from the priors. In this case, all parameters must 
+have proper priors.}
+
+\item{stan_funs}{An optional character string containing self-defined 
+\pkg{Stan} functions, which will be included in the functions block 
+of the generated \pkg{Stan} code.}
 
 \item{save_model}{Either \code{NULL} or a character string. 
 In the latter case, the model code is
 saved in a file named after the string supplied in \code{save_model}, 
 which may also contain the full path where to save the file.
-If only a name is given, the file is save in the current working directory.}
+If only a name is given, the file is saved in the current working directory.}
 
 \item{...}{Other arguments for internal usage only}
 }

@@ -64,6 +64,9 @@ test_that("extract_effects handles addition arguments correctly", {
   expect_equal(extract_effects(y | cens(cens^2) ~ z + (x|patient), 
                                family = weibull())$all, 
                y ~ y + cens + z + x + patient)
+  expect_equal(extract_effects(resp | disp(a + b) ~ x, 
+                               family = gaussian())$disp,
+               ~.disp(a + b))
 })
 
 test_that("extract_effects accepts complicated random terms", {
@@ -97,7 +100,7 @@ test_that("nonlinear_effects rejects invalid non-linear models", {
   expect_error(nonlinear_effects(list( ~ 1, a ~ 1), model = y ~ a),
                "Non-linear formulas must be two-sided")
   expect_error(nonlinear_effects(list(a + b ~ 1), model = y ~ exp(-x)),
-               "RHS of non-linear formula must contain exactly one variable")
+               "LHS of non-linear formula must contain exactly one variable")
   expect_error(nonlinear_effects(list(a.b ~ 1), model = y ~ a^x),
                "not contain dots or underscores")
   expect_error(nonlinear_effects(list(a_b ~ 1), model = y ~ a^(x+b)),
@@ -119,7 +122,7 @@ test_that("nonlinear2list works correctly", {
   expect_equal(nonlinear2list(list(a ~ 1, b ~ 1 + z)),
                list(a ~ 1, b ~ 1 + z))
   expect_equal(nonlinear2list(NULL), NULL)
-  expect_error(nonlinear2list(1), "Invalid 'nonlinear' argument")
+  expect_error(nonlinear2list(1), "invalid 'nonlinear' argument")
 })
 
 test_that("extract_time returns all desired variables", {
@@ -133,21 +136,21 @@ test_that("extract_time returns all desired variables", {
   expect_error(extract_time(~t1+t2|g1), 
                "Autocorrelation structures may only contain 1 time variable")
   expect_error(extract_time(~1|g1/g2), 
-               paste("Illegal grouping term: g1/g2 \n",
-                     "may contain only variable names combined by the symbol ':'\n"))
+               paste("Illegal grouping term: g1/g2"))
 })
 
 test_that("update_formula returns correct formulas", {
-  expect_warning(update_formula(y~x, addition = list(se = ~I(sei+2))))
-  expect_warning(update_formula(y~x, addition = list(se = ~sei, cens = ~censored)))
-  expect_equal(update_formula(y~x+z, partial = ~ a + I(a^2)), y ~ x+z+partial(a + I(a^2)))
+  expect_warning(uf <- update_formula(y ~ x + z, partial = ~ a + I(a^2)))
+  expect_equal(uf, y ~ x + z + cse(a + I(a^2)))
 })
 
-test_that("get_fixed works correctly", {
-  effects <- extract_effects(y ~ a - b^x, nonlinear = list(a ~ z, b ~ z + v))
-  expect_equivalent(get_fixed(effects), list(y ~ a - b^x, ~ z, ~ z + v))
+test_that("get_effect works correctly", {
+  effects <- extract_effects(y ~ a - b^x, 
+               nonlinear = list(a ~ z, b ~ v + monotonous(z)))
+  expect_equivalent(get_effect(effects), list(y ~ a - b^x, ~ z, ~ v))
+  expect_equivalent(get_effect(effects, "mono"), list(NULL, NULL, ~ z))
   effects <- extract_effects(y ~ x + z + (1|g))
-  expect_equivalent(get_fixed(effects), list(y ~ x + z))
+  expect_equivalent(get_effect(effects), list(y ~ x + z))
 })
 
 test_that("get_group_formula rejects incorrect grouping terms", {
@@ -206,13 +209,13 @@ test_that("update_re_terms works correctly", {
 test_that("amend_terms performs expected changes to terms objects", {
   expect_equal(amend_terms("a"), NULL)
   expect_equal(amend_terms(y~x), terms(y~x))
-  t <- amend_terms(y~x, rm_intercept = TRUE)
-  expect_equal(attr(t, "rm_intercept"), TRUE)
-  t <- amend_terms(y ~ 0 + main + main:x + spec + spec:z, is_forked = TRUE)
+  form <- structure(y~x, rsv_intercept = TRUE)
+  expect_equal(attr(amend_terms(form), "rm_intercept"), TRUE)
+  t <- amend_terms(y ~ 0 + main + main:x + spec + spec:z, forked = TRUE)
   expect_equal(attr(t, "intercept"), 1)
   expect_equal(attr(t, "rm_intercept"), TRUE)
-  expect_error(amend_terms(y ~ main, is_forked = TRUE), "intercept")
-  expect_error(amend_terms(y ~ 0 + main + trait, is_forked = TRUE), 
+  expect_error(amend_terms(y ~ main, forked = TRUE), "intercept")
+  expect_error(amend_terms(y ~ 0 + main + trait, forked = TRUE), 
                "trait")
 })
 
@@ -237,4 +240,14 @@ test_that("check_brm_input returns correct warnings and errors", {
   expect_warning(check_brm_input(x))
   x$family <- poisson("sqrt")
   expect_warning(check_brm_input(x))
+})
+
+test_that("exclude_pars returns expected parameter names", {
+  ranef <- list(g1 = structure(c("x", "z"), cor = TRUE),
+                g2 = structure(c("x"), cor = FALSE))
+  expect_true(all(c("r_1_1", "r_1_2") %in% exclude_pars(ranef)))
+  expect_true("r_1" %in% exclude_pars(ranef, save_ranef = FALSE))
+  nlranef <- list(g1 = structure(c("x", "z"), cor = TRUE, nlpar = "a"),
+                g2 = structure(c("x"), cor = FALSE, nlpar = "a"))
+  expect_true(all(c("r_a_1_1", "r_a_1_2") %in% exclude_pars(nlranef)))
 })

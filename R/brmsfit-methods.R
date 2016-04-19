@@ -475,9 +475,9 @@ prior_samples.brmsfit <- function(x, pars = NA, parameters = NA, ...) {
     if (!anyNA(pars)) {
       get_samples <- function(par) {
         # get prior samples for parameter par 
-        is_partial <- grepl("^b_", par) && grepl("\\[[[:digit:]]+\\]", par)
-        # ensures correct parameter to prior mapping for partial effects
-        par_internal <- ifelse(is_partial, sub("^b_", "bp_", par), par)
+        is_cse <- grepl("^b_", par) && grepl("\\[[[:digit:]]+\\]", par)
+        # ensures correct parameter to prior mapping for cse effects
+        par_internal <- ifelse(is_cse, sub("^b_", "bp_", par), par)
         matches <- lapply(paste0("^",sub("^prior_", "", prior_names)), 
                           regexpr, text = par_internal)
         matches <- ulapply(matches, attr, which = "match.length")
@@ -540,7 +540,7 @@ summary.brmsfit <- function(object, waic = FALSE, ...) {
   family <- family(object)
   ee <- extract_effects(object$formula, family = family,
                         nonlinear = object$nonlinear)
-  formula <- update_formula(object$formula, partial = object$partial)
+  formula <- SW(update_formula(object$formula, partial = object$partial))
   out <- brmssummary(formula = formula,
                      family = family, 
                      data.name = object$data.name, 
@@ -548,6 +548,7 @@ summary.brmsfit <- function(object, waic = FALSE, ...) {
                      nobs = nobs(object), 
                      ngrps = ngrps(object), 
                      autocor = object$autocor,
+                     nonlinear = object$nonlinear,
                      algorithm = algorithm(object))
   
   if (length(object$fit@sim)) {
@@ -557,12 +558,8 @@ summary.brmsfit <- function(object, waic = FALSE, ...) {
     out$thin <- object$fit@sim$thin
     stan_args <- object$fit@stan_args[[1]]
     out$sampler <- paste0(stan_args$method, "(", stan_args$algorithm, ")")
-    if (length(object$ranef) && !any(grepl("^r_", parnames(object)))
-        || length(ee$response) > 1 && is.linear(family)) {
-      # if brm(..., ranef = FALSE) or model is multivariate
-      waic <- FALSE
-    }
-    if (waic) out$WAIC <- WAIC(object)$waic
+    allow_waic <- !length(object$ranef) || any(grepl("^r_", parnames(object)))
+    if (waic && allow_waic) out$WAIC <- WAIC(object)$waic
     
     pars <- parnames(object)
     meta_pars <- object$fit@sim$pars_oi
@@ -575,6 +572,13 @@ summary.brmsfit <- function(object, waic = FALSE, ...) {
       fit_summary <- fit_summary[, -2]
       colnames(fit_summary) <- c("Estimate", "Est.Error", "l-95% CI", 
                                  "u-95% CI", "Eff.Sample", "Rhat")
+      Rhats <- fit_summary[, "Rhat"]
+      if (any(Rhats > 1.1, na.rm = TRUE) || anyNA(Rhats)) {
+        msg <- paste("The model has not converged (some Rhats are > 1.1).",
+                     "Do not analyse the results! \nWe recommend running", 
+                     "more iterations and/or setting stronger priors.")
+        warning(msg, call. = FALSE)
+      }
     } else {
       colnames(fit_summary) <- c("Estimate", "Est.Error", "l-95% CI", 
                                  "u-95% CI")
@@ -684,8 +688,9 @@ family.brmsfit <- function(object, ...) {
 }
 
 #' @export
-stancode.brmsfit <- function(object, ...)
+stancode.brmsfit <- function(object, ...) {
   object$model
+}
 
 #' @export
 standata.brmsfit <- function(object, ...) {
@@ -693,13 +698,15 @@ standata.brmsfit <- function(object, ...) {
   if (is.data.frame(object$data)) {
     # brms > 0.5.0 stores the original model.frame
     new_formula <- update_re_terms(object$formula, dots$re_formula)
-    standata <- make_standata(new_formula,  
-                              data = object$data, 
-                              family = object$family, 
-                              autocor = object$autocor, 
-                              nonlinear = object$nonlinear,
-                              cov_ranef = object$cov_ranef, 
-                              partial = object$partial, ...)
+    new_formula <- SW(update_formula(new_formula, partial = object$partial))
+    dots$control$old_cat <- is.old_categorical(object)
+    prior_only <- attr(object$prior, "prior_only")
+    sample_prior <- ifelse(isTRUE(prior_only), "only", FALSE)
+    args <- list(formula = new_formula, data = object$data, 
+                 family = object$family, prior = object$prior, 
+                 nonlinear = object$nonlinear, autocor = object$autocor, 
+                 cov_ranef = object$cov_ranef, sample_prior = sample_prior)
+    standata <- do.call(make_standata, c(args, dots))
   } else {
     # brms <= 0.5.0 only stores the data passed to Stan 
     standata <- object$data
@@ -776,7 +783,8 @@ plot.brmsfit <- function(x, pars = NA, parameters = NA, N = 5,
     stop("N must be a positive integer", call. = FALSE)
   if (!is.character(pars)) {
     pars <- c("^b_", "^bm_", "^sd_", "^cor_", "^sigma", "^rescor", 
-              "^nu$", "^shape$", "^delta$", "^phi$", "^ar", "^ma", "^arr")
+              "^nu$", "^shape$", "^delta$", "^phi$", "^ar", "^ma", 
+              "^arr", "^simplex_")
   }
   samples <- posterior_samples(x, pars = pars, add_chain = TRUE)
   pars <- names(samples)[!names(samples) %in% c("chain", "iter")] 
@@ -891,27 +899,49 @@ pairs.brmsfit <- function(x, pars = NA, exact_match = FALSE, ...) {
 
 #' @rdname marginal_effects
 #' @export
-marginal_effects.brmsfit <- function(x, effects = NULL, data = NULL, 
+marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL, 
                                      re_formula = NA, probs = c(0.025, 0.975),
                                      method = c("fitted", "predict"), ...) {
   method <- match.arg(method)
-  ee <- extract_effects(x$formula, family = x$family, nonlinear = x$nonlinear)
-  if (is.linear(x$family) && length(ee$response) > 1) {
+  dots <- list(...)
+  conditions <- use_alias(conditions, dots$data)
+  x$formula <- SW(update_formula(x$formula, partial = x$partial))
+  new_formula <- update_re_terms(x$formula, re_formula = re_formula)
+  new_nonlinear <- lapply(x$nonlinear, update_re_terms, re_formula = re_formula)
+  ee <- extract_effects(new_formula, family = x$family, 
+                        nonlinear = new_nonlinear)
+  if (is.linear(x$family) && length(ee$response) > 1L) {
     stop("Marginal plots are not yet implemented for multivariate models.",
          call. = FALSE)
+  } else if (is.categorical(x$family)) {
+    stop("Marginal plots are not yet implemented for categorical models.",
+         call. = FALSE)
+  } else if (is.ordinal(x$family)) {
+    warning(paste0("Predictions are treated as continuous variables ", 
+                   "in marginal plots, \nwhich is likely an invalid ", 
+                   "assumption for family ", x$family$family, "."),
+            call. = FALSE)
   }
   rsv_vars <- rsv_vars(x$family, nresp = length(ee$response))
-  if (length(x$nonlinear)) {
+  if (length(ee$nonlinear)) {
     # allow covariates as well as fixed effects of non-linear parameters
     covars <- setdiff(all.vars(rhs(ee$fixed)), names(ee$nonlinear))
     nlpar_effects <- unlist(lapply(ee$nonlinear, function(nl)
-      strsplit(attr(terms(nl$fixed), "term.labels"), split = ":")),
+      c(get_var_combs(nl$fixed), get_var_combs(nl$mono))),
       recursive = FALSE)
     all_effects <- unique(c(list(covars), nlpar_effects))
   } else {
-    all_effects <- strsplit(attr(terms(ee$fixed), "term.labels"), split = ":") 
+    all_effects <- attr(terms(ee$fixed), "term.labels") 
+    if (is.formula(ee$cse)) {
+      all_effects <- c(all_effects, attr(terms(ee$cse), "term.labels"))
+    }
+    if (is.formula(ee$mono)) {
+      all_effects <- c(all_effects, attr(terms(ee$mono), "term.labels"))
+    }
+    all_effects <- get_var_combs(all_effects)
   }
   all_effects <- rmNULL(lapply(all_effects, setdiff, y = rsv_vars))
+  ae_collapsed <- ulapply(all_effects, function(e) paste(e, collapse = ":"))
   if (is.null(effects)) {
     effects <- all_effects[ulapply(all_effects, length) < 3]
   } else {
@@ -922,102 +952,132 @@ marginal_effects.brmsfit <- function(x, effects = NULL, data = NULL,
                  "should not be used as effects for this model"),
            call. = FALSE)
     }
-    matches <- match(lapply(all_effects, sort), 
-                     lapply(effects, sort), 0L)
+    matches <- match(lapply(all_effects, sort), lapply(effects, sort), 0L)
+    if (sum(matches) > 0 && sum(matches > 0) < length(effects)) {
+      invalid <- effects[setdiff(1:length(effects), sort(matches))]  
+      invalid <- ulapply(invalid, function(e) paste(e, collapse = ":"))
+      warning(paste0("Some specified effects are invalid for this model: ",
+                     paste(invalid, collapse = ", "), "\nValid effects are: ", 
+                     paste(ae_collapsed, collapse = ", ")),
+              call. = FALSE)
+    }
     effects <- unique(effects[sort(matches)])
   }
   if (!length(unlist(effects))) {
-    stop("No valid effects specified.", call. = FALSE)
+    stop(paste0("All specified effects are invalid for this model.\n", 
+                "Valid effects are: ", paste(ae_collapsed, collapse = ", ")), 
+         call. = FALSE)
   }
-  if (any(ulapply(effects, length) > 2)) {
+  if (any(ulapply(effects, length) > 2L)) {
     stop("Interactions of order higher than 2 are currently not supported.",
          call. = FALSE)
   }
   if (length(probs) != 2L) {
     stop("Arguments 'probs' must be of length 2.", call. = FALSE)
   }
-  if (is.ordinal(x$family) || is.categorical(x$family)) {
-    warning(paste0("Predictions are treated as continuous variables ", 
-                   "in marginal plots, \nwhich is likely an invalid ", 
-                   "assumption for family ", x$family$family, "."),
-            call. = FALSE)
-  }
   
-  # prepare marginal data
+  # prepare marginal conditions
   mf <- model.frame(x)
-  if (is.null(data)) {
-    if (!is_equal(x$autocor, cor_arma()) || 
-        length(rmNULL(ee[c("se", "trials", "cat")]))) {
-      stop("Please specify argument 'data' manually for this model.", 
+  mono_vars <- unique(ulapply(get_effect(ee, "mono"), all.vars))
+  if (is.null(conditions)) {
+    if (has_arma(x$autocor) || length(rmNULL(ee[c("trials", "cat")]))) {
+      stop("Please specify argument 'conditions' manually for this model.", 
            call. = FALSE)
     }
-    vars <- c(lapply(get_fixed(ee), rhs), get_random(ee)$form)
-    vars <- unique(ulapply(vars, all.vars))
-    vars <- setdiff(vars, c(rsv_vars, names(ee$nonlinear)))
-    data <- as.data.frame(as.list(rep(NA, length(vars))))
-    names(data) <- vars
-    for (v in vars) {
+    # list all required variables
+    req_vars <- c(lapply(get_effect(ee), rhs), get_random(ee)$form, 
+                  get_effect(ee, "mono"), ee$cse, ee$se, ee$disp)
+    req_vars <- unique(ulapply(req_vars, all.vars))
+    req_vars <- setdiff(req_vars, c(rsv_vars, names(ee$nonlinear)))
+    conditions <- as.data.frame(as.list(rep(NA, length(req_vars))))
+    names(conditions) <- req_vars
+    for (v in req_vars) {
       if (is.numeric(mf[[v]])) {
-        data[[v]] <- mean(mf[[v]])
+        if (v %in% mono_vars) {
+          conditions[[v]] <- round(median(mf[[v]]))
+        } else {
+          conditions[[v]] <- mean(mf[[v]])
+        }
       } else {
         # use reference category
-        data[[v]] <- attr(as.factor(mf[[v]]), "levels")[1]
+        lev <- attr(as.factor(mf[[v]]), "levels")
+        conditions[[v]] <- factor(lev[1], levels = lev, 
+                                  ordered = is.ordered(mf[[v]]))
       }
     }
-  } else if (is.data.frame(data)) {
-    if (!nrow(data)) {
-      stop("data must have a least one row", call. = FALSE)
+  } else if (is.data.frame(conditions)) {
+    if (!nrow(conditions)) {
+      stop("'conditions' must have a least one row", call. = FALSE)
     }
-    if (any(duplicated(rownames(data)))) {
-      stop("Row names of 'data' should be unique.", call. = FALSE)
+    if (any(duplicated(rownames(conditions)))) {
+      stop("Row names of 'conditions' should be unique.", call. = FALSE)
     }
-    used_effects <- unique(unlist(effects))
-    is_everywhere <- ulapply(used_effects, function(up)
-      all(ulapply(effects, function(pred) up %in% pred)))
-    non_marg_effects <- used_effects[is_everywhere]
-    # effects that are present in every effect term
-    # do not need to be defined in data
-    missing_effects <- setdiff(non_marg_effects, names(data)) 
-    data[, missing_effects] <- mf[1, missing_effects] 
+    conditions <- unique(conditions)
+    eff_vars <- lapply(effects, function(e) all.vars(parse(text = e)))
+    uni_eff_vars <- unique(unlist(eff_vars))
+    is_everywhere <- ulapply(uni_eff_vars, function(uv)
+      all(ulapply(eff_vars, function(vs) uv %in% vs)))
+    # variables that are present in every effect term
+    # do not need to be defined in conditions
+    missing_vars <- setdiff(uni_eff_vars[is_everywhere], names(conditions)) 
+    conditions[, missing_vars] <- mf[1, missing_vars] 
   } else {
-    stop("data must be a data.frame or NULL")
+    stop("conditions must be a data.frame or NULL")
   }
-  data <- amend_newdata(data, fit = x, re_formula = re_formula,
-                        allow_new_levels = TRUE, return_standata = FALSE)
+  conditions <- amend_newdata(conditions, fit = x, re_formula = re_formula,
+                              allow_new_levels = TRUE, return_standata = FALSE)
 
   results <- list()
   for (i in seq_along(effects)) {
     marg_data <- mf[, effects[[i]], drop = FALSE]
     pred_types <- ifelse(ulapply(marg_data, is.numeric), "numeric", "factor")
+    is_mono <- effects[[i]] %in% mono_vars
+    if (pred_types[1] == "numeric") {
+      min1 <- min(marg_data[, effects[[i]][1]])
+      max1 <- max(marg_data[, effects[[i]][1]])
+      if (is_mono[1]) {
+        values <- seq(min1, max1, by = 1)
+      } else {
+        values <- seq(min1, max1, length.out = 100)
+      }
+    }
     if (length(effects[[i]]) == 2L) {
       # numeric effects should come first
       new_order <- order(pred_types, decreasing = TRUE)
       effects[[i]] <- effects[[i]][new_order]
       pred_types <- pred_types[new_order]
       if (pred_types[1] == "numeric") {
-        values <- setNames(vector("list", length = 2), effects[[i]])
-        values[[1]] <- unique(marg_data[, effects[[i]][1]])
+        values <- setNames(list(values, NA), effects[[i]])
         if (pred_types[2] == "numeric") {
-          mean2 <- mean(marg_data[, effects[[i]][2]])
-          sd2 <- sd(marg_data[, effects[[i]][2]])
-          values[[2]] <- (-1:1) * sd2 + mean2
+          if (is_mono[2]) {
+            median2 <- median(marg_data[, effects[[i]][2]])
+            mad2 <- mad(marg_data[, effects[[i]][2]])
+            values[[2]] <- round((-1:1) * mad2 + median2)
+          } else {
+            mean2 <- mean(marg_data[, effects[[i]][2]])
+            sd2 <- sd(marg_data[, effects[[i]][2]])
+            values[[2]] <- (-1:1) * sd2 + mean2
+          }
         } else {
           values[[2]] <- unique(marg_data[, effects[[i]][2]])
         }
         marg_data <- do.call(expand.grid, values)
       }
+    } else if (pred_types == "numeric") {
+      # just a single numeric predictor
+      marg_data <- structure(data.frame(values), names = effects[[i]])
     }
     # no need to have the same value combination more than once
     marg_data <- unique(marg_data)
-    marg_data <- replicate(nrow(data), simplify = FALSE,
+    marg_data <- replicate(nrow(conditions), simplify = FALSE,
      expr = marg_data[do.call(order, as.list(marg_data)), , drop = FALSE])
-    marg_vars <- setdiff(names(data), effects[[i]])
-    for (j in 1:nrow(data)) {
-      marg_data[[j]][, marg_vars] <- data[j, marg_vars]
-      marg_data[[j]][["MargRow"]] <- rownames(data)[j]
+    marg_vars <- setdiff(names(conditions), effects[[i]])
+    for (j in 1:nrow(conditions)) {
+      marg_data[[j]][, marg_vars] <- conditions[j, marg_vars]
+      marg_data[[j]][["MargCond"]] <- rownames(conditions)[j]
     }
     marg_data <- do.call(rbind, marg_data)
-    marg_data$MargRow <- factor(marg_data$MargRow, levels = rownames(data))
+    marg_data$MargCond <- factor(marg_data$MargCond, rownames(conditions))
     args <- list(x, newdata = marg_data, re_formula = re_formula,
                  allow_new_levels = TRUE, probs = probs)
     if (is.ordinal(x$family) || is.categorical(x$family)) {
@@ -1038,14 +1098,21 @@ marginal_effects.brmsfit <- function(x, effects = NULL, data = NULL,
      
     if (length(effects[[i]]) == 2L && all(pred_types == "numeric")) {
       # can only be converted to factor after having called method
-      labels <- c("Mean - SD", "Mean", "Mean + SD")
+      if (is_mono[2]) {
+        labels <- c("Median - MAD", "Median", "Median + MAD")
+      } else {
+        labels <- c("Mean - SD", "Mean", "Mean + SD") 
+      }
       marg_data[[effects[[i]][2]]] <- 
         factor(marg_data[[effects[[i]][2]]], labels = labels)
     }
     marg_res = cbind(marg_data, marg_res)
     attr(marg_res, "response") <- as.character(x$formula[2])
     attr(marg_res, "effects") <- effects[[i]]
-    attr(marg_res, "rug") <- marg_data[, effects[[i]], drop = FALSE]
+    point_args <- nlist(mf, effects = effects[[i]], conditions,
+                        groups = get_random(ee)$group, family = x$family)
+    # see brmsfit-helpers.R
+    attr(marg_res, "points") <- do.call(make_point_frame, point_args)
     results[[paste0(effects[[i]], collapse = ":")]] <- marg_res
   }
   class(results) <- "brmsMarginalEffects"
@@ -1201,13 +1268,15 @@ predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     family$family <- "lognormal"
     family$link <- "identity"
   } else if (is.linear(family) && nresp > 1) {
-    family$family <- paste0("multi_", family$family)
+    family$family <- paste0(family$family, "_multi")
   } else if (use_cov(autocor) && (get_ar(autocor) || get_ma(autocor))) {
     # special family for ARMA models using residual covariance matrices
     family$family <- paste0(family$family, "_cov")
     samples$ar <- do.call(posterior_samples, c(args, pars = "^ar\\["))
     samples$ma <- do.call(posterior_samples, c(args, pars = "^ma\\["))
-  } 
+  } else if (is(autocor, "cor_fixed")) {
+    family$family <- paste0(family$family, "_fixed")
+  }
   
   is_catordinal <- is.ordinal(family) || is.categorical(family)
   # see predict.R
@@ -1218,6 +1287,7 @@ predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   }
   N <- if (!is.null(standata$N_trait)) standata$N_trait
        else if (!is.null(standata$N_tg)) standata$N_tg
+       else if (is(autocor, "cor_fixed")) 1
        else standata$N
   out <- do.call(cbind, lapply(1:N, call_predict_fun))
   rm(samples)
@@ -1436,47 +1506,142 @@ residuals.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 
 #' Update \pkg{brms} models
 #' 
-#' This method allows to update an existing \code{brmsfit} object 
-#' with new data as well as changed configuration of the chains.
+#' This method allows to update an existing \code{brmsfit} object
 #' 
 #' @param object object of class \code{brmsfit}
+#' @param formula. changes to the formula; for details see 
+#'   \code{\link[stats:update.formula]{update.formula}}
 #' @param newdata optional \code{data.frame} 
 #'  to update the model with new data
 #' @param ... other arguments passed to 
-#'  \code{\link[brms:brm]{brm}} such as
-#'  \code{iter} or \code{chains}.
+#'  \code{\link[brms:brm]{brm}}
+#'  
+#' @examples 
+#' \dontrun{
+#' fit1 <- brm(time | cens(censored) ~ age * sex + disease + (1|patient), 
+#'             data = kidney, family = gaussian("log"))
+#' summary(fit1)
+#' 
+#' ## remove effects of 'disease'
+#' fit2 <- update(fit1, formula. = ~ . - disease)
+#' summary(fit2)
+#' 
+#' ## remove the group specific term of 'patient' and
+#' ## change the data (just take a subset in this example)
+#' fit3 <- update(fit1, formula. = ~ . - (1|patient), 
+#'                newdata = kidney[1:38, ])
+#' summary(fit3)
+#' 
+#' ## use another family and add fixed effects priors
+#' fit4 <- update(fit1, family = weibull(), inits = "0",
+#'                prior = set_prior("normal(0,5)"))
+#' summary(fit4)
+#' }
 #'
 #' @export
-update.brmsfit <- function(object, newdata = NULL, ...) {
+update.brmsfit <- function(object, formula., newdata = NULL, ...) {
   dots <- list(...)
-  invalid_args <- c("formula", "family", "prior", "autocor", 
-                    "partial", "threshold", "cov_ranef", 
-                    "sample_prior", "save_model")
-  z <- which(names(dots) %in% invalid_args)
-  if (length(z)) {
-    stop(paste("Argument(s)", paste(names(dots)[z], collapse = ", "),
-               "cannot be updated"), call. = FALSE)
-  }
   if ("data" %in% names(dots)) {
-    stop("Please use argument 'newdata' to update your data", call. = FALSE)
+    # otherwise the data name cannot be found by substitute 
+    stop("Please use argument 'newdata' to update the data", 
+         call. = FALSE)
   }
-  # update arguments if required
-  ee <- extract_effects(object$formula, nonlinear = object$nonlinear)
-  if (!is.null(newdata)) {
-    object$data <- amend_newdata(newdata, fit = object, 
-                                 return_standata = FALSE)
-    object$data.name <- Reduce(paste, deparse(substitute(newdata)))
-    object$ranef <- gather_ranef(ee, data = object$data, 
-                                 is_forked = is.forked(object$family))
-    dots$is_newdata <- TRUE
+  recompile <- FALSE
+  if (missing(formula.)) {
+    dots$formula <- object$formula
+  } else {
+    dots$formula <- as.formula(formula.)
+    if (length(object$nonlinear)) {
+      warning(paste("Argument 'formula.' will completely replace the", 
+                    "original formula in non-linear models.", call. = FALSE))
+      recompile <- TRUE
+    } else {
+      dots$formula <- update.formula(object$formula, dots$formula)
+      ee_old <- extract_effects(object$formula, family = object$family)
+      family <- get_arg("family", dots, object)
+      ee_new <- extract_effects(dots$formula, family = family)
+      # no need to recompile the model when changing fixed effects only
+      recompile <- !(is_equal(names(ee_old), names(ee_new)) && 
+        is_equal(ee_old$random, ee_new$random) &&
+        is_equal(length(ee_old$response), length(ee_new$response)))
+    }
+    if (recompile) {
+      message("The desired formula changes require recompling the model")
+    }
   }
-  if (!is.null(dots$ranef)) {
-    object$exclude <- exclude_pars(ee, ranef = dots$ranef)
-  }
-  if (!isFALSE(dots$refit)) {
-    # allows test 'update' without having to fit a Stan model
-    dots$refit <- NULL
-    object <- do.call(brm, c(list(fit = object), dots))
+
+  object$prior <- update_prior_frame(object$prior, ranef = object$ranef)
+  rc_args <- c("family", "prior", "autocor", "nonlinear", "partial", 
+               "threshold", "cov_ranef", "sparse", "sample_prior")
+  new_args <- intersect(rc_args, names(dots))
+  recompile <- recompile || length(new_args)
+  if (recompile) {
+    if (length(new_args)) {
+      message(paste("Changing argument(s)", 
+                    paste0("'", new_args, "'", collapse = ", "),
+                    "requires recompiling the model"))
+    }
+    old_args <- setdiff(rc_args, new_args)
+    dots[old_args] <- object[old_args]
+    if (!is.null(newdata)) {
+      dots$data <- newdata
+      data$data.name <- Reduce(paste, deparse(substitute(newdata)))
+      dots$data.name <- substr(dots$data.name, 1, 50)
+    } else  {
+      dots$data <- object$data
+      dots$data.name <- object$data.name
+    }
+    if (is.null(dots$threshold)) {
+      # for backwards compatibility with brms <= 0.8.0
+      if (grepl("(k - 1.0) * delta", object$model, fixed = TRUE)) {
+        dots$threshold <- "equidistant"
+      } else dots$threshold <- "flexible"
+    }
+    if ("prior" %in% new_args) {
+      if (is(dots$prior, "brmsprior")) { 
+        dots$prior <- c(dots$prior)
+      } else if (!is(dots$prior, "prior_frame")) {
+        stop("invalid prior argument")
+      }
+      dots$prior <- rbind(dots$prior, object$prior)
+      dots$prior <- dots$prior[!duplicated(dots$prior[, 2:5]), ]
+    }
+    pnames <- parnames(object)
+    if (is.null(dots$sample_prior)) {
+      dots$sample_prior <- any(grepl("^prior_", pnames))
+    }
+    if (is.null(dots$ranef)) {
+      dots$ranef <- any(grepl("^r_", pnames)) || !length(object$ranef)
+    }
+    if (!isTRUE(dots$testmode)) {
+      object <- do.call(brm, dots)
+    }
+  } else {
+    # refit the model without compiling it again
+    if (!is.null(dots$formula)) {
+      object$formula <- dots$formula
+      dots$formula <- NULL
+    }
+    ee <- extract_effects(object$formula, family = object$family, 
+                          nonlinear = object$nonlinear)
+    if (!is.null(newdata)) {
+      object$data <- update_data(newdata, family = object$family, effects = ee)
+      object$data.name <- Reduce(paste, deparse(substitute(newdata)))
+      object$ranef <- gather_ranef(ee, data = object$data, 
+                                   forked = is.forked(object$family))
+      dots$is_newdata <- TRUE
+    }
+    if (!is.null(dots$ranef)) {
+      object$exclude <- exclude_pars(ranef = object$ranef, 
+                                     save_ranef = dots$ranef)
+    }
+    if (!is.null(dots$algorithm)) {
+      object$algorithm <- match.arg(dots$algorithm, 
+                                    c("sampling", "meanfield", "fullrank"))
+    }
+    if (!isTRUE(dots$testmode)) {
+      object <- do.call(brm, c(list(fit = object), dots))
+    }
   }
   object
 }
@@ -1553,8 +1718,6 @@ logLik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   standata <- amend_newdata(newdata, fit = object, re_formula = re_formula,
                             allow_new_levels = allow_new_levels,
                             check_response = TRUE)
-  N <- ifelse(is.null(standata$N_tg), nrow(as.matrix(standata$Y)), 
-              standata$N_tg)
   
   # compute all necessary samples
   if (is.null(subset) && !is.null(nsamples)) {
@@ -1597,13 +1760,15 @@ logLik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     family$family <- "lognormal"
     family$link <- "identity"
   } else if (is.linear(family) && nresp > 1) {
-    family$family <- paste0("multi_", family$family)
+    family$family <- paste0(family$family, "_multi")
   } else if (use_cov(autocor) && (get_ar(autocor) || get_ma(autocor))) {
     # special family for ARMA models using residual covariance matrices
     family$family <- paste0(family$family, "_cov")
     samples$ar <- do.call(posterior_samples, c(args, pars = "^ar\\["))
     samples$ma <- do.call(posterior_samples, c(args, pars = "^ma\\["))
-  } 
+  } else if (is(autocor, "cor_fixed")) {
+    family$family <- paste0(family$family, "_fixed")
+  }
 
   # call loglik functions
   loglik_fun <- get(paste0("loglik_", family$family), mode = "function")
@@ -1611,6 +1776,9 @@ logLik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     do.call(loglik_fun, list(n = n, data = standata, samples = samples, 
                              link = family$link)) 
   }
+  N <- if (!is.null(standata$N_tg)) standata$N_tg
+       else if (is(autocor, "cor_fixed")) 1
+       else nrow(as.matrix(standata$Y))
   loglik <- do.call(cbind, lapply(1:N, call_loglik_fun))
   # reorder loglik values to be in the initial user defined order
   # currently only relevant for autocorrelation models
@@ -1705,8 +1873,6 @@ hypothesis.brmsfit <- function(x, hypothesis, class = "b", group = "",
       sm[1, 4] <- Inf
     }
     sm <- cbind(sm, ifelse(!(sm[1, 3] <= 0 && 0 <= sm[1, 4]), '*', ''))
-    # make sure rownames are not too long
-    lr <- ifelse(nchar(lr) > 20, paste0(substr(lr, 1, 17), "..."), lr)
     h <- paste0(lr[1], ifelse(lr[2] != "0", paste0("-(", lr[2], ")"), ""))
     rownames(sm) <- paste(rename(h, "__", ":"), sign, "0")
     cl <- (1 - alpha) * 100
@@ -1732,4 +1898,10 @@ hypothesis.brmsfit <- function(x, hypothesis, class = "b", group = "",
   out <- nlist(hypothesis = hs, samples, class, alpha)
   class(out) <- "brmshypothesis"
   out
+}
+
+#' @rdname expose_functions
+#' @export
+expose_functions.brmsfit <- function(x, ...) {
+  expose_stan_functions(x$fit)
 }

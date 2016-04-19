@@ -1,17 +1,11 @@
 test_that("check_prior performs correct renaming", {
   # ordering bug in devtools::check() for upper case letters
-  prior <- check_prior(set_prior("normal(0,5)", class = "cor"),
-                       formula = rating ~ 0 + treat + (0 + treat + carry | subject), 
-                       data = inhaler, family = student())
-  target <- prior_frame(prior = "normal(0,5)", class = "L")
-  expect_true(length(which(duplicated(rbind(prior, target)))) == 1)
-  
   prior <- check_prior(c(set_prior("lkj(0.5)", class = "cor", group = "subject"),
                          set_prior("normal(0,1)", class = "b")),
                        formula = rating ~ treat + (0 + treat +  carry | subject), 
                        data = inhaler)
   target <- prior_frame(prior = c("normal(0,1)", "lkj_corr_cholesky(0.5)"),
-                        class = c("b", "L"), group = c("", "1"))
+                        class = c("b", "L"), group = c("", "subject"))
   expect_true(length(which(duplicated(rbind(prior, target)))) == 2)
   
   prior <- check_prior(c(set_prior("lkj(5)", class = "rescor"),
@@ -23,41 +17,26 @@ test_that("check_prior performs correct renaming", {
   
   expect_equivalent(check_prior(set_prior("normal(0,1)", class = "Intercept"),
                                 formula = rating ~ carry, data = inhaler, 
-                                family = "cumulative")[3, ],
+                                family = cumulative())[3, ],
                     prior_frame("normal(0,1)", class = "temp_Intercept"))
   
   expect_equivalent(check_prior(set_prior("normal(0,1)", class = "Intercept"),
                                 formula = rating ~ carry, data = inhaler, 
-                                family = "cumulative",
+                                family = cumulative(),
                                 threshold = "equidistant")[4, ],
-                    prior_frame("normal(0,1)", class = "temp_Intercept1"))
-})
-
-
-test_that("check_prior is backwards compatible", { 
-  prior <- suppressWarnings(check_prior(
-    list(b_carry = "normal(0,1)", nu = "gamma(1,1)"), 
-    family = "student", formula = rating ~ carry + (1+treat|subject), 
-    data = inhaler))
-  target <- prior_frame(prior = c("normal(0,1)", "gamma(1,1)"),
-                        class = c("b", "nu"), coef = c("carry", ""))
-  expect_true(length(which(duplicated(rbind(prior, target)))) == 2)
+                    prior_frame("normal(0,1)", class = "temp_Intercept"))
   
-  prior <- suppressWarnings(check_prior(
-    list(sd_subject_treat = "normal(0,1)", Lrescor = "lkj_corr_cholesky(1)"), 
-    formula = cbind(rating, carry) ~ treat + (1+treat|subject), 
-    data = inhaler, family = "gaussian"))
-  target <- prior_frame(prior = c("normal(0,1)", "lkj_corr_cholesky(1)"),
-                        class = c("sd", "Lrescor"), coef = c("treat", ""),
-                        group = c("1", ""))
-  expect_true(length(which(duplicated(rbind(prior, target)))) == 2)
+  expect_equivalent(check_prior(set_prior("normal(0,2)", "b", coef = "Intercept"),
+                                formula = rating ~ carry, data = inhaler, 
+                                family = student())[6, ],
+                    prior_frame("normal(0,2)", class = "temp_Intercept"))
 })
 
 test_that("check_prior accepts correct prior names", {
-  cp <- check_prior(c(set_prior("normal(0,1)", class = "b", coef = "carry"),
-                      set_prior("gamma(1,1)", class = "b", coef = "treat")),
+  cp <- check_prior(c(set_prior("normal(0,1)", coef = "carry"),
+                      set_prior("cauchy(1,1)", coef = "treat")),
                     formula = rating ~ -1 + treat + carry, data = inhaler)
-  expect_equivalent(cp[2:3, ], prior_frame(c("normal(0,1)", "gamma(1,1)"), 
+  expect_equivalent(cp[2:3, ], prior_frame(c("normal(0,1)", "cauchy(1,1)"), 
                                  class = "b", coef = c("carry", "treat")))
   
   cp <- check_prior(c(set_prior("p1", class = "sd", coef = "sexfemale", 
@@ -65,12 +44,12 @@ test_that("check_prior accepts correct prior names", {
                       set_prior("p2", class = "sd", coef = "age", 
                                 group = "patient")),
                     formula = time ~ age + (sex+age|patient),  
-                    family = "exponential", data = kidney)
+                    family = exponential(), data = kidney)
   expect_equivalent(cp[9, ], prior_frame(prior = "p1", class = "sd", 
-                                coef = "sexfemale", group = "1")[1, ])
+                                coef = "sexfemale", group = "patient")[1, ])
   
   expect_equivalent(check_prior(set_prior("cauchy(0,1)", class = "sigma"), 
-                                formula = rating ~ 1, family = "cauchy", 
+                                formula = rating ~ 1, family = cauchy(), 
                                 data = inhaler)[2, ],
                     prior_frame("cauchy(0,1)", class = "sigma"))
   
@@ -83,14 +62,14 @@ test_that("check_prior accepts correct prior names", {
 })
 
 test_that("check_prior rejects incorrect prior names", {
-  expect_message(check_prior(c(set_prior("p1", class = "b", coef = "Intercept"),
+  expect_message(check_prior(c(set_prior("p1", class = "Intercept"),
                                set_prior("p2", class = "b", coef = "age")),
-                             family = "acat", data = inhaler,
+                             family = acat(), data = inhaler,
                              formula = rating ~ treat + (1+treat|subject)))
-  expect_message(check_prior(c(set_prior("p1", class = "b", coef = "Intercept"),
+  expect_message(check_prior(c(set_prior("p1", class = "Intercept"),
                                set_prior("", class = "sd", group = "patient")),
                              formula = rating ~ treat + (1+treat|subject), 
-                             family = "cauchy", data = inhaler))
+                             family = cauchy(), data = inhaler))
   expect_message(check_prior(set_prior("normal(0,1)", class = "ar"), 
                              formula = count ~ log_Base4_c * Trt_c 
                              + (1+Trt_c|patient), data = epilepsy))
@@ -108,7 +87,7 @@ test_that("check_prior returns increment_log_prob(.) whithout checking", {
 test_that("check_prior correctly validates priors for random effects", {
   expect_message(check_prior(set_prior("normal(0,1)", class = "sd", group = "g"),
                              formula = count ~ (1|visit), data = epilepsy),
-                 "Prior element 1 is invalid and will be removed")
+                 "The following priors don't correspond")
   cp <- check_prior(set_prior("cauchy(0,1)", class = "sd", group = "visit"),
                     formula = count ~ Trt_c + (1|visit), 
                     data = epilepsy)
@@ -116,7 +95,31 @@ test_that("check_prior correctly validates priors for random effects", {
   cp <- check_prior(set_prior("cauchy(0,1)", class = "sd", group = "visit"),
                     formula = count ~ (1|visit) + (0+Trt_c|visit), 
                     data = epilepsy)
-  expect_equal(cp$prior[c(3, 6)], rep("cauchy(0,1)", 2))
+  expect_equal(cp$prior[3], "cauchy(0,1)")
+})
+
+test_that("check_prior correctly validates priors for category specific effects", {
+  prior <- c(set_prior("normal(0,1)", class = "b", coef = "carry"),
+             set_prior("cauchy(1,1)", class = "b", coef = "treat"))
+  cp <- check_prior(prior, formula = rating ~ 1 + cse(treat + carry), 
+                    data = inhaler, family = cratio())
+  target <- prior_frame(prior = c("normal(0,1)", "cauchy(1,1)"),
+                        class = "b", coef = c("carry", "treat"))
+  expect_equivalent(cp[2:3, ], target)
+})
+
+test_that("check_prior correctly validates priors for monotonous effects", {
+  data <- data.frame(y = rpois(100, 10), x = rep(1:4, 25))
+  prior <- c(set_prior("normal(0,1)", class = "b", coef = "x"),
+             set_prior("dirichlet(c(1,0.5,2))", class = "simplex", coef = "x"))
+  cp <- brms:::check_prior(prior, formula = y ~ monotonous(x), data = data,
+                           family = poisson())
+  target <- brms:::prior_frame(prior = c("normal(0,1)", "dirichlet(c(1,0.5,2))"),
+                        class = c("b", "simplex"), coef = c("x", "x"))
+  expect_equivalent(cp[2:3, ], target)
+  expect_error(check_prior(set_prior("beta(1,1)", class = "simplex", coef = "x"), 
+                           formula = y ~ monotonous(x), data = data),
+               "'dirichlet' is the only valid prior for simplex parameters")
 })
 
 test_that("handle_special_priors handles horseshoe prior correctly", {
@@ -134,30 +137,49 @@ test_that("get_prior finds all classes for which priors can be specified", {
                               + (1|patient) + (1+Trt_c|visit),
                               data = epilepsy, family = "poisson")$class),
                sort(c(rep("b", 5), c("cor", "cor"), "Intercept", rep("sd", 6))))
-  expect_equal(sort(get_prior(rating ~ treat + period, partial = ~ carry, 
+  expect_equal(sort(get_prior(rating ~ treat + period + cse(carry),
                          data = inhaler, family = "sratio", 
                          threshold = "equidistant")$class),
                sort(c(rep("b", 5), "delta", "Intercept")))
 })
 
-test_that("update_prior produces correct prior_frames", {
-  prior <- list(b = "p1", sd = "p2", cor = "p3", b_Intercept = "p4",
-                cor_visit = "p5", sd_visit_x = "p6", sd_visit = "p7", 
-                sigma = "p8")
-  result <- prior_frame(prior = paste0("p",1:8), 
-                        class = c("b", "sd", "cor", "b", "cor", "sd", "sd", "sigma"),
-                        coef = c(rep("", 3), "Intercept", "", "x", "", ""),
-                        group = c(rep("", 4), rep("visit", 3), ""))
-  expect_equal(update_prior(prior), result)
+test_that("update_prior_frame works correctly", {
+  prior <- prior_frame(group = c("", "1", "1", "2"))
+  ranef <- list(g1 = "Intercept", g2 = c("Intercept", "x"))
+  target <- prior_frame(group = c("", "g1", "g1", "g2"))
+  expect_equal(update_prior_frame(prior, ranef), target)
+  prior <- prior_frame(group = c("", "1", "1", "2", "3"))
+  expect_warning(update_prior_frame(prior, ranef),
+                 "Returning to default priors")
 })
 
 test_that("print for class brmsprior works correctly", {
   expect_output(print(set_prior("normal(0,1)")), fixed = TRUE,
-                "Prior: b ~ normal(0,1)")
+                "b ~ normal(0,1)")
   expect_output(print(set_prior("normal(0,1)", coef = "x")), 
-                "Prior: b_x ~ normal(0,1)", fixed = TRUE)
+                "b_x ~ normal(0,1)", fixed = TRUE)
   expect_output(print(set_prior("cauchy(0,1)", class = "sd", group = "x")), 
-                "Prior: sd_x ~ cauchy(0,1)", fixed = TRUE)
+                "sd_x ~ cauchy(0,1)", fixed = TRUE)
   expect_output(print(set_prior("increment_log_prob(normal_log(0,1))")), 
-                "Prior: increment_log_prob(normal_log(0,1))", fixed = TRUE)
+                "increment_log_prob(normal_log(0,1))", fixed = TRUE)
+})
+
+test_that("get_prior returns correct nlpar names for random effects pars", {
+  # reported in issue #47
+  data <- data.frame(y = rnorm(10), x = rnorm(10), g = rep(1:2, 5))
+  gp <- get_prior(y ~ a - b^x, data = data, nonlinear = a + b ~ (1+x|g))
+  expect_equal(sort(unique(gp$nlpar)), c("", "a", "b"))
+})
+
+test_that("check_prior_content returns expected errors and warnings", {
+  prior <- c(set_prior("", lb = 0), set_prior("gamma(0,1)", coef = "x"))
+  expect_silent(check_prior_content(prior))
+  prior <- c(set_prior("gamma(1,1)", class = "delta"))
+  expect_silent(check_prior_content(prior, family = cumulative()))
+  expect_warning(check_prior_content(prior, family = acat()),
+                 "no natural lower bound")
+  prior <- c(set_prior("uniform(0,5)", class = "sd"))
+  expect_warning(check_prior_content(prior), "no natural upper bound")
+  prior <- c(set_prior("normal(0,2)", class = "ar", lb = "0"))
+  expect_warning(check_prior_content(prior), "autocorrelation parameters")
 })

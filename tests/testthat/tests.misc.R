@@ -36,10 +36,10 @@ test_that("collapse_lists performs correct collapsing after names", {
                list(a = "a <- gamma(1,1)", b = "b <- cauchy(1,2)", c = "c <- normal(0,1)"))
 })
 
-test_that("keep_attr works correcty", {
+test_that("subset_attr works correctly", {
   x <- list(a = 1, b = 2, c = 3)
   attr(x, "att") <- "x"
-  res <- keep_attr(x, c("a", "c"))
+  res <- subset_attr(x, c("a", "c"))
   expect_equivalent(res, list(a = 1, c = 3))
   expect_equal(attr(res, "att"), "x")
   expect_equal(names(res), c("a", "c"))
@@ -81,4 +81,9 @@ test_that("use_alias works correctly", {
   expect_warning(use_alias(a, dots$c), fixed = TRUE,
                  "'c' is deprecated. Please use argument 'a' instead.")
   expect_equal(use_alias(a, dots$c, warn = FALSE), dots$c)
+})
+
+test_that("rhs keeps attributes", {
+  form <- structure(y~x, test = TRUE)
+  expect_equal(attributes(form), attributes(rhs(form)))
 })

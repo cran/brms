@@ -63,7 +63,7 @@ link <- function(x, link) {
   else if (link == "logit") logit(x)
   else if (link == "probit") qnorm(x)
   else if (link == "probit_approx") qnorm(x)
-  else if (link == "cloglog") log(-log(1-x))
+  else if (link == "cloglog") cloglog(x)
   else if (link == "cauchit") qcauchy(x)
   else stop(paste("Link", link, "not supported"))
 }
@@ -82,10 +82,10 @@ ilink <- function(x, link) {
   else if (link == "inverse") 1/x
   else if (link == "sqrt") x^2
   else if (link == "1/mu^2") 1 / sqrt(x)
-  else if (link == "logit") ilogit(x)
+  else if (link == "logit") inv_logit(x)
   else if (link == "probit") pnorm(x)
-  else if (link == "probit_approx") ilogit(0.07056*x^3 + 1.5976*x)
-  else if (link == "cloglog") 1 - exp(-exp(x))
+  else if (link == "probit_approx") inv_logit(0.07056*x^3 + 1.5976*x)
+  else if (link == "cloglog") inv_cloglog(x)
   else if (link == "cauchit") pcauchy(x)
   else stop(paste("Link", link, "not supported"))
 }
@@ -384,15 +384,48 @@ get_sigma <- function(x, data, n, method = c("fitted", "predict", "logLik")) {
       sigma <- data$sigma
     }
     if (is.null(sigma)) {
-      stop("No residual standard deviation(s) found")
+      stop("no residual standard deviation(s) found")
     }
     if (method %in% c("predict", "logLik")) {
       sigma <- sigma[n]
     } else {
       sigma <- matrix(rep(sigma, n), ncol = data$N, byrow = TRUE)
     }
+  } else if (!is.null(data$disp)) {
+    if (method %in% c("predict", "logLik")) {
+      sigma <- sigma * data$disp[n]
+    } else {
+      # results in a Nsamples x Nobs matrix
+      sigma <- sigma %*% matrix(data$disp, nrow = 1)
+    }
   }
   sigma
+}
+
+get_shape <- function(x, data, n = NULL, 
+                      method = c("fitted", "predict", "logLik")) {
+  # get residual standard devation of linear models
+  # Args:
+  #   x: a brmsfit object or posterior samples of sigma (can be NULL)
+  #   data: data initially passed to Stan
+  #   method: S3 method from which get_sigma is called
+  #   n: only used for "predict" and "logLik": 
+  #      the current observation number
+  method <- match.arg(method)
+  if (is(x, "brmsfit")) {
+    shape <- posterior_samples(x, pars = "^shape$")$shape
+  } else {
+    shape <- x
+  }
+  if (!is.null(data$disp)) {
+    if (method %in% c("predict", "logLik")) {
+      shape <- shape * data$disp[n]
+    } else {
+      # results in a Nsamples x Nobs matrix
+      shape <- shape %*% matrix(data$disp, nrow = 1)
+    }
+  }
+  shape
 }
 
 extract_pars <- function(pars, all_pars, exact_match = FALSE,
@@ -503,9 +536,13 @@ match_response <- function(models) {
     # Args:
     #   x, y: named lists as returned by standata
     to_match <- c("Y", "se", "weights", "cens", "trunc")
-    all(ulapply(to_match, function(v) 
-      is_equal(as_matrix(x[[v]])[attr(x, "old_order"), ], 
-               as_matrix(y[[v]])[attr(y, "old_order"), ])))
+    all(ulapply(to_match, function(v) {
+      a <- if (is.null(attr(x, "old_order"))) as.vector(x[[v]])
+           else as.vector(x[[v]])[attr(x, "old_order")]
+      b <- if (is.null(attr(y, "old_order"))) as.vector(y[[v]])
+           else as.vector(y[[v]])[attr(y, "old_order")]
+      is_equal(a, b)
+    }))
   } 
   standatas <- lapply(models, standata, control = list(save_order = TRUE))
   matches <- ulapply(standatas[-1], .match_fun, y = standatas[[1]]) 
@@ -541,6 +578,59 @@ find_names <- function(x) {
   pos_decnum <- gregexpr("\\.[[:digit:]]+", x)[[1]]
   pos_var <- list(rmMatch(pos_all, pos_fun, pos_decnum))
   unlist(regmatches(x, pos_var))
+}
+
+make_point_frame <- function(mf, effects, conditions, groups, family) {
+  # helper function for marginal_effects.brmsfit
+  # allowing add data points to the marginal plots
+  # Args:
+  #   mf: the original model.frame
+  #   effects: see argument 'effects' of marginal_effects
+  #   conditions: see argument 'conditions' of marginal_effects
+  #   groups: names of the grouping factors
+  #   family: the model family
+  # Returns:
+  #   a data.frame containing the data points to be plotted
+  points <- mf[, effects[1], drop = FALSE]
+  points$.RESP <- model.response(mf)
+  # get required variables i.e. (grouping) factors
+  list_mf <- lapply(as.list(mf), function(x)
+    if (is.numeric(x)) x else as.factor(x))
+  req_vars <- names(mf)[sapply(list_mf, is.factor)]
+  if (length(groups)) {
+    req_vars <- c(req_vars, unlist(strsplit(groups, ":")))
+  }
+  req_vars <- unique(setdiff(req_vars, effects))
+  req_vars <- intersect(req_vars, names(conditions))
+  if (length(req_vars)) {
+    # find out which data point is valid for which condition
+    mf <- mf[, req_vars, drop = FALSE]
+    conditions <- conditions[, req_vars, drop = FALSE]
+    points$MargCond <- NA
+    points <- replicate(nrow(conditions), points, simplify = FALSE)
+    for (i in seq_along(points)) {
+      cond <- conditions[i, , drop = FALSE]
+      not_na <- c(!is.na(cond))
+      # do it like base::duplicated
+      if (any(not_na)) {
+        K <- do.call("paste", c(mf[, not_na, drop = FALSE], sep = "\r")) %in% 
+             do.call("paste", c(cond[, not_na, drop = FALSE], sep = "\r"))
+      } else {
+        K <- 1:nrow(mf)
+      }
+      points[[i]]$MargCond[K] <- rownames(conditions)[i] 
+    }
+    points <- do.call(rbind, points)
+    # MargCond allows to assign points to conditions
+    points$MargCond <- factor(points$MargCond, rownames(conditions))
+  }
+  if (!is.numeric(points$.RESP)) {
+    points$.RESP <- as.numeric(as.factor(points$.RESP))
+    if (is.binary(family)) {
+      points$.RESP <- points$.RESP - 1
+    }
+  }
+  na.omit(points)
 }
 
 add_samples <- function(x, newpar, dim = numeric(0), dist = "norm", ...) {

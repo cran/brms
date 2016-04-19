@@ -32,7 +32,7 @@ rmMatch <- function(x, ...) {
   x
 }
 
-keep_attr <- function(x, y) {
+subset_attr <- function(x, y) {
   # take a subset of vector, list, etc. 
   # while keeping all attributes except for names
   att <- attributes(x)
@@ -108,10 +108,28 @@ nlist <- function(...) {
   dots
 }
 
+get_arg <- function(x, ...) {
+  # find first occurrence of x in ... objects
+  # Args:
+  #  x: The name of the required element
+  #  ...: R objects that may contain x
+  dots <- list(...)
+  i <- 1
+  out <- NULL
+  while(i <= length(dots) && is.null(out)) {
+    if (!is.null(dots[[i]][[x]])) {
+      out <- dots[[i]][[x]]
+    } else i <- i + 1
+  }
+  out
+}
+
 rhs <- function(x) {
   # return the righthand side of a formula
+  attri <- attributes(x)
   x <- as.formula(x)
-  if (length(x) == 3) x[-2] else x
+  x <- if (length(x) == 3) x[-2] else x
+  do.call(structure, c(list(x), attri))
 }
 
 lhs <- function(x) {
@@ -120,19 +138,40 @@ lhs <- function(x) {
   if (length(x) == 3) update(x, . ~ 1) else NULL
 }
 
-get_matches <- function(pattern, text, ...) {
+SW <- function(expr) {
+  # just a short form for suppressWarnings
+  base::suppressWarnings(expr)
+}
+
+get_matches <- function(pattern, text, simplify = TRUE, ...) {
   # get pattern matches in text as vector
-  unlist(regmatches(text, gregexpr(pattern, text, ...)))
+  x <- regmatches(text, gregexpr(pattern, text, ...))
+  if (simplify) x <- unlist(x)
+  x
 }
 
 logit <- function(p) {
-  # compute the logit
+  # logit link
   log(p / (1 - p))
 }
 
-ilogit <- function(x) { 
-  # compute the inverse of logit
+inv_logit <- function(x) { 
+  # inverse of logit link
   1 / (1 + exp(-x))
+}
+
+cloglog <- function(x) {
+  # cloglog link
+  log(-log(1-x))
+}
+
+inv_cloglog <- function(x) {
+  # inverse of the cloglog link
+  1 - exp(-exp(x))
+}
+
+Phi <- function(x) {
+  pnorm(x)
 }
 
 incgamma <- function(x, a) {
@@ -140,224 +179,107 @@ incgamma <- function(x, a) {
   pgamma(x, shape = a) * gamma(a)
 }
 
+square <- function(x) {
+  x^2
+}
+
+cbrt <- function(x) {
+  x^(1/3)
+}
+
+exp2 <- function(x) {
+  2^x
+}
+
+pow <- function(x, y) {
+  x^y
+}
+
+inv <- function(x) {
+  1/x
+}
+
+inv_sqrt <- function(x) {
+  1/sqrt(x)
+}
+
+inv_square <- function(x) {
+  1/x^2
+}
+
+hypot <- function(x, y) {
+  stopifnot(all(x >= 0))
+  stopifnot(all(y >= 0))
+  sqrt(x^2 + y^2)
+}
+
+log1p <- function(x) {
+  log(1 + x)
+}
+
+log1m <- function(x) {
+  log(1 - x)
+}
+
+expm1 <- function(x) {
+  exp(x) - 1
+}
+
+multiply_log <- function(x, y) {
+  ifelse(x == y & x == 0, 0, x * log(y))
+}
+
+log1p_exp <- function(x) {
+  log(1 + exp(x))
+}
+
+log1m_exp <- function(x) {
+  ifelse(x < 0, log(1 - exp(x)), NaN)
+}
+
+log_diff_exp <- function(x, y) {
+  stopifnot(length(x) == length(y))
+  ifelse(x > y, log(exp(x) - exp(y)), NaN)
+}
+
+log_sum_exp <- function(x, y) {
+  log(exp(x) + exp(y))
+}
+
+log_inv_logit <- function(x) {
+  log(inv_logit(x))
+}
+
+log1m_inv_logit <- function(x) {
+  log(1 - inv_logit(x))
+}
+
 wsp <- function(x, nsp = 1) {
   # add leading and trailing whitespaces
   # Args:
   #   x: object accepted by paste
   #   nsp: number of whitespaces to add
-  sp <- paste(rep(" ", nsp), collapse = "")
+  sp <- collapse(rep(" ", nsp))
   if (length(x)) paste0(sp, x, sp)
   else NULL
 }
 
-is.formula <- function(x, or = TRUE) {
-  # checks if x is formula (or list of formulas)
-  #
-  # Returns:
-  #   x: a formula or a list of formulas
-  #   or: logical; indicates if any element must be a formula (or = TRUE) 
-  #       or if all elements must be formulas
-  if (!is.list(x)) x <- list(x)
-  out <- sapply(x, function(y) is(y, "formula"))
-  if (or) {
-    out <- any(out)
-  } else out <- all(out)
-  out
-}
-
-formula2string <- function(formula, rm = c(0, 0)) {
-  # converts formula to string
-  #
+limit_chars <- function(x, chars = NULL, lsuffix = 4) {
+  # limit the number of characters of a vector
   # Args:
-  #   formula: a model formula
-  #   rm: a vector of to elements indicating how many characters 
-  #       should be removed at the beginning
-  #       and end of the string respectively
-  #
-  # Returns:
-  #    the formula as string 
-  if (!is.formula(formula))
-    stop(paste(deparse(substitute(formula)), "must be of class formula"))
-  if (is.na(rm[2])) rm[2] <- 0
-  x <- gsub(" ","", Reduce(paste, deparse(formula)))
-  x <- substr(x, 1 + rm[1], nchar(x) - rm[2])
+  #   x: a character vector
+  #   chars: maximum number of characters to show
+  #   lsuffix: number of characters to keep 
+  #            at the end of the strings
+  stopifnot(is.character(x))
+  if (!is.null(chars)) {
+    chars_x <- nchar(x) - lsuffix
+    suffix <- substr(x, chars_x + 1, chars_x + lsuffix)
+    x <- substr(x, 1, chars_x)
+    x <- ifelse(chars_x <= chars, x, paste0(substr(x, 1, chars - 3), "..."))
+    x <- paste0(x, suffix)
+  }
   x
-} 
-
-is.linear <- function(family) {
-  # indicate if family is for a linear model
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("gaussian", "student", "cauchy")
-}
-
-is.lognormal <- function(family, link = "identity", nresp = 1) {
-  # indicate transformation to lognormal model
-  # Args:
-  #   link: A character string
-  #   nresp: number of response variables
-  if (is(family, "family")) {
-    link <- family$link
-    family <- family$family
-  }
-  family %in% "gaussian" && link == "log" && nresp == 1
-}
-
-is.binary <- function(family) {
-  # indicate if family is bernoulli or binomial
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("binomial", "bernoulli")
-}
-
-is.ordinal <- function(family) {
-  # indicate if family is for an ordinal model
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("cumulative", "cratio", "sratio", "acat") 
-}
-
-is.categorical <- function(family) {
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% "categorical" 
-}
-
-is.skewed <- function(family) {
-  # indicate if family is for model with postive skewed response
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("gamma", "weibull", "exponential")
-}
-
-is.count <- function(family) {
-  # indicate if family is for a count model
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("poisson", "negbinomial", "geometric")
-}
-
-is.hurdle <- function(family) {
-  # indicate if family is for a hurdle model
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  # zi_beta is technically a hurdle model
-  family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
-                "zero_inflated_beta")
-}
-
-is.zero_inflated <- function(family) {
-  # indicate if family is for a zero inflated model
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("zero_inflated_poisson", "zero_inflated_negbinomial",
-                "zero_inflated_binomial")
-}
-
-is.2PL <- function(family) {
-  if (!is(family, "brmsfamily")) {
-    out <- FALSE
-  } else {
-    out <- family$family %in% "bernoulli" && identical(family$type, "2PL")
-  }
-  out
-}
-
-is.forked <- function(family) {
-  # indicate if family has two separate model parts
-  is.hurdle(family) || is.zero_inflated(family) || is.2PL(family)
-}
-
-use_real <- function(family) {
-  # indicate if family uses real responses
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  is.linear(family) || is.skewed(family) || 
-    family %in% c("inverse.gaussian", "beta", "zero_inflated_beta", 
-                  "hurdle_gamma")
-}
-
-use_int <- function(family) {
-  # indicate if family uses integer responses
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  is.binary(family) || has_cat(family) || 
-    is.count(family) || is.zero_inflated(family) || 
-    family %in% c("hurdle_poisson", "hurdle_negbinomial")
-}
-
-has_trials <- function(family) {
-  # indicate if family makes use of argument trials
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("binomial", "zero_inflated_binomial")
-}
-
-has_cat <- function(family) {
-  # indicate if family makes use of argument cat
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  is.categorical(family) || is.ordinal(family)
-}
-
-has_shape <- function(family) {
-  # indicate if family needs a shape parameter
-  if (is(family, "family")) {
-    family <- family$family
-  }
-  family %in% c("gamma", "weibull", "inverse.gaussian", 
-                "negbinomial", "hurdle_negbinomial", 
-                "hurdle_gamma", "zero_inflated_negbinomial")
-}
-
-has_sigma <- function(family, autocor = cor_arma(), se = FALSE,
-                      is_multi = FALSE) {
-  # indicate if the model needs a sigma parameter
-  # Args:
-  #  family: model family
-  #  se: does the model contain user defined SEs?
-  #  autocor: object of class cor_arma
-  #  is_multi: is the model multivariate?
-  if (is.null(se)) se <- FALSE
-  if (is.formula(se)) se <- TRUE
-  is.linear(family) && !is_multi && 
-    (!se || get_ar(autocor) || get_ma(autocor)) 
-}
-
-needs_kronecker <- function(ranef, names_cov_ranef) {
-  # checks if a model needs the kronecker product
-  # Args: 
-  #   ranef: named list returned by gather_ranef
-  #   names_cov_ranef: names of the grouping factors that
-  #                    have a cov.ranef matrix 
-  .fun <- function(x, names) {
-    length(x) > 1 && attr(x, "group") %in% names && attr(x, "cor")
-  }
-  any(sapply(ranef, .fun, names = names_cov_ranef))
-}
-
-get_boundaries <- function(trunc) {
-  # extract truncation boundaries out of a formula
-  # that is known to contain the .trunc function
-  # Returns:
-  #   a list containing two numbers named lb and ub
-  if (is.formula(trunc)) {
-    .addition(trunc)
-  } else {
-    .trunc()
-  }
 }
 
 use_alias <- function(arg, alias = NULL, warn = TRUE) {
@@ -379,6 +301,81 @@ use_alias <- function(arg, alias = NULL, warn = TRUE) {
     }
   }
   arg
+}
+
+.addition <- function(formula, data = NULL) {
+  # computes data for addition arguments
+  if (!is.formula(formula))
+    formula <- as.formula(formula)
+  eval(formula[[2]], data, environment(formula))
+}
+
+.se <- function(x) {
+  # standard errors for meta-analysis
+  if (!is.numeric(x)) 
+    stop("SEs must be numeric")
+  if (min(x) < 0) 
+    stop("standard errors must be non-negative", call. = FALSE)
+  x  
+}
+
+.weights <- function(x) {
+  # weights to be applied on any model
+  if (!is.numeric(x)) 
+    stop("weights must be numeric")
+  if (min(x) < 0) 
+    stop("weights must be non-negative", call. = FALSE)
+  x
+}
+
+.disp <- function(x) {
+  # dispersion factors
+  if (!is.numeric(x)) 
+    stop("dispersion factors must be numeric")
+  if (min(x) < 0) 
+    stop("dispersion factors must be non-negative", call. = FALSE)
+  x  
+}
+
+.trials <- function(x) {
+  # trials for binomial models
+  if (any(!is.wholenumber(x) || x < 1))
+    stop("number of trials must be positive integers", call. = FALSE)
+  x
+}
+
+.cat <- function(x) {
+  # number of categories for categorical and ordinal models
+  if (any(!is.wholenumber(x) || x < 1))
+    stop("number of categories must be positive integers", call. = FALSE)
+  x
+}
+
+.cens <- function(x) {
+  # indicator for censoring
+  if (is.factor(x)) x <- as.character(x)
+  cens <- unname(sapply(x, function(x) {
+    if (grepl(paste0("^", x), "right") || isTRUE(x)) x <- 1
+    else if (grepl(paste0("^", x), "none") || isFALSE(x)) x <- 0
+    else if (grepl(paste0("^", x), "left")) x <- -1
+    else x
+  }))
+  if (!all(unique(cens) %in% c(-1:1)))
+    stop (paste0("Invalid censoring data. Accepted values are ", 
+                 "'left', 'none', and 'right' \n(abbreviations are allowed) ", 
+                 "or -1, 0, and 1. TRUE and FALSE are also accepted \n",
+                 "and refer to 'right' and 'none' respectively."),
+          call. = FALSE)
+  cens
+}
+
+.trunc <- function(lb = -Inf, ub = Inf) {
+  lb <- as.numeric(lb)
+  ub <- as.numeric(ub)
+  if (length(lb) != 1 || length(ub) != 1) {
+    stop("invalid truncation values", call. = FALSE)
+  }
+  nlist(lb, ub)
 }
 
 # startup messages for brms

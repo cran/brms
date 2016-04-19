@@ -40,18 +40,18 @@ predict_lognormal <- function(n, data, samples, link = "identity", ...) {
                  args = args, data = data)
 }
 
-predict_multi_gaussian <- function(n, data, samples, 
+predict_gaussian_multi <- function(n, data, samples, 
                                    link = "identity", ...) {
   # currently no truncation available
   obs <- seq(n, data$N, data$N_trait)
   .fun <- function(i) {
     rmulti_normal(1, Sigma = samples$Sigma[i, , ],
-                 mu = ilink(samples$eta[i, obs], link))
+                  mu = ilink(samples$eta[i, obs], link))
   }
   do.call(rbind, lapply(1:nrow(samples$eta), .fun))
 }
 
-predict_multi_student <- function(n, data, samples, 
+predict_student_multi <- function(n, data, samples, 
                                   link = "identity", ...) {
   # currently no truncation available
   obs <- seq(n, data$N, data$N_trait)
@@ -63,7 +63,7 @@ predict_multi_student <- function(n, data, samples,
   do.call(rbind, lapply(1:nrow(samples$eta), .fun))
 }
 
-predict_multi_cauchy <- function(n, data, samples, 
+predict_cauchy_multi <- function(n, data, samples, 
                                  link = "identity", ...) {
   # currently no truncation available
   obs <- seq(n, data$N, data$N_trait)
@@ -130,6 +130,29 @@ predict_cauchy_cov <- function(n, data, samples, link = "identity", ...) {
   predict_student_cov(n = n, data = data, samples = samples, link = link, ...) 
 }
 
+predict_gaussian_fixed <- function(n, data, samples, link = "identity", ...) {
+  stopifnot(n == 1)
+  .fun <- function(i) {
+    rmulti_normal(1, mu = ilink(samples$eta[i, ], link), Sigma = data$V)
+  }
+  do.call(rbind, lapply(1:nrow(samples$eta), .fun))
+}
+
+predict_student_fixed <- function(n, data, samples, link = "identity", ...) {
+  stopifnot(n == 1)
+  .fun <- function(i) {
+    rmulti_student(1, df = samples$nu[i, ], Sigma = data$V,
+                   mu = ilink(samples$eta[i, ], link))
+  }
+  do.call(rbind, lapply(1:nrow(samples$eta), .fun))
+}
+
+predict_cauchy_fixed <- function(n, data, samples, link = "identity", ...) {
+  stopifnot(n == 1)
+  samples$nu <- matrix(rep(1, nrow(samples$eta)))
+  predict_student_fixed(n, data = data, samples = samples, link = link, ...)
+}
+
 predict_binomial <- function(n, data, samples, link = "logit", ntrys, ...) {
   trials <- ifelse(length(data$max_obs) > 1, data$max_obs[n], data$max_obs) 
   args <- list(size = trials, prob = ilink(samples$eta[, n], link))
@@ -156,7 +179,8 @@ predict_poisson <- function(n, data, samples, link = "log",
 
 predict_negbinomial <- function(n, data, samples, link = "log",
                                 ntrys = 5, ...) {
-  args <- list(mu = ilink(samples$eta[, n], link), size = samples$shape)
+  shape <- get_shape(samples$shape, data = data, method = "predict", n = n)
+  args <- list(mu = ilink(samples$eta[, n], link), size = shape)
   rng_discrete(nrng = nrow(samples$eta), dist = "nbinom",
                args = args, data = data, ntrys = ntrys)
 }
@@ -175,15 +199,15 @@ predict_exponential <-  function(n, data, samples, link = "log", ...) {
 }
 
 predict_gamma <- function(n, data, samples, link = "inverse", ...) {
-  args <- list(shape = samples$shape,
-               scale = ilink(samples$eta[, n], link) / samples$shape)
+  shape <- get_shape(samples$shape, data = data, method = "predict", n = n)
+  args <- list(shape = shape, scale = ilink(samples$eta[, n], link) / shape)
   rng_continuous(nrng = nrow(samples$eta), dist = "gamma",
                  args = args, data = data)
 }
 
 predict_weibull <- function(n, data, samples, link = "log", ...) {
-  args <- list(shape = samples$shape,
-               scale = ilink(samples$eta[, n] / samples$shape, link))
+  shape <- get_shape(samples$shape, data = data, method = "predict", n = n)
+  args <- list(shape = shape, scale = ilink(samples$eta[, n] / shape, link))
   rng_continuous(nrng = nrow(samples$eta), dist = "weibull",
                  args = args, data = data)
 }

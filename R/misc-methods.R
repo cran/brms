@@ -7,8 +7,12 @@ print.brmssummary <- function(x, digits = 2, ...) {
   } else {
     cat(paste0(x$family, " (", x$link, ") \n"))  
   }
-  cat(paste("Formula:", 
-            gsub(" {1,}", " ", Reduce(paste, deparse(x$formula))), "\n"))
+  cat("Formula:", gsub(" {1,}", " ", Reduce(paste, deparse(x$formula))), "\n")
+  if (length(x$nonlinear)) {
+    nl <- ulapply(x$nonlinear, function(y) 
+      gsub(" {1,}", " ", Reduce(paste, deparse(y))))
+    cat("        ", paste(nl, collapse = "; "), "\n")
+  }
   cat(paste0("   Data: ", x$data.name, 
              " (Number of observations: ",x$nobs,") \n"))
   if (x$sampler == "") {
@@ -27,10 +31,10 @@ print.brmssummary <- function(x, digits = 2, ...) {
     cat(paste0("   WAIC: ", waic, "\n \n"))
     
     if (length(x$random)) {
-      cat("Random Effects: \n")
+      cat("Group-Level Effects: \n")
       for (i in seq_along(x$random)) {
         g <- names(x$random)[i]
-        cat(paste0("~",g," (Number of levels: ",x$ngrps[[g]],") \n"))
+        cat(paste0("~", g, " (Number of levels: ", x$ngrps[[g]], ") \n"))
         if (x$algorithm == "sampling") {
           x$random[[g]][, "Eff.Sample"] <- 
             round(x$random[[g]][, "Eff.Sample"], digits = 0)
@@ -53,7 +57,7 @@ print.brmssummary <- function(x, digits = 2, ...) {
     }
     
     if (nrow(x$fixed)) {
-      cat("Fixed Effects: \n")
+      cat("Population-Level Effects: \n")
       if (x$algorithm == "sampling") {
         x$fixed[, "Eff.Sample"] <- 
           round(x$fixed[, "Eff.Sample"], digits = 0)
@@ -181,8 +185,11 @@ print.iclist <- function(x, digits = 2, ...) {
   invisible(x)
 }
 
+#' @rdname hypothesis
 #' @export
-print.brmshypothesis <- function(x, digits = 2, ...) {
+print.brmshypothesis <- function(x, digits = 2, chars = 20, ...) {
+  # make sure rownames are not too long
+  rownames(x$hypothesis) <- limit_chars(rownames(x$hypothesis), chars = chars)
   cat(paste0("Hypothesis Tests for class ", x$class, ":\n"))
   x$hypothesis[, 1:5] <- round(x$hypothesis[, 1:5], digits = digits)
   print(x$hypothesis, quote = FALSE)

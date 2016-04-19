@@ -48,13 +48,13 @@ test_that("loglik for multivariate linear models runs without errors", {
   data <- list(Y = matrix(rnorm(nobs), ncol = nvars), 
                N_trait = ncols, K_trait = nvars)
   
-  ll <- loglik_multi_gaussian(1, data = data, samples = s)
+  ll <- loglik_gaussian_multi(1, data = data, samples = s)
   expect_equal(length(ll), ns)
   
-  ll <- loglik_multi_student(2, data = data, samples = s)
+  ll <- loglik_student_multi(2, data = data, samples = s)
   expect_equal(length(ll), ns)
   
-  ll <- loglik_multi_cauchy(2, data = data, samples = s)
+  ll <- loglik_cauchy_multi(2, data = data, samples = s)
   expect_equal(length(ll), ns)
 })
 
@@ -79,6 +79,18 @@ test_that("loglik for ARMA covariance models runs without errors", {
   expect_equal(length(ll), ns)
 })
 
+test_that("loglik for 'cor_fixed' models runs without errors", {
+  data <- list(Y = rnorm(10), V = diag(10))
+  samples <- list(eta = matrix(rnorm(30), nrow = 3),
+                  nu = matrix(rep(2, 3)))
+  ll <- loglik_gaussian_fixed(1, data = data, samples = samples)
+  expect_equal(length(ll), 3)
+  ll <- loglik_student_fixed(1, data = data, samples = samples)
+  expect_equal(length(ll), 3)
+  ll <- loglik_cauchy_fixed(1, data = data, samples = samples)
+  expect_equal(length(ll), 3)
+})
+
 test_that("loglik for count and survival models works correctly", {
   ns <- 25
   nobs <- 10
@@ -89,7 +101,7 @@ test_that("loglik for count and survival models works correctly", {
                max_obs = trials)
   i <- sample(nobs, 1)
   
-  ll_binom <- dbinom(x = data$Y[i], prob = ilogit(s$eta[, i]), 
+  ll_binom <- dbinom(x = data$Y[i], prob = inv_logit(s$eta[, i]), 
                      size = data$max_obs[i], log = TRUE)
   ll <- loglik_binomial(i, data = data, samples = s)
   expect_equal(ll, ll_binom)
@@ -135,20 +147,20 @@ test_that("loglik for bernoulli and beta models works correctly", {
             phi = rgamma(ns, 4))
   i <- sample(1:nobs, 1)
   data <- list(Y = sample(0:1, nobs, replace = TRUE))
-  ll_bern <- dbinom(x = data$Y[i], prob = ilogit(s$eta[, i]),
+  ll_bern <- dbinom(x = data$Y[i], prob = inv_logit(s$eta[, i]),
                     size = 1, log = TRUE)
   ll <- loglik_bernoulli(i, data = data, samples = s)
   expect_equal(ll, ll_bern)
   
   ll_bern_2PL <- dbinom(x = data$Y[i], size = 1, log = TRUE,
-                        prob = ilogit(s$eta[, i] * exp(s$eta[, i + nobs])))
+                        prob = inv_logit(s$eta[, i] * exp(s$eta[, i + nobs])))
   data$N_trait <- nobs
   ll <- loglik_bernoulli(i, data = data, samples = s)
   expect_equal(ll, ll_bern_2PL)
   
   data <- list(Y = rbeta(nobs, 1, 1))
-  ll_beta <- dbeta(x = data$Y[i], shape1 = ilogit(s$eta[, i]) * s$phi, 
-                   shape2 = (1 - ilogit(s$eta[, i])) * s$phi, log = TRUE)
+  ll_beta <- dbeta(x = data$Y[i], shape1 = inv_logit(s$eta[, i]) * s$phi, 
+                   shape2 = (1 - inv_logit(s$eta[, i])) * s$phi, log = TRUE)
   ll <- loglik_beta(i, data = data, samples = s)
   expect_equal(ll, ll_beta)
 })

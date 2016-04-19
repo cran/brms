@@ -30,22 +30,18 @@ test_that("melt_data returns expected errors", {
   ee <- extract_effects(y1 ~ x:main, family = hurdle_poisson())
   data <- data.frame(y1 = rnorm(10), y2 = rnorm(10), x = 1:10)
   expect_error(melt_data(data = NULL, family = hurdle_poisson(), effects = ee),
-               "data must be a data.frame for multivariate models", 
-               fixed = TRUE)
+               "'data' must be a data.frame", fixed = TRUE)
   data$main <- 1:10 
   expect_error(melt_data(data = data, family = hurdle_poisson(), effects = ee),
-               "main is a resevered variable name", 
-               fixed = TRUE)
+               "'main' is a reserved variable name", fixed = TRUE)
   data$response <- 1:10 
   ee <- extract_effects(response ~ x:main, family = hurdle_poisson())
   expect_error(melt_data(data = data, family = hurdle_poisson(), effects = ee),
-               "response is a resevered variable name in multivariate models", 
-               fixed = TRUE)
+               "'response' is a reserved variable name", fixed = TRUE)
   data$trait <- 1:10 
   ee <- extract_effects(y ~ 0 + x*trait, family = hurdle_poisson())
   expect_error(melt_data(data = data, family = hurdle_poisson(), effects = ee),
-               "trait is a resevered variable name in multivariate models", 
-               fixed = TRUE)
+               "'trait', 'response' is a reserved variable name", fixed = TRUE)
   
   ee <- extract_effects(cbind(y1, y2) ~ x)
   data <- data.frame(y1 = rnorm(10), y2 = rnorm(10), x = 1:10)
@@ -64,7 +60,7 @@ test_that("combine_groups does the expected", {
 
 test_that("get_model_matrix removes intercepts correctly", {
   data <- data.frame(x = factor(rep(1:2, 5)), y = 11:20)
-  expect_equal(get_model_matrix(y ~ x, data, rm_intercept = TRUE),
+  expect_equal(get_model_matrix(y ~ x, data, cols2remove = "Intercept"),
                structure(matrix(rep(0:1, 5)), dimnames = list(1:10, "x2")))
 })
 

@@ -23,7 +23,6 @@ linear_predictor <- function(x, standata, re_formula = NULL,
   new_ranef <- check_re_formula(re_formula, old_ranef = x$ranef, 
                                 data = x$data)
   new_formula <- update_re_terms(x$formula, re_formula = re_formula)
-  
   family <- family(x)
   # do not use the nonlinear argument here
   ee <- extract_effects(new_formula, family = family)
@@ -31,15 +30,32 @@ linear_predictor <- function(x, standata, re_formula = NULL,
   nsamples <- if (!is.null(subset)) length(subset) else Nsamples(x)
   nlpar <- if (nchar(nlpar)) paste0(nlpar, "_")
   
+  old_cat <- is.old_categorical(x)
   eta <- matrix(0, nrow = nsamples, ncol = standata$N)
-  if (!is.null(standata$X) && ncol(standata$X) && !is.categorical(family)) {
-    b_pars <- paste0("^b_", nlpar, "[^\\[]+$")
-    b <- do.call(posterior_samples, c(args, pars = b_pars))
+  if (!is.null(standata$X) && ncol(standata$X) && !old_cat) {
+    b_pars <- paste0("b_", nlpar, colnames(standata$X))
+    b <- do.call(posterior_samples, 
+                 c(args, list(pars = b_pars, exact = TRUE)))
     eta <- eta + fixef_predictor(X = standata$X, b = b)  
   }
   if (!is.null(standata$offset)) {
     eta <- eta + matrix(rep(standata$offset, nsamples), 
                         ncol = standata$N, byrow = TRUE)
+  }
+  # incorporate monotonous effects
+  if (!is.null(standata$Xm) && ncol(standata$Xm)) {
+    monef <- colnames(standata$Xm)
+    for (i in 1:ncol(standata$Xm)) {
+      bm_par <- paste0("b_", nlpar, monef[i])
+      bm <- do.call(posterior_samples, 
+                    c(args, list(pars = bm_par, exact = TRUE)))
+      simplex_par <- paste0("simplex_", nlpar, monef[i], 
+                            "[", 1:standata$Jm[i], "]")
+      simplex <- do.call(posterior_samples, 
+                         c(args, list(pars = simplex_par, exact = TRUE)))
+      eta <- eta + monef_predictor(Xm = standata$Xm[, i], bm = as.vector(bm), 
+                                   simplex = simplex)
+    }
   }
   
   # incorporate random effects
@@ -56,8 +72,8 @@ linear_predictor <- function(x, standata, re_formula = NULL,
       Z <- as.matrix(get(paste0("Z_", group[i]), standata))
       gf <- get(group[i], standata)
     }
-    r <- do.call(posterior_samples, 
-                 c(args, pars = paste0("^r_", nlpar, group[i],"\\[")))
+    r_pars <- paste0("^r_", nlpar, group[i],"\\[")
+    r <- do.call(posterior_samples, c(args, list(pars = r_pars)))
     if (is.null(r)) {
       stop(paste("Random effects for each level of grouping factor",
                  group[i], "not found. Please set ranef = TRUE",
@@ -79,11 +95,11 @@ linear_predictor <- function(x, standata, re_formula = NULL,
     # incorporate ARR effects
     if (old_autocor) {
       Yarr <- as.matrix(standata$Yar)
-      arr <- do.call(posterior_samples, c(args, pars = "^ar\\["))
+      arr <- do.call(posterior_samples, c(args, list(pars = "^ar\\[")))
     } else {
       # brms > 0.5.0
       Yarr <- as.matrix(standata$Yarr)
-      arr <- do.call(posterior_samples, c(args, pars = "^arr\\["))
+      arr <- do.call(posterior_samples, c(args, list(pars = "^arr\\[")))
     }
     eta <- eta + fixef_predictor(X = Yarr, b = arr)
   }
@@ -92,19 +108,20 @@ linear_predictor <- function(x, standata, re_formula = NULL,
     if (old_autocor) {
       ar <- NULL
     } else {
-      ar <- do.call(posterior_samples, c(args, pars = "^ar\\["))
+      ar <- do.call(posterior_samples, c(args, list(pars = "^ar\\[")))
     }
-    ma <- do.call(posterior_samples, c(args, pars = "^ma\\["))
+    ma <- do.call(posterior_samples, c(args, list(pars = "^ma\\[")))
     eta <- arma_predictor(standata = standata, ar = ar, ma = ma, 
                           eta = eta, link = x$link)
   }
   
   # transform eta to to etap for ordinal and categorical models
   if (is.ordinal(family)) {
-    Intercept <- do.call(posterior_samples, c(args, pars = "^b_Intercept\\["))
+    Intercept <- do.call(posterior_samples, 
+                         c(args, list(pars = "^b_Intercept\\[")))
     if (!is.null(standata$Xp) && ncol(standata$Xp)) {
-      p <- do.call(posterior_samples, 
-                   c(args, pars = paste0("^b_", colnames(standata$Xp), "\\[")))
+      cse_pars <- paste0("^b_", colnames(standata$Xp), "\\[")
+      p <- do.call(posterior_samples, c(args, list(pars = cse_pars)))
       eta <- cse_predictor(Xp = standata$Xp, p = p, eta = eta, 
                            ncat = standata$max_obs)
     } else {
@@ -118,12 +135,18 @@ linear_predictor <- function(x, standata, re_formula = NULL,
       }
     }
   } else if (is.categorical(family)) {
-    if (!is.null(standata$Xp)) {
-      p <- do.call(posterior_samples, c(args, pars = "^b_"))
-      eta <- cse_predictor(Xp = standata$Xp, p = p, eta = eta, 
-                           ncat = standata$max_obs)
+    if (old_cat) {
+      # deprecated as of brms > 0.8.0
+      if (!is.null(standata$X)) {
+        p <- do.call(posterior_samples, c(args, list(pars = "^b_")))
+        eta <- cse_predictor(Xp = standata$X, p = p, eta = eta, 
+                             ncat = standata$max_obs)
+      } else {
+        eta <- array(eta, dim = c(dim(eta), standata$max_obs - 1))
+      }
     } else {
-      eta <- array(eta, dim = c(dim(eta), standata$max_obs - 1))
+      ncat1 <- standata$ncat - 1 
+      eta <- array(eta, dim = c(nrow(eta), ncol(eta) / ncat1, ncat1))
     }
   }
   eta
@@ -182,7 +205,22 @@ nonlinear_predictor <- function(x, newdata = NULL, C = NULL,
                                         ncol = nrow(C), byrow = TRUE)
   }
   # evaluate non-linear predictor
-  with(nlmodel_list, eval(ee$fixed[[3]]))
+  out <- try(with(nlmodel_list, eval(ee$fixed[[3]])), silent = TRUE)
+  if (is(out, "try-error")) {
+    if (grepl("could not find function", out)) {
+      out <- rename(out, "Error in eval(expr, envir, enclos) : ", "")
+      stop(paste0(out, "Most likely this is because you used a Stan ",
+                  "function in the non-linear model formula that ",
+                  "is not defined in R. Currently, you have to write ",
+                  "this function yourself making sure that it is ",
+                  "vectorized. I apologize for the inconvenience."),
+           call. = FALSE)
+    } else {
+      out <- rename(out, "^Error :", "", fixed = FALSE)
+      stop(out, call. = FALSE)
+    }
+  }
+  out
 }
 
 fixef_predictor <- function(X, b) {
@@ -194,11 +232,22 @@ fixef_predictor <- function(X, b) {
   # 
   # Returns:
   #   linear predictor for fixed effects
-  if (!is.matrix(X))
-    stop("X must be a matrix")
-  if (!is.matrix(b))
-    stop("b must be a matrix")
-  b %*% t(X)
+  stopifnot(is.matrix(X))
+  stopifnot(is.matrix(b))
+  tcrossprod(b, X)
+}
+
+monef_predictor <- function(Xm, bm, simplex) {
+  stopifnot(is.vector(Xm))
+  stopifnot(is.vector(bm))
+  stopifnot(is.matrix(simplex))
+  bm <- as.vector(bm)
+  for (i in 2:ncol(simplex)) {
+    # compute the cumulative representation of the simplex 
+    simplex[, i] <- simplex[, i] + simplex[, i - 1]
+  }
+  simplex <- cbind(0, simplex)
+  bm * simplex[, Xm + 1]
 }
 
 ranef_predictor <- function(Z, gf, r) {
@@ -211,10 +260,8 @@ ranef_predictor <- function(Z, gf, r) {
   #
   # Returns: 
   #   linear predictor for random effects
-  if (!is.matrix(Z))
-    stop("Z must be a matrix")
-  if (!is.matrix(r))
-    stop("r must be a matrix")
+  stopifnot(is.matrix(Z))
+  stopifnot(is.matrix(r))
   nranef <- ncol(Z)
   max_levels <- ncol(r) / nranef
   has_new_levels <- anyNA(gf)
@@ -245,7 +292,7 @@ ranef_predictor <- function(Z, gf, r) {
     eta <- r[, take_levels, drop = FALSE] %*% 
       Matrix::t(Z[, take_levels, drop = FALSE])
   } else {
-    eta <- r %*% Matrix::t(Z)
+    eta <- Matrix::tcrossprod(r, Z)
   }
   # Matrix should currently not be used outside of this function
   Matrix::as.matrix(eta)
@@ -311,10 +358,8 @@ cse_predictor <- function(Xp, p, eta, ncat) {
   #
   # Returns: 
   #   linear predictor including category specific effects as a 3D array
-  if (!is.matrix(Xp))
-    stop("Xp must be a matrix")
-  if (!is.matrix(p))
-    stop("p must be a matrix")
+  stopifnot(is.matrix(Xp))
+  stopifnot(is.matrix(p))
   ncat <- max(ncat)
   eta <- array(eta, dim = c(dim(eta), ncat - 1))
   indices <- seq(1, (ncat - 1) * ncol(Xp), ncat - 1) - 1
@@ -337,12 +382,9 @@ expand_matrix <- function(A, x) {
   #
   # Returns:
   #   A sparse matrix of dimension nrow(A) x (ncol(A) * length(x))
-  if (!is.matrix(A)) 
-    stop("A must be a matrix")
-  if (length(x) != nrow(A))
-    stop("x must have nrow(A) elements")
-  if (!all(is.wholenumber(x) & x > 0))
-    stop("x must contain positive integers only")
+  stopifnot(is.matrix(A))
+  stopifnot(length(x) == nrow(A))
+  stopifnot(all(is.wholenumber(x) & x > 0))
   K <- ncol(A)
   i <- rep(seq_along(x), each = K)
   make_j <- function(n, K, x) K * (x[n] - 1) + 1:K

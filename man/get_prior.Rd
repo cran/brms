@@ -29,7 +29,7 @@ Currently, the following families are supported:
 \code{exponential}, \code{weibull}, \code{categorical}, \code{cumulative}, 
 \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
 \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{zero_inflated_binomial},
-\code{zero_inflated_beta}, \code{zero_inflated_negbinomial}, 
+\code{zero_inflated_beta}, \cr \code{zero_inflated_negbinomial}, 
 and \code{zero_inflated_poisson}.
 Every family function has a \code{link} argument allowing to specify
 the link function to be applied on the response variable.
@@ -60,10 +60,12 @@ parameters on the left hand side (separated by a \code{+}) and a
 common linear predictor on the right hand side.
 More information is given under 'Details'.}
 
-\item{partial}{A one sided formula of the form \code{~expression} 
-allowing to specify predictors with category specific effects 
-in non-cumulative ordinal models 
-(i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).}
+\item{partial}{(Deprecated) A one sided formula of the form 
+\code{~expression} allowing to specify predictors with 
+category specific effects in non-cumulative ordinal models 
+(i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).
+As of \pkg{brms} > 0.8.0 category specific effects should be 
+specified directly within \code{formula} using function \code{cse}.}
 
 \item{threshold}{A character string indicating the type of thresholds 
 (i.e. intercepts) used in an ordinal model. 
@@ -89,10 +91,10 @@ may be specified including default priors.
                     + (1|patient) + (1|visit),
                     data = epilepsy, family = poisson()))   
          
-## define a prior on all fixed effects a once
+## define a prior on all population-level effects a once
 prior$prior[1] <- "normal(0,10)"
 
-## define a specific prior on the fixed effect of Trt_c
+## define a specific prior on the population-level effect of Trt_c
 prior$prior[5] <- "student_t(10, 0, 5)"       
 
 ## verify that the priors indeed found their way into Stan's model code

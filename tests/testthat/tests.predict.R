@@ -37,13 +37,13 @@ test_that("predict for multivariate linear models runs without errors", {
             nu = matrix(rgamma(ns, 5)))
   data <- list(N = nobs, N_trait = ncols)
   
-  pred <- predict_multi_gaussian(1, data = data, samples = s)
+  pred <- predict_gaussian_multi(1, data = data, samples = s)
   expect_equal(dim(pred), c(ns, nvars))
   
-  pred <- predict_multi_student(2, data = data, samples = s)
+  pred <- predict_student_multi(2, data = data, samples = s)
   expect_equal(dim(pred), c(ns, nvars))
   
-  pred <- predict_multi_cauchy(3, data = data, samples = s)
+  pred <- predict_cauchy_multi(3, data = data, samples = s)
   expect_equal(dim(pred), c(ns, nvars))
 })
 
@@ -66,6 +66,18 @@ test_that("predict for ARMA covariance models runs without errors", {
   
   pred <- predict_cauchy_cov(3, data = data, samples = s[-5])
   expect_equal(length(pred), ns * 3)
+})
+
+test_that("predict for 'cor_fixed' models runs without errors", {
+  data <- list(V = diag(10))
+  samples <- list(eta = matrix(rnorm(30), nrow = 3),
+                  nu = matrix(rep(2, 3)))
+  pred <- predict_gaussian_fixed(1, data = data, samples = samples)
+  expect_equal(dim(pred), c(3, 10))
+  pred <- predict_student_fixed(1, data = data, samples = samples)
+  expect_equal(dim(pred), c(3, 10))
+  pred <- predict_cauchy_fixed(1, data = data, samples = samples)
+  expect_equal(dim(pred), c(3, 10))
 })
 
 test_that("predict for count and survival models runs without errors", {

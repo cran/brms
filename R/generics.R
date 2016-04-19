@@ -1,11 +1,12 @@
 brmsfit <- function(formula = NULL, family = "", link = "", data.name = "", 
                     data = data.frame(), model = "", exclude = NULL,
-                    prior = list(), ranef = NULL, autocor = NULL,
-                    nonlinear = NULL, partial = NULL, cov_ranef = NULL, 
-                    fit = NA, algorithm = "sampling") {
+                    prior = prior_frame(), ranef = TRUE, autocor = NULL,
+                    nonlinear = NULL, partial = NULL, threshold = "", 
+                    cov_ranef = NULL, fit = NA, algorithm = "sampling") {
   # brmsfit class
   x <- nlist(formula, family, link, data.name, data, model, exclude, prior, 
-             ranef, autocor, nonlinear, partial, cov_ranef, fit, algorithm)
+             ranef, autocor, nonlinear, partial, threshold, cov_ranef, fit, 
+             algorithm)
   class(x) <- "brmsfit"
   x
 }
@@ -14,13 +15,13 @@ brmssummary <- function(formula = NULL, family = "", link = "",
                         data.name = "", group = NULL, nobs = NULL, 
                         ngrps = NULL, chains = 1, iter = 2000, 
                         warmup = 500, thin = 1, sampler = "", 
-                        autocor = NULL, fixed = NULL, random = list(), 
-                        cor_pars = NULL, spec_pars = NULL, 
+                        nonlinear = NULL, autocor = NULL, fixed = NULL, 
+                        random = list(), cor_pars = NULL, spec_pars = NULL, 
                         mult_pars = NULL, WAIC = "Not computed",
                         algorithm = "sampling") {
   # brmssummary class
   x <- nlist(formula, family, link, data.name, group, nobs, ngrps, chains, 
-             iter,  warmup, thin, sampler, autocor, fixed, 
+             iter,  warmup, thin, sampler, nonlinear, autocor, fixed, 
              random, cor_pars, spec_pars, mult_pars, WAIC, algorithm)
   class(x) <- "brmssummary"
   x
@@ -32,9 +33,9 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' 
 #' @aliases hypothesis.brmsfit
 #' 
-#' @param x An \code{R} object typically of class \code{brmsfit}
+#' @param x An \code{R} object typically of class \code{brmsfit}.
 #' @param hypothesis A character vector specifying one or more 
-#'  non-linear hypothesis concerning parameters of the model
+#'  non-linear hypothesis concerning parameters of the model.
 #' @param class A string specifying the class of parameters being tested. 
 #'  Default is "b" for fixed effects. 
 #'  Other typical options are "sd" or "cor". 
@@ -44,12 +45,17 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' @param group Name of a grouping factor to evaluate only 
 #'  random effects parameters related to this grouping factor.
 #'  Ignored if \code{class} is not \code{"sd"} or \code{"cor"}.
-#' @param alpha the alpha-level of the tests (default is 0.05)
+#' @param alpha The alpha-level of the tests (default is 0.05).
 #' @param ignore_prior A flag indicating if prior distributions 
 #'  should also be plotted. Only used if priors were specified on
 #'  the relevant parameters.
+#' @param digits Minimal number of significant digits, 
+#'   see \code{\link[base:print.default]{print.default}}.
+#' @param chars Maximum number of characters of each hypothesis
+#'  to print or plot. If \code{NULL}, print the full hypotheses.
+#'  Defaults to \code{20}.
 #' @inheritParams plot.brmsfit
-#' @param ... Currently ignored
+#' @param ... Currently ignored.
 #' 
 #' @details Among others, \code{hypothesis} computes an 
 #'  evidence ratio for each hypothesis. 
@@ -108,8 +114,9 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' }
 #' 
 #' @export
-hypothesis <- function(x, hypothesis, ...)
+hypothesis <- function(x, hypothesis, ...) {
   UseMethod("hypothesis")
+}
 
 #' Extract posterior samples
 #' 
@@ -159,13 +166,15 @@ hypothesis <- function(x, hypothesis, ...)
 #' }
 #' 
 #' @export 
-posterior_samples <- function(x, pars = NA, ...)
+posterior_samples <- function(x, pars = NA, ...) {
   UseMethod("posterior_samples")
+}
 
 # deprecated alias of posterior_samples
 #' @export 
-posterior.samples <- function(x, pars = NA, ...)
+posterior.samples <- function(x, pars = NA, ...) {
   UseMethod("posterior_samples")
+}
 
 #' Extract prior samples
 #' 
@@ -206,8 +215,9 @@ posterior.samples <- function(x, pars = NA, ...)
 #' }
 #' 
 #' @export 
-prior_samples <- function(x, pars = NA, ...)
+prior_samples <- function(x, pars = NA, ...) {
   UseMethod("prior_samples")
+}
 
 #' Extract Parameter Names
 #' 
@@ -225,13 +235,9 @@ prior_samples <- function(x, pars = NA, ...)
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
 #' @export
-parnames <- function(x, ...)
+parnames <- function(x, ...) {
   UseMethod("parnames")
-
-# deprecated alias of parnames
-#' @export
-par.names <- function(x, ...)
-  UseMethod("parnames")
+}
 
 #' Compute the WAIC
 #' 
@@ -281,8 +287,9 @@ par.names <- function(x, ...)
 #' The Journal of Machine Learning Research, 11, 3571-3594.
 #' 
 #' @export
-WAIC <- function(x, ..., compare = TRUE)
+WAIC <- function(x, ..., compare = TRUE) {
   UseMethod("WAIC")
+}
 
 #' Compute LOO
 #' 
@@ -333,8 +340,9 @@ WAIC <- function(x, ..., compare = TRUE)
 #' The Journal of Machine Learning Research, 11, 3571-3594.
 #' 
 #' @export
-LOO <- function(x, ..., compare = TRUE)
+LOO <- function(x, ..., compare = TRUE) {
   UseMethod("LOO")
+}
 
 #' Interface to \pkg{shinystan}
 #' 
@@ -362,8 +370,9 @@ LOO <- function(x, ..., compare = TRUE)
 #' @seealso \code{\link[shinystan:launch_shinystan]{launch_shinystan}}
 #' 
 #' @export
-launch_shiny <- function(x, rstudio = getOption("shinystan.rstudio"), ...)
+launch_shiny <- function(x, rstudio = getOption("shinystan.rstudio"), ...) {
   UseMethod("launch_shiny")
+}
 
 #' Extract Stan Model Code
 #' 
@@ -377,8 +386,9 @@ launch_shiny <- function(x, rstudio = getOption("shinystan.rstudio"), ...)
 #' @return model code in stan language for further processing.
 #' 
 #' @export
-stancode <- function(object, ...)
+stancode <- function(object, ...) {
   UseMethod("stancode")
+}
 
 #' Extract Data passed to Stan
 #' 
@@ -392,8 +402,9 @@ stancode <- function(object, ...)
 #' @return A named list containing the data passed to Stan
 #' 
 #' @export
-standata <- function(object, ...)
+standata <- function(object, ...) {
   UseMethod("standata")
+}
 
 #' Various Plotting Functions implemented in \pkg{rstan} 
 #' 
@@ -455,8 +466,9 @@ standata <- function(object, ...)
 #' }
 #' 
 #' @export
-stanplot <- function(object, pars, ...)
+stanplot <- function(object, pars, ...) {
   UseMethod("stanplot")
+}
 
 #' Display marginal effects of predictors
 #' 
@@ -467,7 +479,7 @@ stanplot <- function(object, pars, ...)
 #' @param effects An optional character vector naming effects
 #'   (main effects or interactions) for which to compute marginal plots.
 #'   If \code{NULL} (the default), plots for all effects are generated.
-#' @param data An optional \code{data.frame} containing variable values
+#' @param conditions An optional \code{data.frame} containing variable values
 #'   to marginalize on. Each effect defined in \code{effects} will
 #'   be plotted separately for each row of \code{data}. 
 #'   The row names of \code{data} will be treated as titles of the subplots. 
@@ -485,13 +497,21 @@ stanplot <- function(object, pars, ...)
 #' @param ncol Number of plots to display per column for each effect.
 #'   If \code{NULL} (default), \code{ncol} is computed internally based
 #'   on the number of rows of \code{data}.
+#' @param points Logical; indicating whether the original data points
+#'   should be added via \code{\link[ggplot2:geom_point]{geom_point}}.
+#'   Default is \code{FALSE}. Note that only those data points will be added
+#'   that match the specified conditions defined in \code{conditions}.
 #' @param rug Logical; indicating whether a rug representation of predictor
 #'   values should be added via \code{\link[ggplot2:geom_rug]{geom_rug}}.
 #'   Default is \code{FALSE}.
 #' @inheritParams plot.brmsfit
 #' @param ... Currently ignored.
 #' 
-#' @return A list of ggplot objects one for each effect.
+#' @return An object of class \code{brmsMarginalEffects}, which is a named list
+#'   with one element per effect containing all information required to generate
+#'   marginal effects plots. The corresponding \code{plot} method returns a named 
+#'   list of \code{\link[ggplot2:ggplot]{ggplot}} objects, which can be further 
+#'   customized using the \pkg{ggplot2} package.
 #' 
 #' @examples 
 #' \dontrun{
@@ -511,5 +531,21 @@ stanplot <- function(object, pars, ...)
 #' }
 #' 
 #' @export
-marginal_effects <- function(x, ...)
+marginal_effects <- function(x, ...) {
   UseMethod("marginal_effects")
+}
+
+#' Expose user-defined \pkg{Stan} functions
+#' 
+#' Export user-defined \pkg{Stan} function to the 
+#' \code{\link[base:environment]{.GlobalEnv}}.
+#' For more details see 
+#' \code{\link[rstan:expose_stan_functions]{expose_stan_functions}}.
+#' 
+#' @param x An \code{R} object
+#' @param ... Further arguments
+#' 
+#' @export
+expose_functions <- function(x, ...) {
+  UseMethod("expose_functions")
+}
