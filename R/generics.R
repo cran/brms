@@ -250,6 +250,13 @@ parnames <- function(x, ...) {
 #' @param ... Optionally more fitted model objects.
 #' @param compare A flag indicating if the WAICs 
 #'  of the models should be compared to each other.
+#' @param pointwise A flag indicating whether to compute the full
+#'  log-likelihood matrix at once or separately for each observation. 
+#'  The latter approach is usually considerably slower but 
+#'  requires much less working memory. Accordingly, if one runs 
+#'  into memory issues, \code{pointwise = TRUE} is the way to go.
+#'  By default, \code{pointwise} is automatically chosen based on 
+#'  the size of the model.
 #' @inheritParams predict.brmsfit
 #' 
 #' @details When comparing models fitted to the same data, 
@@ -512,6 +519,11 @@ stanplot <- function(object, pars, ...) {
 #'   marginal effects plots. The corresponding \code{plot} method returns a named 
 #'   list of \code{\link[ggplot2:ggplot]{ggplot}} objects, which can be further 
 #'   customized using the \pkg{ggplot2} package.
+#'   
+#' @details \code{NA} values within factors in \code{conditions}, 
+#'   are interpreted as if all dummy variables of this factor are 
+#'   zero. This allows, for instance, to make predictions of the grand mean 
+#'   when using sum coding. 
 #' 
 #' @examples 
 #' \dontrun{

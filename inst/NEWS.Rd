@@ -2,7 +2,46 @@
 \title{brms News}
 \encoding{UTF-8}
 
-\section{CHANGES IN VERSION 0.8.0.9000}{
+\section{CHANGES IN VERSION 0.9.1}{
+  \subsection{NEW FEATURES}{
+    \itemize{ 
+      \item Allow the '/' symbol in group-level terms in 
+      the \code{formula} argument to indicate nested 
+      grouping structures.
+      \item Allow to compute \code{WAIC} and \code{LOO}
+      based on the pointwise log-likelihood using argument 
+      \code{pointwise} to substantially reduce memory requirements.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{ 
+      \item Add horizontal lines to the errorbars in 
+      \code{marginal_effects} plots for factors.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix a bug that could lead to a cryptic error
+      message when changing some parts of the model 
+      \code{formula} using the \code{update} method.
+      \item Fix a bug that could lead to an error when
+      calling \code{marginal_effects} for predictors
+      that were generated with the \code{base::scale} 
+      function thanks to Tom Wallis.
+      \item Allow interactions of numeric and categorical
+      predictors in \code{marginal_effects} to be passed 
+      to the \code{effects} argument in any order.
+      \item Fix a bug that could lead to incorrect results
+      of \code{predict} and related methods when called with
+      \code{newdata} in models using the \code{poly} function
+      thanks to Brock Ferguson.
+      \item Make sure that user-specified factor contrasts 
+      are always applied in multivariate models.
+    }
+  }
+}
+
+\section{CHANGES IN VERSION 0.9.0}{
   \subsection{NEW FEATURES}{
     \itemize{ 
       \item Add support for \code{monotonous} effects

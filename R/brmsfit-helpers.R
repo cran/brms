@@ -1,9 +1,7 @@
 array2list <- function(x) {
   # convert array to list of elements with reduced dimension
-  #
   # Args: 
   #   x: an arrary of dimension d
-  #
   # Returns: 
   #   A list of arrays of dimension d-1
   if (is.null(dim(x))) stop("Argument x has no dimension")
@@ -16,12 +14,25 @@ array2list <- function(x) {
   l
 }
 
-Nsamples <- function(x) {
+Nsamples <- function(x, subset = NULL) {
   # compute the number of posterior samples
+  # Args:
+  #   x: a brmsfit object
+  #   subset: a vector defining a subset of samples to be considered
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) {
     return(0)
-  } 
-  (x$fit@sim$iter - x$fit@sim$warmup) / x$fit@sim$thin * x$fit@sim$chains
+  }
+  ntsamples <- (x$fit@sim$iter - x$fit@sim$warmup) /
+                 x$fit@sim$thin * x$fit@sim$chains
+  if (length(subset)) {
+    out <- length(subset)
+    if (out > ntsamples || max(subset) > ntsamples) {
+      stop("invalid 'subset' argument", call. = FALSE)
+    }
+  } else {
+    out <- ntsamples
+  }
+  out
 }
 
 algorithm <- function(x) {
@@ -34,12 +45,10 @@ algorithm <- function(x) {
 
 first_greater <- function(A, target, i = 1) {
   # find the first element in A that is greater than target
-  #
   # Args: 
   #   A: a matrix
   #   target: a vector of length nrow(A)
   #   i: column of A being checked first
-  #
   # Returns: 
   #   A vector of the same length as target containing the column ids 
   #   where A[,i] was first greater than target
@@ -48,11 +57,9 @@ first_greater <- function(A, target, i = 1) {
 
 link <- function(x, link) {
   # apply a link function on x
-  #
   # Args:
   #   x: An arrary of arbitrary dimension
   #   link: a character string defining the link
-  #
   # Returns:
   #   an array of dimension dim(x) on which the link function was applied
   if (link == "identity") x
@@ -70,11 +77,9 @@ link <- function(x, link) {
 
 ilink <- function(x, link) {
   # apply the inverse link function on x
-  #
   # Args:
   #   x: An arrary of arbitrary dimension
   #   link: a character string defining the link
-  #
   # Returns:
   #   an array of dimension dim(x) on which the inverse link function was applied
   if (link == "identity") x
@@ -92,15 +97,13 @@ ilink <- function(x, link) {
 
 get_cornames <- function(names, type = "cor", brackets = TRUE) {
   # get correlation names as combinations of variable names
-  #
   # Args:
-  #  names: the variable names 
-  #  type: of the correlation to be put in front of the returned strings
-  #  brackets: should the correlation names contain brackets 
+  #   names: the variable names 
+  #   type: of the correlation to be put in front of the returned strings
+  #   brackets: should the correlation names contain brackets 
   #            or underscores as seperators
-  #
   # Returns: 
-  #  correlation names based on the variable names passed to the names argument
+  #   correlation names based on the variable names passed to the names argument
   cornames <- NULL
   if (length(names) > 1) {
     for (i in 2:length(names)) {
@@ -124,7 +127,6 @@ get_nlpar <- function(x, suffix = "") {
 
 get_estimate <- function(coef, samples, margin = 2, to.array = FALSE, ...) {
   # calculate estimates over posterior samples 
-  # 
   # Args:
   #   coef: coefficient to be applied on the samples (e.g., "mean")
   #   samples: the samples over which to apply coef
@@ -132,7 +134,6 @@ get_estimate <- function(coef, samples, margin = 2, to.array = FALSE, ...) {
   #   to.array: logical; should the result be transformed 
   #             into an array of increased dimension?
   #   ...: additional arguments passed to get(coef)
-  #
   # Returns: 
   #   typically a matrix with colnames(samples) as colnames
   dots <- list(...)
@@ -156,14 +157,13 @@ get_estimate <- function(coef, samples, margin = 2, to.array = FALSE, ...) {
 
 get_summary <- function(samples, probs = c(0.025, 0.975)) {
   # summarizes parameter samples based on mean, sd, and quantiles
-  #
   # Args: 
-  #  samples: a matrix or data.frame containing the samples to be summarized. 
-  #    rows are samples, columns are parameters
-  #  probs: quantiles to be computed
-  #
+  #   samples: a matrix or data.frame containing the samples to be summarized. 
+  #            rows are samples, columns are parameters
+  #   probs: quantiles to be computed
   # Returns:
-  #   a N x C matric where N is the number of observations and C is equal to \code{length(probs) + 2}.
+  #   a N x C matric where N is the number of observations and C 
+  #   is equal to \code{length(probs) + 2}.
   if (length(dim(samples)) == 2) {
     out <- do.call(cbind, lapply(c("mean", "sd", "quantile"), get_estimate, 
                                  samples = samples, probs = probs, na.rm = TRUE))
@@ -182,13 +182,11 @@ get_summary <- function(samples, probs = c(0.025, 0.975)) {
 
 get_table <- function(samples, levels = sort(unique(as.numeric(samples)))) {
   # compute absolute frequencies for each column
-  # 
   # Args:
-  #  samples: a S x N matrix
-  #  levels: all possible values in \code{samples}
-  # 
+  #   samples: a S x N matrix
+  #   levels: all possible values in \code{samples}
   # Returns:
-  #   a N x \code{levels} matrix containing absolute frequencies in each column seperately
+  #    a N x \code{levels} matrix containing absolute frequencies in each column seperately
   if (!is.matrix(samples)) 
     stop("samples must be a matrix")
   out <- do.call(rbind, lapply(1:ncol(samples), function(n) 
@@ -201,14 +199,11 @@ get_table <- function(samples, levels = sort(unique(as.numeric(samples)))) {
 get_cov_matrix <- function(sd, cor = NULL) {
   # compute covariance and correlation matrices based 
   # on correlation and sd samples
-  #
   # Args:
   #   sd: samples of standard deviations
   #   cor: samples of correlations
-  #
   # Notes: 
   #   used in VarCorr.brmsfit
-  # 
   # Returns: 
   #   samples of covariance and correlation matrices
   if (any(sd < 0)) 
@@ -239,7 +234,7 @@ get_cov_matrix <- function(sd, cor = NULL) {
   list(cor = cor_matrix, cov = cov_matrix)
 }
 
-get_cov_matrix_ar1 <- function(ar, sigma, se2, nrows) {
+get_cov_matrix_ar1 <- function(ar, sigma, nrows, se2 = 0) {
   # compute the covariance matrix for an AR1 process
   # Args: 
   #   ar: AR1 autocorrelation samples
@@ -265,7 +260,7 @@ get_cov_matrix_ar1 <- function(ar, sigma, se2, nrows) {
   mat 
 }
 
-get_cov_matrix_ma1 <- function(ma, sigma, se2, nrows) {
+get_cov_matrix_ma1 <- function(ma, sigma, nrows, se2 = 0) {
   # compute the covariance matrix for an MA1 process
   # Args: 
   #   ma: MA1 autocorrelation samples
@@ -291,7 +286,7 @@ get_cov_matrix_ma1 <- function(ma, sigma, se2, nrows) {
   mat 
 }
 
-get_cov_matrix_arma1 <- function(ar, ma, sigma, se2, nrows) {
+get_cov_matrix_arma1 <- function(ar, ma, sigma, nrows, se2 = 0) {
   # compute the covariance matrix for an AR1 process
   # Args: 
   #   ar: AR1 autocorrelation sample
@@ -320,54 +315,13 @@ get_cov_matrix_arma1 <- function(ar, ma, sigma, se2, nrows) {
   mat 
 }
 
-evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"), 
-                           prior_samples = NULL, pow = 12, ...) {
-  # calculate the evidence ratio between two disjunct hypotheses
-  # 
-  # Args:
-  #   x: posterior samples 
-  #   cut: the cut point between the two hypotheses
-  #   wsign: direction of the hypothesis
-  #   prior_samples: optional prior samples for undirected hypothesis
-  #   pow influence: the accuracy of the density
-  #   ...: optional arguments passed to density.default
-  #
-  # Returns:
-  #   the evidence ratio of the two hypothesis
-  wsign <- match.arg(wsign)
-  if (wsign == "equal") {
-    if (is.null(prior_samples)) {
-      out <- NA
-    } else {
-      dots <- list(...)
-      dots <- dots[names(dots) %in% names(formals("density.default"))]
-      # compute prior and posterior densities
-      prior_density <- do.call(density, c(list(x = prior_samples, n = 2^pow), dots))
-      posterior_density <- do.call(density, c(list(x = x, n = 2^pow), dots))
-      # evaluate densities at the cut point
-      at_cut_prior <- match(min(abs(prior_density$x - cut)), 
-                            abs(prior_density$x - cut))
-      at_cut_posterior <- match(min(abs(posterior_density$x - cut)), 
-                                abs(posterior_density$x - cut))
-      out <- posterior_density$y[at_cut_posterior] / prior_density$y[at_cut_prior] 
-    }
-  } else if (wsign == "less") {
-    out <- length(which(x < cut))
-    out <- out / (length(x) - out)
-  } else if (wsign == "greater") {
-    out <- length(which(x > cut))
-    out <- out / (length(x) - out)  
-  }
-  out  
-}
-
-get_sigma <- function(x, data, n, method = c("fitted", "predict", "logLik")) {
-  # get residual standard devation of linear models
+get_sigma <- function(x, data, i, method = c("fitted", "predict", "logLik")) {
+  # get the residual standard devation of linear models
   # Args:
   #   x: a brmsfit object or posterior samples of sigma (can be NULL)
   #   data: data initially passed to Stan
   #   method: S3 method from which get_sigma is called
-  #   n: meaning depends on the method argument:
+  #   i: meaning depends on the method argument:
   #      for predict and logLik this is the current observation number
   #      for fitted this is the number of samples
   method <- match.arg(method)
@@ -387,13 +341,13 @@ get_sigma <- function(x, data, n, method = c("fitted", "predict", "logLik")) {
       stop("no residual standard deviation(s) found")
     }
     if (method %in% c("predict", "logLik")) {
-      sigma <- sigma[n]
+      sigma <- sigma[i]
     } else {
-      sigma <- matrix(rep(sigma, n), ncol = data$N, byrow = TRUE)
+      sigma <- matrix(rep(sigma, i), ncol = data$N, byrow = TRUE)
     }
   } else if (!is.null(data$disp)) {
     if (method %in% c("predict", "logLik")) {
-      sigma <- sigma * data$disp[n]
+      sigma <- sigma * data$disp[i]
     } else {
       # results in a Nsamples x Nobs matrix
       sigma <- sigma %*% matrix(data$disp, nrow = 1)
@@ -402,14 +356,14 @@ get_sigma <- function(x, data, n, method = c("fitted", "predict", "logLik")) {
   sigma
 }
 
-get_shape <- function(x, data, n = NULL, 
+get_shape <- function(x, data, i = NULL, 
                       method = c("fitted", "predict", "logLik")) {
   # get residual standard devation of linear models
   # Args:
   #   x: a brmsfit object or posterior samples of sigma (can be NULL)
   #   data: data initially passed to Stan
   #   method: S3 method from which get_sigma is called
-  #   n: only used for "predict" and "logLik": 
+  #   i: only used for "predict" and "logLik": 
   #      the current observation number
   method <- match.arg(method)
   if (is(x, "brmsfit")) {
@@ -419,13 +373,31 @@ get_shape <- function(x, data, n = NULL,
   }
   if (!is.null(data$disp)) {
     if (method %in% c("predict", "logLik")) {
-      shape <- shape * data$disp[n]
+      shape <- shape * data$disp[i]
     } else {
       # results in a Nsamples x Nobs matrix
       shape <- shape %*% matrix(data$disp, nrow = 1)
     }
   }
   shape
+}
+
+prepare_family <- function(x) {
+  # prepare for calling family specific loglik / predict functions
+  family <- family(x)
+  nresp <- length(extract_effects(x$formula, family = family,
+                                  nonlinear = x$nonlinear)$response)
+  if (is.lognormal(family, nresp = nresp)) {
+    family$family <- "lognormal"
+    family$link <- "identity"
+  } else if (is.linear(family) && nresp > 1L) {
+    family$family <- paste0(family$family, "_multi")
+  } else if (use_cov(x$autocor) && sum(x$autocor$p, x$autocor$q) > 0) {
+    family$family <- paste0(family$family, "_cov")
+  } else if (is(x$autocor, "cor_fixed")) {
+    family$family <- paste0(family$family, "_fixed")
+  }
+  family
 }
 
 extract_pars <- function(pars, all_pars, exact_match = FALSE,
@@ -455,13 +427,11 @@ extract_pars <- function(pars, all_pars, exact_match = FALSE,
 
 compute_ic <- function(x, ic = c("waic", "loo"), ll_args = list(), ...) {
   # compute WAIC and LOO using the 'loo' package
-  #
   # Args:
   #   x: an object of class brmsfit
   #   ic: the information criterion to be computed
   #   ll_args: a list of additional arguments passed to logLik
   #   ...: passed to the loo package
-  #
   # Returns:
   #   output of the loo package with amended class attribute
   ic <- match.arg(ic)
@@ -469,9 +439,18 @@ compute_ic <- function(x, ic = c("waic", "loo"), ll_args = list(), ...) {
     stop(paste("Cannot compute information criteria for", 
                "an object of class", class(x)), call. = FALSE)
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) 
-    stop("The model does not contain posterior samples") 
+    stop("The model does not contain posterior samples")
   args <- list(x = do.call(logLik, c(list(x), ll_args)))
-  if (ic == "loo") args <- c(args, ...)
+  if (ll_args$pointwise) {
+    args$args$draws <- attr(args$x, "draws")
+    args$args$data <- data.frame()
+    args$args$N <- attr(args$x, "N")
+    args$args$S <- Nsamples(x, subset = ll_args$subset)
+    attr(args$x, "draws") <- NULL
+  }
+  if (ic == "loo") {
+    args <- c(args, ...)
+  }
   IC <- do.call(eval(parse(text = paste0("loo::", ic))), args)
   class(IC) <- c("ic", "loo")
   return(IC)
@@ -479,11 +458,9 @@ compute_ic <- function(x, ic = c("waic", "loo"), ll_args = list(), ...) {
 
 compare_ic <- function(x, ic = c("waic", "loo")) {
   # compare information criteria of different models
-  #
   # Args:
   #   x: A list containing loo objects
   #   ic: the information criterion to be computed
-  #
   # Returns:
   #   A matrix with differences in the ICs 
   #   as well as corresponding standard errors
@@ -524,12 +501,36 @@ compare_ic <- function(x, ic = c("waic", "loo")) {
   nlist(ic_diffs, weights)
 }
 
+set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+07) {
+  # set the pointwise argument based on the model size
+  # Args:
+  #   x: a brmsfit object
+  #   newdata: optional data.frame containing new data
+  #   subset: a vector to indicate a subset of the posterior samples
+  #   thres: threshold above which pointwise is set to TRUE
+  # Returns:
+  #   TRUE or FALSE
+  nsamples <- Nsamples(x, subset = subset)
+  if (is.data.frame(newdata)) {
+    nobs <- nrow(newdata)
+  } else {
+    nobs <- nobs(x)
+  }
+  pointwise <- nsamples * nobs > thres
+  if (pointwise) {
+    message(paste0("Switching to pointwise evaluation to reduce ",  
+                   "RAM requirements.\nThis will likely increase ",
+                   "computation time."))
+  }
+  pointwise
+}
+
 match_response <- function(models) {
   # compare the response parts of multiple brmsfit objects
   # Args:
-  #  models: A list of brmsfit objects
+  #   models: A list of brmsfit objects
   # Returns:
-  #  TRUE if the response parts of all models match and FALSE else
+  #   TRUE if the response parts of all models match and FALSE else
   if (length(models) <= 1) return(TRUE)
   .match_fun <- function(x, y) {
     # checks if all relevant parts of the response are the same 
@@ -558,13 +559,10 @@ match_response <- function(models) {
 
 find_names <- function(x) {
   # find all valid object names in a string 
-  # 
   # Args:
   #   x: a character string
-  #
   # Notes:
   #   currently used in hypothesis.brmsfit
-  #
   # Returns:
   #   all valid variable names within the string
   if (!is.character(x) || length(x) > 1) 
@@ -578,6 +576,45 @@ find_names <- function(x) {
   pos_decnum <- gregexpr("\\.[[:digit:]]+", x)[[1]]
   pos_var <- list(rmMatch(pos_all, pos_fun, pos_decnum))
   unlist(regmatches(x, pos_var))
+}
+
+evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"), 
+                           prior_samples = NULL, pow = 12, ...) {
+  # compute the evidence ratio between two disjunct hypotheses
+  # Args:
+  #   x: posterior samples 
+  #   cut: the cut point between the two hypotheses
+  #   wsign: direction of the hypothesis
+  #   prior_samples: optional prior samples for undirected hypothesis
+  #   pow influence: the accuracy of the density
+  #   ...: optional arguments passed to density.default
+  # Returns:
+  #   the evidence ratio of the two hypothesis
+  wsign <- match.arg(wsign)
+  if (wsign == "equal") {
+    if (is.null(prior_samples)) {
+      out <- NA
+    } else {
+      dots <- list(...)
+      dots <- dots[names(dots) %in% names(formals("density.default"))]
+      # compute prior and posterior densities
+      prior_density <- do.call(density, c(list(x = prior_samples, n = 2^pow), dots))
+      posterior_density <- do.call(density, c(list(x = x, n = 2^pow), dots))
+      # evaluate densities at the cut point
+      at_cut_prior <- match(min(abs(prior_density$x - cut)), 
+                            abs(prior_density$x - cut))
+      at_cut_posterior <- match(min(abs(posterior_density$x - cut)), 
+                                abs(posterior_density$x - cut))
+      out <- posterior_density$y[at_cut_posterior] / prior_density$y[at_cut_prior] 
+    }
+  } else if (wsign == "less") {
+    out <- length(which(x < cut))
+    out <- out / (length(x) - out)
+  } else if (wsign == "greater") {
+    out <- length(which(x > cut))
+    out <- out / (length(x) - out)  
+  }
+  out  
 }
 
 make_point_frame <- function(mf, effects, conditions, groups, family) {

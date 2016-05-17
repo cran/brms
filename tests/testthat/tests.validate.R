@@ -14,7 +14,13 @@ test_that("extract_effects finds all random effects terms", {
   expect_equal(extract_effects(y ~ (1|g1))$random$group, c("g1"))
   expect_equal(extract_effects(y ~ log(x) + (1|g1))$random$group, c("g1"))
   expect_equal(extract_effects(y ~ (x+z):v + (1+x|g1))$random$form, list(~1+x))
-  expect_error(extract_effects(y ~ (1+x|g1/g2) + x + (1|g1)))
+  expect_equal(extract_effects(y ~ v + (1+x|g1/g2/g3))$random$group, 
+               c("g1", "g1:g2", "g1:g2:g3"))
+  expect_equal(extract_effects(y ~ v + (1+x|g1/g2) + (1|g3))$random$form, 
+               list(~1+x, ~1+x, ~1))
+  expect_equal(extract_effects(y ~ (1+x||g1/g2) + (1|g3))$random$cor, 
+               c(FALSE, FALSE, TRUE))
+  expect_error(extract_effects(y ~ (1+x|g1+g2) + x + (1|g1)))
   expect_error(extract_effects(y ~ 1|g1),
                "Random effects terms should be enclosed in brackets")
 })
@@ -26,7 +32,7 @@ test_that("extract_effects accepts || syntax", {
   target$form <- list(~1+x, ~1+z)
   expect_equal(random, target)
   expect_equal(extract_effects(y ~ (1+x||g1:g2))$random$group, c("g1:g2"))
-  expect_error(extract_effects(y ~ (1+x||g1/g2) + x + (1|g1)))
+  expect_error(extract_effects(y ~ (1+x||g1-g2) + x + (1|g1)))
 })
 
 test_that("extract_effects finds all response variables", {
@@ -79,6 +85,11 @@ test_that("extract_effects accepts complicated random terms", {
 test_that("extract_effects accepts calls to the poly function", {
   expect_equal(extract_effects(y ~ z + poly(x, 3))$all,
                y ~ y + z + x + poly(x, 3))
+})
+
+test_that("extract_effects also saves untransformed variables", {
+  ee <- extract_effects(y ~ as.numeric(x) + (as.factor(z) | g))
+  expect_equivalent(ee$all, y ~ y + x + as.numeric(x) + as.factor(z) + z + g)
 })
 
 test_that("extract_effects finds all variables in non-linear models", {
@@ -151,15 +162,6 @@ test_that("get_effect works correctly", {
   expect_equivalent(get_effect(effects, "mono"), list(NULL, NULL, ~ z))
   effects <- extract_effects(y ~ x + z + (1|g))
   expect_equivalent(get_effect(effects), list(y ~ x + z))
-})
-
-test_that("get_group_formula rejects incorrect grouping terms", {
-  expect_error(get_group_formula("|g1/g2"), 
-               paste("Illegal grouping term: g1/g2 \n",
-                     "may contain only variable names combined by the symbol ':'"))
-  expect_error(get_group_formula("||g1/g2"), 
-               paste("Illegal grouping term: g1/g2 \n",
-                     "may contain only variable names combined by the symbol ':'"))
 })
 
 test_that("check_re_formula returns correct REs", {

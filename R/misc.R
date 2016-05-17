@@ -1,3 +1,23 @@
+p <- function(x, i = NULL, row = TRUE) {
+  # flexible indexing of vector and matrix type objects
+  # Args:
+  #   x: an R object typically a vector or matrix
+  #   i: optional index; if NULL, x is returned unchanged
+  #   row: indicating if rows or cols should be indexed
+  #        only relevant if x has two dimensions
+  if (!length(i)) {
+    x
+  } else if (!is.null(dim(x)) && length(dim(x)) == 2L) {
+    if (row) {
+      x[i, , drop = FALSE]
+    } else {
+      x[, i, drop = FALSE]
+    }
+  } else {
+    x[i]
+  }
+}
+
 isNULL <- function(x) {
   # check if an object is NULL
   is.null(x) || ifelse(is.vector(x), all(sapply(x, is.null)), FALSE)
@@ -7,6 +27,20 @@ rmNULL <- function(x) {
   # recursively removes NULL entries from an object
   x <- Filter(Negate(isNULL), x)
   lapply(x, function(x) if (is.list(x)) rmNULL(x) else x)
+}
+
+first_not_null <- function(...) {
+  # find the first argument that is not NULL
+  dots <- list(...)
+  out <- NULL
+  i <- 1L
+  while(isNULL(out) && i <= length(dots)) {
+    if (!isNULL(dots[[i]])) {
+      out <- dots[[i]]
+    }
+    i <- i + 1L
+  }
+  out
 }
 
 isFALSE <- function(x) {

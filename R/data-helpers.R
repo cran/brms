@@ -15,7 +15,8 @@ melt_data <- function(data, family, effects, na.action = na.omit) {
       stop("'data' must be a data.frame for this model", call. = FALSE)
     }
     # only keep variables that are relevant for the model
-    rel_vars <- c(all.vars(effects$all), all.vars(effects$respform))
+    rel_vars <- c(all.vars(attr(terms(effects$all), "variables")), 
+                  all.vars(effects$respform))
     data <- data[, which(names(data) %in% rel_vars), drop = FALSE]
     rsv_vars <- intersect(c("trait", "response"), names(data))
     if (length(rsv_vars)) {
@@ -56,8 +57,10 @@ melt_data <- function(data, family, effects, na.action = na.omit) {
       model_response <- rep(model_response, 2)
     }
     new_cols$response <- model_response
-    data <- replicate(length(response), data, simplify = FALSE)
+    old_data <- data
+    data <- replicate(length(response), old_data, simplify = FALSE)
     data <- do.call(na.action, list(cbind(do.call(rbind, data), new_cols)))
+    data <- fix_factor_contrasts(data, optdata = old_data)
   }
   if (isTRUE(attr(effects$fixed, "rsv_intercept"))) {
     if (is.null(data)) 
@@ -97,14 +100,26 @@ combine_groups <- function(data, ...) {
   data
 }
 
-fix_factor_contrasts <- function(data) {
+fix_factor_contrasts <- function(data, optdata = NULL) {
   # hard code factor contrasts to be independent
   # of the global "contrasts" option
+  # Args:
+  #   data: a data.frame
+  #   optdata: optional data.frame from which contrasts
+  #            are taken if present
+  # Returns:
+  #   a data.frame with amended contrasts attributes
   stopifnot(is(data, "data.frame"))
+  stopifnot(is.null(optdata) || is.list(optdata))
   for (i in seq_along(data)) {
-    if (is.factor(data[[i]])) {
-      # hard code current global "contrasts" option
-      contrasts(data[[i]]) <- contrasts(data[[i]])
+    if (is.factor(data[[i]]) && is.null(attr(data[[i]], "contrasts"))) {
+      if (!is.null(attr(optdata[[names(data)[i]]], "contrasts"))) {
+        # take contrasts from optdata
+        contrasts(data[[i]]) <- attr(optdata[[names(data)[i]]], "contrasts")
+      } else {
+        # hard code current global "contrasts" option
+        contrasts(data[[i]]) <- contrasts(data[[i]])
+      }
     }
   }
   data
@@ -112,9 +127,9 @@ fix_factor_contrasts <- function(data) {
 
 update_data <- function(data, family, effects, ..., 
                         na.action = na.omit,
-                        drop.unused.levels = TRUE) {
-  # update data for use in brm
-  #
+                        drop.unused.levels = TRUE,
+                        terms_attr = NULL) {
+  # Update data for use in brms functions
   # Args:
   #   data: the original data.frame
   #   family: the model family
@@ -124,7 +139,11 @@ update_data <- function(data, family, effects, ...,
   #   na.action: function defining how to treat NAs
   #   drop.unused.levels: indicates if unused factor levels
   #                       should be removed
-  #
+  #   terms_attr: a list of attributes of the terms object of 
+  #     the original model.frame; only used with newdata;
+  #     this ensures that (1) calls to 'poly' work correctly
+  #     and (2) that the number of variables matches the number 
+  #     of variable names; fixes issue #73; 
   # Returns:
   #   model.frame in long format with combined grouping variables if present
   if (is.null(attr(data, "terms")) && "brms.frame" %in% class(data)) {
@@ -133,6 +152,8 @@ update_data <- function(data, family, effects, ...,
     data <- as.data.frame(data)
   }
   if (!(isTRUE(attr(data, "brmsframe")) || "brms.frame" %in% class(data))) {
+    effects$all <- terms(effects$all)
+    attributes(effects$all)[names(terms_attr)] <- terms_attr
     data <- melt_data(data, family = family, effects = effects,
                       na.action = na.action)
     data <- model.frame(effects$all, data = data, na.action = na.action,
@@ -176,16 +197,16 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     }
     return(newdata)
   } else if (!"data.frame" %in% class(newdata)) {
-    stop("newdata must be a data.frame")
+    stop("newdata must be a data.frame", call. = FALSE)
   }
   # standata will be based on an updated formula if re_formula is specified
   new_ranef <- check_re_formula(re_formula, old_ranef = fit$ranef,
-                                data = fit$data)
+                                data = model.frame(fit))
   new_formula <- update_re_terms(fit$formula, re_formula = re_formula)
   new_nonlinear <- lapply(fit$nonlinear, update_re_terms, 
                           re_formula = re_formula)
   et <- extract_time(fit$autocor$formula)
-  ee <- extract_effects(new_formula, et$all, family = fit$family,
+  ee <- extract_effects(new_formula, et$all, family = family(fit),
                         nonlinear = new_nonlinear, resp_rhs_all = FALSE)
   resp_only_vars <- setdiff(all.vars(ee$respform), all.vars(rhs(ee$all)))
   missing_resp <- setdiff(resp_only_vars, names(newdata))
@@ -205,23 +226,40 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
       newdata[[cens]] <- 0 # add irrelevant censor variables
     }
   }
-  if (allow_new_levels) {
-    # random effects grouping factors do not need to be specified 
-    # by the user if new_levels are allowed
+  if (length(fit$ranef)) {
     if (length(new_ranef)) {
-      all_gf <- unique(unlist(strsplit(names(new_ranef), split = ":")))
-      missing_gf <- all_gf[!all_gf %in% names(newdata)]
-      newdata[, missing_gf] <- NA
+      new_gf <- unique(unlist(strsplit(names(new_ranef), split = ":")))
+      if (allow_new_levels) {
+        # random effects grouping factors do not need to be specified 
+        # by the user if new_levels are allowed
+        missing_gf <- setdiff(new_gf, names(newdata))
+        newdata[, missing_gf] <- NA
+      }
+    } else {
+      new_gf <- NULL
+    }
+    # brms:::update_data expects all original variables to be present
+    # even if not actually used later on
+    new_slopes <- unique(ulapply(get_random(ee)$form, all.vars))
+    used_vars <- unique(c(new_gf, new_slopes, names(newdata),
+                          rsv_vars(family(fit), length(ee$response))))
+    old_gf <- unique(unlist(strsplit(names(fit$ranef), split = ":")))
+    old_ee <- extract_effects(formula(fit), et$all, family = family(fit),
+                              nonlinear = fit$nonlinear)
+    old_slopes <- unique(ulapply(get_random(old_ee)$form, all.vars))
+    unused_vars <- setdiff(union(old_gf, old_slopes), used_vars)
+    if (length(unused_vars)) {
+      newdata[, unused_vars] <- NA
     }
   }
-  newdata <- combine_groups(newdata, get_random(ee)$group, et$group)
+  newdata <- combine_groups(newdata, get_random(ee)$group)
   # try to validate factor levels in newdata
   if (is.data.frame(fit$data)) {
     # validating is possible (implies brms > 0.5.0)
     list_data <- lapply(as.list(fit$data), function(x)
       if (is.numeric(x)) x else as.factor(x))
     is_factor <- sapply(list_data, is.factor)
-    is_group <- names(list_data) %in% names(new_ranef)
+    is_group <- names(list_data) %in% names(fit$ranef)
     factors <- list_data[is_factor & !is_group]
     if (length(factors)) {
       factor_names <- names(factors)
@@ -233,14 +271,24 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
             new_factor <- factor(new_factor)
           }
           new_levels <- levels(new_factor)
-          if (any(!new_levels %in% factor_levels[[i]])) {
+          old_levels <- factor_levels[[i]]
+          old_contrasts <- contrasts(factors[[i]])
+          to_zero <- is.na(new_factor) | new_factor %in% ".ZERO"
+          if (any(to_zero)) {
+            levels(new_factor) <- c(new_levels, ".ZERO")
+            new_factor[to_zero] <- ".ZERO"
+            old_levels <- c(old_levels, ".ZERO")
+            old_contrasts <- rbind(old_contrasts, .ZERO = 0)
+          }
+          if (any(!new_levels %in% old_levels)) {
             stop(paste("New factor levels are not allowed. \n",
                  "Levels found:", paste(new_levels, collapse = ", ") , "\n",
-                 "Levels allowed:", paste(factor_levels[[i]], collapse = ", ")),
+                 "Levels allowed:", paste(old_levels, collapse = ", ")),
                  call. = FALSE)
           }
-          newdata[[factor_names[i]]] <- factor(new_factor, factor_levels[[i]])
-          contrasts(newdata[[factor_names[i]]]) <- contrasts(factors[[i]])
+          newdata[[factor_names[i]]] <- factor(new_factor, old_levels)
+          # don't use contrasts(.) here to avoid dimension checks
+          attr(newdata[[factor_names[i]]], "contrasts") <- old_contrasts
         }
       }
     }
@@ -293,6 +341,8 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     control <- list(is_newdata = TRUE, not4stan = TRUE,
                     save_order = TRUE, omit_response = !check_response)
     control$old_cat <- is.old_categorical(fit)
+    old_terms <- attr(model.frame(fit), "terms")
+    control$terms_attr <- attributes(old_terms)[c("variables", "predvars")]
     has_mono <- length(rmNULL(get_effect(ee, "mono")))
     p <- if (length(ee$nonlinear)) paste0("_", names(ee$nonlinear)) else ""
     if (has_trials(fit$family) || has_cat(fit$family) || has_mono) {
@@ -440,15 +490,15 @@ arr_design_matrix <- function(Y, r, group)  {
     out <- matrix(0, nrow = length(Y), ncol = r)
     ptsum <- rep(0, N_group + 1)
     for (j in 1:N_group) {
-      ptsum[j+1] <- ptsum[j] + sum(group == U_group[j])
+      ptsum[j + 1] <- ptsum[j] + sum(group == U_group[j])
       for (i in 1:r) {
-        if (ptsum[j] + i + 1 <= ptsum[j + 1])
+        if (ptsum[j] + i + 1 <= ptsum[j + 1]) {
           out[(ptsum[j] + i + 1):ptsum[j + 1], i] <- 
             Y[(ptsum[j] + 1):(ptsum[j + 1] - i)]
+        }
       }
     }
-  }
-  else out <- NULL
+  } else out <- NULL
   out
 }
 
@@ -572,7 +622,7 @@ data_ranef <- function(effects, data, family = gaussian(),
     r <- lapply(Z, colnames)
     ncolZ <- lapply(Z, ncol)
     # numeric levels passed to Stan
-    expr <- expression(as.numeric(as.factor(get(g, data))), 
+    expr <- expression(as.array(as.numeric(as.factor(get(g, data)))), 
                        length(unique(get(g, data))), # number of levels 
                        ncolZ[[i]],  # number of random effects
                        ncolZ[[i]] * (ncolZ[[i]] - 1) / 2)  # number of correlations
@@ -599,7 +649,7 @@ data_ranef <- function(effects, data, family = gaussian(),
           Zname <- paste0(Zname, "_", 1:ncolZ[[i]])
         }
         for (j in 1:ncolZ[[i]]) {
-          out <- c(out, setNames(list(Z[[i]][, j]), Zname[j]))
+          out <- c(out, setNames(list(as.array(Z[[i]][, j])), Zname[j]))
         }
       }
       if (g %in% names(cov_ranef)) {
