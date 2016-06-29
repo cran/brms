@@ -50,7 +50,7 @@ Define priors for specific parameters or classes of parameters
   accepted by \pkg{Stan}. Although \pkg{brms} trys to find common problems 
   (e.g., setting bounded priors on unbounded parameters), there is no guarantee 
   that the defined priors are reasonable for the model.
-  Currently, there are six types of parameters in \pkg{brms} models, 
+  Currently, there are seven types of parameters in \pkg{brms} models, 
   for which the user can specify prior distributions. \cr
   
   1. Population-level ('fixed') effects
@@ -61,7 +61,7 @@ Define priors for specific parameters or classes of parameters
   (i.e. \code{y ~ x1+x2} in formula syntax). 
   Then, \code{x1} and \code{x2} have regression parameters 
   \code{b_x1} and \code{b_x2} respectively. 
-  The default prior for population-level effects (including monotonous and 
+  The default prior for population-level effects (including monotonic and 
   category specific effects) is an improper flat prior over the reals. 
   Other common options are normal priors or student-t priors. 
   If we want to have a normal prior with mean 0 and 
@@ -174,7 +174,19 @@ Define priors for specific parameters or classes of parameters
   To set the same prior on every correlation matrix, 
   use for instance \code{set_prior("lkj(2)", class = "cor")}.
   
-  4. Autocorrelation parameters
+  4. Standard deviations of smoothing terms
+  
+  GAMMs are implemented in \pkg{brms} using the 'random effects' 
+  formulation of smoothing terms (for details see 
+  \code{\link[mgcv:gamm]{gamm}}). Thus, each smoothing term
+  has its corresponding standard deviation modeling
+  the variability within this term. In \pkg{brms}, this 
+  parameter class is called \code{sds} and priors can
+  be specified via \code{set_prior("<prior>", class = "sds", 
+  coef = "<term label>")}. The default prior is the same as
+  for standard deviations of group-level effects.
+  
+  5. Autocorrelation parameters
   
   The autocorrelation parameters currently implemented are named 
   \code{ar} (autoregression), \code{ma} (moving average),
@@ -187,10 +199,10 @@ Define priors for specific parameters or classes of parameters
   by using the arguments \code{lb} and \code{ub}). The default
   prior is flat over the definition area.
   
-  5. Distance parameters of monotonous effects
+  6. Distance parameters of monotonic effects
   
   As explained in the details section of \code{\link[brms:brm]{brm}},
-  monotonous effects make use of a special parameter vector to
+  monotonic effects make use of a special parameter vector to
   estimate the 'normalized distances' between consecutive predictor 
   categories. This is realized in \pkg{Stan} using the \code{simplex}
   parameter type and thus this class is also named \code{"simplex"} in
@@ -200,7 +212,7 @@ Define priors for specific parameters or classes of parameters
   'concentration' of the distribution. Explaining the dirichlet prior 
   is beyond the scope of this documentation, but we want to describe
   how to define this prior syntactically correct.
-  If a predictor \code{x} with \code{K} categories is modeled as monotonous, 
+  If a predictor \code{x} with \code{K} categories is modeled as monotonic, 
   we can define a prior on its corresponding simplex via \cr
   \code{set_prior("dirichlet(<vector>)", class = "simplex", coef = "x")}.
   For \code{<vector>}, we can put in any \code{R} expression
@@ -208,7 +220,7 @@ Define priors for specific parameters or classes of parameters
   prior (i.e. \code{<vector> = rep(1, K-1)}) over all simplexes
   of the respective dimension.   
   
-  6. Parameters for specific families 
+  7. Parameters for specific families 
   
   Some families need additional parameters to be estimated. 
   Families \code{gaussian}, \code{student}, and \code{cauchy} 

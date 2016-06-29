@@ -28,7 +28,7 @@ test_that("check_prior performs correct renaming", {
   
   expect_equivalent(check_prior(set_prior("normal(0,2)", "b", coef = "Intercept"),
                                 formula = rating ~ carry, data = inhaler, 
-                                family = student())[6, ],
+                                family = student())[5, ],
                     prior_frame("normal(0,2)", class = "temp_Intercept"))
 })
 
@@ -59,6 +59,11 @@ test_that("check_prior accepts correct prior names", {
                                 autocor = cor.arma(p = 1, q = 2))[c(1, 4), ],
                     prior_frame(c("p1", "p2"), class = c("ar", "ma"),
                                 bound = "<lower=-1,upper=1>"))
+  
+  expect_equivalent(check_prior(set_prior("cauchy(0,1)", class = "sigmaLL"),
+                                formula = count ~ Trt_c, data = epilepsy,
+                                autocor = cor_bsts())[4, ],
+                    prior_frame("cauchy(0,1)", class = "sigmaLL"))
 })
 
 test_that("check_prior rejects incorrect prior names", {
@@ -79,7 +84,7 @@ test_that("check_prior returns increment_log_prob(.) whithout checking", {
   expect_equivalent(check_prior(c(set_prior("increment_log_prob(p1)"),
                                   set_prior("p2", class = "b")),
                                 formula = count ~ Trt_c, 
-                                data = epilepsy)[c(1, 6), ],
+                                data = epilepsy)[c(1, 5), ],
                     prior_frame(c("p2", "increment_log_prob(p1)"), 
                                 class = c("b", "")))
 })
@@ -108,17 +113,17 @@ test_that("check_prior correctly validates priors for category specific effects"
   expect_equivalent(cp[2:3, ], target)
 })
 
-test_that("check_prior correctly validates priors for monotonous effects", {
+test_that("check_prior correctly validates priors for monotonic effects", {
   data <- data.frame(y = rpois(100, 10), x = rep(1:4, 25))
   prior <- c(set_prior("normal(0,1)", class = "b", coef = "x"),
              set_prior("dirichlet(c(1,0.5,2))", class = "simplex", coef = "x"))
-  cp <- brms:::check_prior(prior, formula = y ~ monotonous(x), data = data,
+  cp <- brms:::check_prior(prior, formula = y ~ monotonic(x), data = data,
                            family = poisson())
   target <- brms:::prior_frame(prior = c("normal(0,1)", "dirichlet(c(1,0.5,2))"),
                         class = c("b", "simplex"), coef = c("x", "x"))
   expect_equivalent(cp[2:3, ], target)
   expect_error(check_prior(set_prior("beta(1,1)", class = "simplex", coef = "x"), 
-                           formula = y ~ monotonous(x), data = data),
+                           formula = y ~ monotonic(x), data = data),
                "'dirichlet' is the only valid prior for simplex parameters")
 })
 
@@ -169,6 +174,17 @@ test_that("get_prior returns correct nlpar names for random effects pars", {
   data <- data.frame(y = rnorm(10), x = rnorm(10), g = rep(1:2, 5))
   gp <- get_prior(y ~ a - b^x, data = data, nonlinear = a + b ~ (1+x|g))
   expect_equal(sort(unique(gp$nlpar)), c("", "a", "b"))
+})
+
+test_that("get_prior returnes correct fixed effect names for GAMMs", {
+  dat <- data.frame(y = rnorm(10), x = rnorm(10), 
+                    z = rnorm(10), g = rep(1:2, 5))
+  priors <- get_prior(y ~ z + s(x) + (1|g), data = dat)
+  expect_equal(priors[priors$class == "b", ]$coef, 
+               c("", "Intercept", "sx_1", "z"))
+  priors <- get_prior(y ~ lp, nonlinear = lp ~ z + s(x) + (1|g), data = dat)
+  expect_equal(priors[priors$class == "b", ]$coef, 
+               c("", "Intercept", "sx_1", "z"))
 })
 
 test_that("check_prior_content returns expected errors and warnings", {

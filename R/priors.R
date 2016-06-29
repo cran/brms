@@ -34,7 +34,7 @@
 #'   accepted by \pkg{Stan}. Although \pkg{brms} trys to find common problems 
 #'   (e.g., setting bounded priors on unbounded parameters), there is no guarantee 
 #'   that the defined priors are reasonable for the model.
-#'   Currently, there are six types of parameters in \pkg{brms} models, 
+#'   Currently, there are seven types of parameters in \pkg{brms} models, 
 #'   for which the user can specify prior distributions. \cr
 #'   
 #'   1. Population-level ('fixed') effects
@@ -46,7 +46,7 @@
 #'   (i.e. \code{y ~ x1+x2} in formula syntax). 
 #'   Then, \code{x1} and \code{x2} have regression parameters 
 #'   \code{b_x1} and \code{b_x2} respectively. 
-#'   The default prior for population-level effects (including monotonous and 
+#'   The default prior for population-level effects (including monotonic and 
 #'   category specific effects) is an improper flat prior over the reals. 
 #'   Other common options are normal priors or student-t priors. 
 #'   If we want to have a normal prior with mean 0 and 
@@ -159,7 +159,19 @@
 #'   To set the same prior on every correlation matrix, 
 #'   use for instance \code{set_prior("lkj(2)", class = "cor")}.
 #'   
-#'   4. Autocorrelation parameters
+#'   4. Standard deviations of smoothing terms
+#'   
+#'   GAMMs are implemented in \pkg{brms} using the 'random effects' 
+#'   formulation of smoothing terms (for details see 
+#'   \code{\link[mgcv:gamm]{gamm}}). Thus, each smoothing term
+#'   has its corresponding standard deviation modeling
+#'   the variability within this term. In \pkg{brms}, this 
+#'   parameter class is called \code{sds} and priors can
+#'   be specified via \code{set_prior("<prior>", class = "sds", 
+#'   coef = "<term label>")}. The default prior is the same as
+#'   for standard deviations of group-level effects.
+#'   
+#'   5. Autocorrelation parameters
 #'   
 #'   The autocorrelation parameters currently implemented are named 
 #'   \code{ar} (autoregression), \code{ma} (moving average),
@@ -172,10 +184,10 @@
 #'   by using the arguments \code{lb} and \code{ub}). The default
 #'   prior is flat over the definition area.
 #'   
-#'   5. Distance parameters of monotonous effects
+#'   6. Distance parameters of monotonic effects
 #'   
 #'   As explained in the details section of \code{\link[brms:brm]{brm}},
-#'   monotonous effects make use of a special parameter vector to
+#'   monotonic effects make use of a special parameter vector to
 #'   estimate the 'normalized distances' between consecutive predictor 
 #'   categories. This is realized in \pkg{Stan} using the \code{simplex}
 #'   parameter type and thus this class is also named \code{"simplex"} in
@@ -185,7 +197,7 @@
 #'   'concentration' of the distribution. Explaining the dirichlet prior 
 #'   is beyond the scope of this documentation, but we want to describe
 #'   how to define this prior syntactically correct.
-#'   If a predictor \code{x} with \code{K} categories is modeled as monotonous, 
+#'   If a predictor \code{x} with \code{K} categories is modeled as monotonic, 
 #'   we can define a prior on its corresponding simplex via \cr
 #'   \code{set_prior("dirichlet(<vector>)", class = "simplex", coef = "x")}.
 #'   For \code{<vector>}, we can put in any \code{R} expression
@@ -193,7 +205,7 @@
 #'   prior (i.e. \code{<vector> = rep(1, K-1)}) over all simplexes
 #'   of the respective dimension.   
 #'   
-#'   6. Parameters for specific families 
+#'   7. Parameters for specific families 
 #'   
 #'   Some families need additional parameters to be estimated. 
 #'   Families \code{gaussian}, \code{student}, and \code{cauchy} 
@@ -270,39 +282,49 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
       length(group) != 1 || length(nlpar) != 1 || length(lb) > 1 || 
       length(ub) > 1)
     stop("All arguments of set_prior must be of length 1.", call. = FALSE)
-  valid_classes <- c("Intercept", "b", "sd", "cor", "L", "ar", "ma", "arr", 
-                     "simplex", "sigma", "rescor", "Lrescor", "nu", "shape", 
-                     "delta", "phi")
-  if (!class %in% valid_classes)
+  valid_classes <- c("Intercept", "b", "sd", "cor", "L", "sds", "simplex",
+                     "ar", "ma", "arr", "sigma", "sigmaLL", "rescor", 
+                     "Lrescor", "nu", "shape", "delta", "phi")
+  if (!class %in% valid_classes) {
     stop(paste(class, "is not a valid parameter class"), call. = FALSE)
-  if (nchar(group) && !class %in% c("sd", "cor", "L"))
+  }
+  if (nchar(group) && !class %in% c("sd", "cor", "L")) {
     stop(paste("argument 'group' not meaningful for class", class), 
          call. = FALSE)
-  if (nchar(coef) && !class %in% c("Intercept", "b", "sd", "sigma", "simplex"))
+  }
+  coef_classes <- c("Intercept", "b", "sd", "sds", "sigma", "simplex")
+  if (nchar(coef) && !class %in% coef_classes) {
     stop(paste("argument 'coef' not meaningful for class", class),
          call. = FALSE)
-  if (nchar(nlpar) && !class %in% valid_classes[1:5])
+  }
+  if (nchar(nlpar) && !class %in% valid_classes[1:7]) {
     stop(paste("argument 'nlpar' not meaningful for class", class),
          call. = FALSE)
+  }
   is_arma <- class %in% c("ar", "ma")
   if (length(lb) || length(ub) || is_arma) {
     if (!(class %in% c("b", "arr") || is_arma))
       stop(paste("Currently boundaries are only allowed", 
                  "for population-level and ARMA effects."), call. = FALSE)
-    if (coef != "")
+    if (nchar(coef)) {
       stop("'coef' may not be specified when using boundaries")
+    }
     if (is_arma) {
       lb <- ifelse(length(lb), lb, -1)
       ub <- ifelse(length(ub), ub, 1) 
-      if (abs(lb) > 1 || abs(ub) > 1) {
+      if (is.na(lb) || is.na(ub) || abs(lb) > 1 || abs(ub) > 1) {
         warning(paste("Setting boundaries of ARMA parameters outside of", 
                       "[-1,1] may not be appropriate."), call. = FALSE)
       }
     }
     # don't put spaces in boundary declarations
-    lb <- if (length(lb)) paste0("lower=", lb)
-    ub <- if (length(ub)) paste0("upper=", ub)
-    bound <- paste0("<", paste(c(lb, ub), collapse = ","), ">")
+    lb <- if (length(lb) && !is.na(lb)) paste0("lower=", lb)
+    ub <- if (length(ub) && !is.na(ub)) paste0("upper=", ub)
+    if (!is.null(lb) || !is.null(ub)) {
+      bound <- paste0("<", paste(c(lb, ub), collapse = ","), ">")
+    } else {
+      bound <- ""
+    }
   } else {
     bound <- ""
   }
@@ -372,11 +394,12 @@ get_prior <- function(formula, data = NULL, family = gaussian(),
   # ensure that RE and residual SDs only have a weakly informative prior by default
   Y <- unname(model.response(data))
   prior_scale <- 10
+  if (is.lognormal(family)) link <- "log"
   if (link %in% c("identity", "log", "inverse", "sqrt", "1/mu^2")) {
     if (link %in% c("log", "inverse", "1/mu^2")) {
       Y <- ifelse(Y == 0, Y + 0.1, Y)  # avoid Inf in link(Y)
     }
-    suggested_scale <- round(sd(link(Y, link = link)))
+    suggested_scale <- SW(round(link(sd(Y), link = link)))
     if (!is.nan(suggested_scale)) {
       prior_scale <- max(prior_scale, suggested_scale, na.rm = TRUE)
     } 
@@ -388,19 +411,25 @@ get_prior <- function(formula, data = NULL, family = gaussian(),
   if (length(nonlinear)) {
     nlpars <- names(ee$nonlinear)
     for (i in seq_along(nlpars)) {
-      fixef <- colnames(get_model_matrix(ee$nonlinear[[i]]$fixed, data))
+      # use nlpar = "1" just to keep intercept columns
+      fixef <- colnames(data_fixef(ee$nonlinear[[i]], data, family = family, 
+                                   autocor = autocor, nlpar = "1")$X_1)
       prior_fixef <- get_prior_fixef(fixef, nlpar = nlpars[i],
                                      internal = internal)
       monef <- colnames(get_model_matrix(ee$nonlinear[[i]]$mono, data))
       prior_monef <- get_prior_monef(monef, fixef = fixef, nlpar = nlpars[i])
       prior_ranef <- get_prior_ranef(ranef, def_scale_prior, nlpar = nlpars[i], 
                                      internal = internal)
-      prior <- rbind(prior, prior_fixef, prior_monef, prior_ranef)
+      splines <- get_spline_labels(ee$nonlinear[[i]])
+      prior_splines <- get_prior_splines(splines, def_scale_prior, 
+                                         nlpar = nlpars[i])
+      prior <- rbind(prior, prior_fixef, prior_monef, 
+                     prior_ranef, prior_splines)
     }
   } else {
-    # don't remove the intercept columns here!
-    fixef <- colnames(get_model_matrix(rhs(ee$fixed), data = data,
-                                       forked = is.forked(family)))
+    # use nlpar = "1" just to keep intercept columns
+    fixef <- colnames(data_fixef(ee, data, family = family, 
+                                 autocor = autocor, nlpar = "1")$X_1)
     intercepts <- names(get_intercepts(ee, data = data, family = family))
     prior_fixef <- get_prior_fixef(fixef, intercepts = intercepts,
                                    internal = internal)
@@ -410,22 +439,38 @@ get_prior <- function(formula, data = NULL, family = gaussian(),
     prior_csef <- get_prior_csef(csef, fixef = fixef)
     prior_ranef <- get_prior_ranef(ranef, def_scale_prior, 
                                    internal = internal)
-    prior <- rbind(prior, prior_fixef, prior_monef, prior_csef, prior_ranef)
+    prior_splines <- get_prior_splines(get_spline_labels(ee), 
+                                       def_scale_prior)
+    prior <- rbind(prior, prior_fixef, prior_monef, prior_csef, 
+                   prior_ranef, prior_splines)
   }
   # handle additional parameters
   is_ordinal <- is.ordinal(family)
   is_linear <- is.linear(family)
   nresp <- length(ee$response)
   cbound <- "<lower=-1,upper=1>"
-  if (get_ar(autocor)) 
+  if (get_ar(autocor)) {
     prior <- rbind(prior, prior_frame(class = "ar", bound = cbound))
-  if (get_ma(autocor)) 
+  }
+  if (get_ma(autocor)) {
     prior <- rbind(prior, prior_frame(class = "ma", bound = cbound))
-  if (get_arr(autocor)) 
+  }
+  if (get_arr(autocor)) {
     prior <- rbind(prior, prior_frame(class = "arr"))
+  }
+  if (is(autocor, "cor_bsts")) {
+    prior <- rbind(prior, prior_frame(class = "sigmaLL", 
+                                      prior = def_scale_prior))
+  }
   if (has_sigma(family, se = is.formula(ee$se), autocor = autocor)) {
-    sigma_prior <- prior_frame(class = "sigma", coef = c("", ee$response),
-                               prior = c(def_scale_prior, rep("", nresp)))
+    sigma_coef <- ""
+    sigma_prior <- def_scale_prior
+    if (length(ee$response) > 1L) {
+      sigma_coef <- c(sigma_coef, ee$response)
+      sigma_prior <- c(sigma_prior, rep("", nresp))
+    }
+    sigma_prior <- prior_frame(class = "sigma", coef = sigma_coef,
+                               prior = sigma_prior)
     prior <- rbind(prior, sigma_prior)
   }
   if (is_linear && nresp > 1L) {
@@ -487,9 +532,9 @@ get_prior_fixef <- function(fixef, intercepts = "Intercept",
 }
 
 get_prior_monef <- function(monef, fixef = NULL, nlpar = "") {
-  # priors for monotonous effects parameters
+  # priors for monotonic effects parameters
   # Args:
-  #   monef: names of the monotonous effects
+  #   monef: names of the monotonic effects
   #   fixef: names of the fixed effects
   #   nlpar: optional name of a non-linear parameter
   # Returns:
@@ -499,7 +544,7 @@ get_prior_monef <- function(monef, fixef = NULL, nlpar = "") {
     invalid <- intersect(fixef, monef)
     if (length(invalid)) {
       stop(paste("Variables cannot be modeled as fixed and", 
-                 "monotonous effects at the same time.", 
+                 "monotonic effects at the same time.", 
                  "\nError occured for variables:", 
                  paste(invalid, collapse = ", ")), call. = FALSE)
     }
@@ -581,15 +626,32 @@ get_prior_ranef <- function(ranef, def_scale_prior, nlpar = "",
   prior
 }
 
+get_prior_splines <- function(splines, def_scale_prior, nlpar = "") {
+  # priors for GAMM models
+  # Args:
+  #   splines: names of the spline terms
+  #   def_scale_prior: a character string defining the default
+  #                    prior for spline SDs
+  #   nlpar: optional name of a non-linear parameter
+  if (length(splines)) {
+    prior_strings <- c(def_scale_prior, rep("", length(splines)))
+    prior <- prior_frame(class = "sds", coef = c("", splines), 
+                         prior = prior_strings, nlpar = nlpar)
+  } else {
+    prior <- empty_prior_frame()
+  }
+  prior
+}
+
 check_prior <- function(prior, formula, data = NULL, family = gaussian(), 
                         sample_prior = FALSE, autocor = NULL, nonlinear = NULL, 
-                        threshold = "flexible", check_rows = NULL) {
+                        threshold = "flexible", check_rows = NULL, 
+                        warn = FALSE) {
   # check prior input and amend it if needed
-  #
   # Args:
   #   same as the respective parameters in brm
   #   check_rows: if not NULL, check only the rows given in check_rows
-  #
+  #   warn: passed to check_prior_content
   # Returns:
   #   a data.frame of prior specifications to be used in stan_prior (see stan.R)
   if (isTRUE(attr(prior, "checked"))) {
@@ -633,7 +695,7 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
       prior <- prior[-invalid, ]
     }
   }
-  check_prior_content(prior, family = family)
+  check_prior_content(prior, family = family, warn = warn)
   # merge prior with all_priors
   prior <- rbind(prior, all_priors)
   prior <- prior[!duplicated(prior[, 2:5]), ]
@@ -661,6 +723,7 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
     }
     rows2remove <- c(rows2remove, int_index, bint_index)
   }
+  # prepare priors of monotonic effects
   if (is.formula(ee$mono)) {
     monef <- colnames(get_model_matrix(ee$mono, data = data))
     for (i in seq_along(monef)) {
@@ -701,11 +764,12 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
   prior
 }
 
-check_prior_content <- function(prior, family = gaussian()) {
+check_prior_content <- function(prior, family = gaussian(), warn = TRUE) {
   # try to check if prior distributions are reasonable
   # Args:
   #  prior: A prior_frame
   #  family: the model family
+  #  warn: logical; print boundary warnings?
   stopifnot(is(prior, "prior_frame"))
   stopifnot(is(family, "family"))
   family <- family$family
@@ -763,7 +827,7 @@ check_prior_content <- function(prior, family = gaussian()) {
         }
       }
     }  # end for  
-    if (nchar(lb_warning)) {
+    if (nchar(lb_warning) && warn) {
       warning(paste0("It appears that you have specified a lower bounded ", 
                      "prior on a parameter that has no natural lower bound.",
                      "\nIf this is really what you want, please specify ",
@@ -771,7 +835,7 @@ check_prior_content <- function(prior, family = gaussian()) {
                      "\nWarning occurred for prior \n", lb_warning), 
               call. = FALSE)
     }
-    if (nchar(ub_warning)) {
+    if (nchar(ub_warning) && warn) {
       warning(paste0("It appears that you have specified an upper bounded ", 
                      "prior on a parameter that has no natural upper bound.",
                      "\nIf this is really what you want, please specify ",
@@ -779,7 +843,7 @@ check_prior_content <- function(prior, family = gaussian()) {
                      "\nWarning occurred for prior \n", ub_warning), 
               call. = FALSE)
     }
-    if (autocor_warning) {
+    if (autocor_warning && warn) {
       warning(paste("Changing the boundaries of autocorrelation", 
                     "parameters is not recommended."), call. = FALSE)
     }
@@ -792,7 +856,7 @@ handle_special_priors <- function(prior, has_specef = FALSE) {
   #
   # Args:
   #   prior: an object of class prior_frame
-  #   has_specef: are monotonous or category specific effects present?
+  #   has_specef: are monotonic or category specific effects present?
   #
   # Returns:
   #   an named list of two objects: 
@@ -808,7 +872,7 @@ handle_special_priors <- function(prior, has_specef = FALSE) {
     }
     if (has_specef) {
       stop(paste("Horseshoe priors are not yet allowed in models with", 
-                 "monotonous or category specific effects."), 
+                 "monotonic or category specific effects."), 
            call. = FALSE)
     }
     hs_df <- gsub("^horseshoe\\(|\\)$", "", prior$prior[b_index])

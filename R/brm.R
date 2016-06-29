@@ -16,7 +16,7 @@
 #'   Currently, the following families are supported:
 #'   \code{gaussian}, \code{student}, \code{cauchy} (deprecated), \code{binomial}, 
 #'   \code{bernoulli}, \code{Beta}, \code{poisson}, \code{negbinomial}, 
-#'   \code{geometric}, \code{Gamma}, \code{inverse.gaussian}, 
+#'   \code{geometric}, \code{Gamma}, \code{lognormal}, \code{inverse.gaussian}, 
 #'   \code{exponential}, \code{weibull}, \code{categorical}, \code{cumulative}, 
 #'   \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
 #'   \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{zero_inflated_binomial},
@@ -63,10 +63,14 @@
 #'   \code{"flexible"} provides the standard unstructured thresholds and 
 #'   \code{"equidistant"} restricts the distance between 
 #'   consecutive thresholds to the same value.
-#' @param sparse Logical; indicates whether the fixed effects design matrix
-#'   should be treated as sparse (defaults to \code{FALSE}). 
+#' @param sparse Logical; indicates whether the population-level 
+#'   design matrix should be treated as sparse (defaults to \code{FALSE}). 
 #'   For design matrices with many zeros, this can considerably 
-#'   reduce required memory. For all models using multivariate syntax 
+#'   reduce required memory. For univariate sparse models, it may be
+#'   sensible to prevent the design matrix from being centered
+#'   (see 'Details' for more information), as centering may
+#'   reduce sparsity. 
+#'   For all models using multivariate syntax 
 #'   (i.e. multivariate linear models, zero-inflated and hurdle models 
 #'   as well as categorical models), setting \code{sparse = TRUE}, 
 #'   is generally worth a try to decrease memory requirements.
@@ -91,6 +95,9 @@
 #'   Alternatively, \code{sample_prior} can be set to \code{"only"} to
 #'   sample solely from the priors. In this case, all parameters must 
 #'   have proper priors.
+#' @param knots Optional list containing user specified knot values to be 
+#'   used for basis construction of smoothing terms. For details see
+#'   \code{\link[mgcv:gamm]{gamm}}.
 #' @param stan_funs An optional character string containing self-defined 
 #'   \pkg{Stan} functions, which will be included in the functions block 
 #'   of the generated \pkg{Stan} code. 
@@ -178,16 +185,24 @@
 #'   in a Bayesian context (for more details type \code{vignette("brms")}).
 #'   Multiple grouping factors each with multiple group-level effects 
 #'   are possible. Instead of | you may use || in grouping terms
-#'   to prevent correlations from being modeled. With two exceptions, 
+#'   to prevent correlations from being modeled. With three exceptions, 
 #'   this is basically \code{lme4} syntax. 
 #'   
-#'   The first exception is that \code{fixed} may contain two non-standard types
-#'   of population-level effects namely monotonous and category specific effects,
-#'   which can be specified using terms of the form \code{monotonous(<predictors>)} 
+#'   First, smoothing terms can modeled using the \code{\link[mgcv:s]{s}}
+#'   and \code{\link[mgcv:t2]{t2}} functions of the \pkg{mgcv} package 
+#'   in the \code{fixed} part of the model formula.
+#'   This allows to fit generalized additive mixed models (GAMMs) with \pkg{brms}. 
+#'   The implementation is similar to that used in the \pkg{gamm4} package.
+#'   For more details on this model class see \code{\link[mgcv:gam]{gam}} 
+#'   and \code{\link[mgcv:gamm]{gamm}}.
+#'   
+#'   Second, \code{fixed} may contain two non-standard types
+#'   of population-level effects namely monotonic and category specific effects,
+#'   which can be specified using terms of the form \code{monotonic(<predictors>)} 
 #'   and \code{cse(<predictors>)} respectively. The latter can only be applied in
 #'   ordinal models and is explained in more detail in the package's vignette
 #'   (type \code{vignette("brms")}). The former effect type is explained here.
-#'   A monotonous predictor must either be integer valued or an ordered factor, 
+#'   A monotonic predictor must either be integer valued or an ordered factor, 
 #'   which is the first difference to an ordinary continuous predictor. 
 #'   More importantly, predictor categories (or integers) are not assumend to be 
 #'   equidistant with respect to their effect on the response variable. 
@@ -197,22 +212,22 @@
 #'   One parameter takes care of the direction and size of the effect similar 
 #'   to an ordinary regression parameter, while an additional parameter vector 
 #'   estimates the normalized distances between consecutive predictor categories.     
-#'   A main application of monotonous effects are ordinal predictors that
+#'   A main application of monotonic effects are ordinal predictors that
 #'   can this way be modeled without (falsely) treating them as continuous
 #'   or as unordered categorical predictors.
 #'   
-#'   The second eception is the optional \code{addition} term, which may contain 
+#'   The third exception is the optional \code{addition} term, which may contain 
 #'   multiple terms of the form \code{fun(variable)} seperated by \code{+} each 
-#'   providing special information on the response variable. 
-#'   \code{fun} can be replaced with either \code{se}, \code{weights}, \code{disp}, \code{trials},
+#'   providing special information on the response variable. \code{fun} can be 
+#'   replaced with either \code{se}, \code{weights}, \code{disp}, \code{trials},
 #'   \code{cat}, \code{cens}, or \code{trunc}. Their meanings are explained below. 
 #'   
-#'   For families \code{gaussian}, \code{student}, and \code{cauchy} it is possible to specify
-#'   standard errors of the observation, thus allowing to perform meta-analysis. 
-#'   Suppose that the variable \code{yi} contains the effect sizes from the studies 
-#'   and \code{sei} the corresponding standard errors. 
-#'   Then, fixed and random effects meta-analyses can be conducted
-#'   using the formulae \code{yi | se(sei) ~ 1} and 
+#'   For families \code{gaussian}, \code{student}, and \code{cauchy} it is 
+#'   possible to specify standard errors of the observation, thus allowing 
+#'   to perform meta-analysis. Suppose that the variable \code{yi} contains 
+#'   the effect sizes from the studies and \code{sei} the corresponding 
+#'   standard errors. Then, fixed and random effects meta-analyses can 
+#'   be conducted using the formulae \code{yi | se(sei) ~ 1} and 
 #'   \code{yi | se(sei) ~ 1 + (1|study)}, respectively, where 
 #'   \code{study} is a variable uniquely identifying every study.
 #'   If desired, meta-regression can be performed via 
@@ -233,8 +248,8 @@
 #'   similar purpose than \code{weight}. However, it has a different 
 #'   implementation and is less general as it is only usable for the
 #'   families \code{gaussian}, \code{student}, \code{cauchy},
-#'   \code{Gamma}, \code{weibull}, and \code{negbinomial}.
-#'   For the former three families, the residual standard deviation 
+#'   \code{lognormal}, \code{Gamma}, \code{weibull}, and \code{negbinomial}.
+#'   For the former four families, the residual standard deviation 
 #'   \code{sigma} is multiplied by the values given in 
 #'   \code{disp}, so that higher values lead to lower weights.
 #'   Contrariwise, for the latter three families, the parameter \code{shape}
@@ -255,8 +270,9 @@
 #'   specify the number categories (e.g, \code{cat(7)}). 
 #'   If not given, the number of categories is calculated from the data.
 #'   
-#'   With the expection of \code{categorical} and ordinal families, left and right censoring 
-#'   can be modeled through \code{yi | cens(censored) ~ predictors}.
+#'   With the expection of \code{categorical} and ordinal families, 
+#'   left and right censoring can be modeled through 
+#'   \code{yi | cens(censored) ~ predictors}.
 #'   The censoring variable (named \code{censored} in this example) should 
 #'   contain the values \code{'left'}, \code{'none'}, and \code{'right'}  
 #'   (or equivalenty -1, 0, and 1) to indicate that the corresponding observation is 
@@ -324,6 +340,11 @@
 #'   The main effects of \code{main} or \code{spec} serve as intercepts,
 #'   while the interaction terms \code{main:x1} and \code{spec:x2} ensure
 #'   that \code{x1} and \code{x2} only predict one part of the model, respectively.
+#'   Please note that in \pkg{brms} the ZIH part models the probability 
+#'   of the response being zero, while in some other packages it models 
+#'   the probability of the response being non-zero. Thus, coefficients 
+#'   of the ZIH part may have opposite signs depending on which package 
+#'   you use.
 #'   
 #'   Using the same syntax as for zero-inflated and hurdle models, it is
 #'   possible to specify multiplicative effects in family \code{bernoulli}
@@ -416,8 +437,8 @@
 #'   Families \code{cumulative}, \code{cratio} ('contiuation ratio'), 
 #'   \code{sratio} ('stopping ratio'), and \code{acat} ('adjacent category') 
 #'   leads to ordinal regression. Families \code{Gamma}, \code{weibull}, 
-#'   \code{exponential}, and \code{inverse.gaussian} can be used (among others) 
-#'   for survival regression when combined with the \code{log} link. 
+#'   \code{exponential}, \code{lognormal}, and \code{inverse.gaussian} can be used 
+#'   (among others) for survival regression.
 #'   Families \code{hurdle_poisson}, \code{hurdle_negbinomial}, \code{hurdle_gamma}, 
 #'   \code{zero_inflated_poisson}, and \cr
 #'   \code{zero_inflated_negbinomial} combined with the 
@@ -440,6 +461,7 @@
 #'   family \code{categorical} the link \code{logit}; 
 #'   families \code{Gamma}, \code{weibull}, and \code{exponential} 
 #'   the links \code{log}, \code{identity}, and \code{inverse};
+#'   family \code{lognormal} the links \code{identity} and \code{inverse};
 #'   family \code{inverse.gaussian} the links \code{1/mu^2}, 
 #'   \code{inverse}, \code{identity} and \code{log}; 
 #'   families \code{hurdle_poisson}, \code{hurdle_negbinomial},
@@ -529,7 +551,7 @@
 #' ## Survival regression modeling the time between the first 
 #' ## and second recurrence of an infection in kidney patients.
 #' fit3 <- brm(time | cens(censored) ~ age * sex + disease + (1|patient), 
-#'             data = kidney, family = gaussian("log"))
+#'             data = kidney, family = lognormal())
 #' summary(fit3) 
 #' plot(fit3, ask = FALSE)
 #' plot(marginal_effects(fit3), ask = FALSE)   
@@ -561,8 +583,8 @@ brm <- function(formula, data = NULL, family = gaussian(),
                 prior = NULL, autocor = NULL, nonlinear = NULL, 
                 partial = NULL, threshold = c("flexible", "equidistant"), 
                 cov_ranef = NULL, ranef = TRUE, sparse = FALSE,
-                sample_prior = FALSE, stan_funs = NULL, fit = NA, 
-                inits = "random", chains = 4, iter = 2000, 
+                sample_prior = FALSE, knots = NULL, stan_funs = NULL, 
+                fit = NA, inits = "random", chains = 4, iter = 2000, 
                 warmup = floor(iter / 2), thin = 1, cluster = 1, 
                 cluster_type = "PSOCK", control = NULL, 
                 algorithm = c("sampling", "meanfield", "fullrank"),
@@ -598,43 +620,45 @@ brm <- function(formula, data = NULL, family = gaussian(),
     # extract the compiled model
     x$fit <- rstan::get_stanmodel(x$fit)  
   } else {  # build new model
-    # see validate.R and priors.R for function definitions
+    # see validate.R for function definitions
     family <- check_family(family)
     nonlinear <- nonlinear2list(nonlinear) 
     formula <- update_formula(formula, data = data, family = family, 
                               partial = partial, nonlinear = nonlinear)
-    prior <- check_prior(prior, formula = formula, data = data, 
-                         family = family, sample_prior = sample_prior, 
-                         autocor = autocor, nonlinear = nonlinear, 
-                         threshold = threshold)
     et <- extract_time(autocor$formula)  
     ee <- extract_effects(formula, family = family, et$all,
                           nonlinear = nonlinear)
+    check_mv_formula(family, effects = ee)
     if (is.null(dots$data.name)) {
       data.name <- substr(Reduce(paste, deparse(substitute(data))), 1, 50)
     } else {
       data.name <- dots$data.name
       dots$data.name <- NULL
     }
-    
+    # see data-helpers.R
+    data <- update_data(data, family = family, effects = ee, et$group) 
+    # see priors.R
+    prior <- check_prior(prior, formula = formula, data = data, 
+                         family = family, sample_prior = sample_prior, 
+                         autocor = autocor, nonlinear = nonlinear, 
+                         threshold = threshold, warn = TRUE)
     # initialize S3 object
     x <- brmsfit(formula = formula, family = family, link = family$link, 
-                 data.name = data.name, prior = prior, autocor = autocor,
-                 nonlinear = nonlinear, cov_ranef = cov_ranef, 
-                 threshold = threshold, algorithm = algorithm)  
-    # see data.R
-    x$data <- update_data(data, family = family, effects = ee, et$group) 
+                 data = data, data.name = data.name, prior = prior, 
+                 autocor = autocor, nonlinear = nonlinear, 
+                 cov_ranef = cov_ranef, threshold = threshold, 
+                 algorithm = algorithm)
     # see validate.R
     x$ranef <- gather_ranef(ee, data = x$data, forked = is.forked(family))  
-    x$exclude <- exclude_pars(ranef = x$ranef, save_ranef = ranef)
+    x$exclude <- exclude_pars(ee, ranef = x$ranef, save_ranef = ranef)
     # see make_stancode.R
     x$model <- make_stancode(formula = formula, data = data, 
                              family = family, prior = prior,  
                              autocor = autocor, nonlinear = nonlinear,
                              threshold = threshold, sparse = sparse,
                              cov_ranef = cov_ranef, sample_prior = sample_prior, 
-                             stan_funs = stan_funs, save_model = save_model, 
-                             brm_call = TRUE)
+                             knots = knots, stan_funs = stan_funs, 
+                             save_model = save_model, brm_call = TRUE)
     # generate standata before compiling the model to avoid
     # unnecessary compilations in case that the data is invalid
     standata <- standata(x, newdata = dots$is_newdata)
@@ -648,11 +672,12 @@ brm <- function(formula, data = NULL, family = gaussian(),
     inits <- get(inits, mode = "function", envir = parent.frame())
   }
   args <- list(object = x$fit, data = standata, pars = x$exclude, 
-               include = FALSE, algorithm = algorithm, control = control)
+               include = FALSE, algorithm = algorithm)
   args[names(dots)] <- dots 
   if (algorithm == "sampling") {
-    args <- c(args, init = inits, iter = iter, warmup = warmup, 
-              thin = thin, chains = chains, show_messages = !silent)
+    args <- c(args, list(init = inits, iter = iter, warmup = warmup, 
+              thin = thin, chains = chains, control = control,
+              show_messages = !silent))
   }
   
   set.seed(seed)

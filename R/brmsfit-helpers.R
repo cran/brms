@@ -155,7 +155,8 @@ get_estimate <- function(coef, samples, margin = 2, to.array = FALSE, ...) {
   x 
 }
 
-get_summary <- function(samples, probs = c(0.025, 0.975)) {
+get_summary <- function(samples, probs = c(0.025, 0.975),
+                        robust = FALSE) {
   # summarizes parameter samples based on mean, sd, and quantiles
   # Args: 
   #   samples: a matrix or data.frame containing the samples to be summarized. 
@@ -164,13 +165,18 @@ get_summary <- function(samples, probs = c(0.025, 0.975)) {
   # Returns:
   #   a N x C matric where N is the number of observations and C 
   #   is equal to \code{length(probs) + 2}.
+  if (robust) {
+    coefs <- c("median", "mad", "quantile")
+  } else {
+    coefs <- c("mean", "sd", "quantile")
+  }
   if (length(dim(samples)) == 2) {
-    out <- do.call(cbind, lapply(c("mean", "sd", "quantile"), get_estimate, 
-                                 samples = samples, probs = probs, na.rm = TRUE))
+    out <- do.call(cbind, lapply(coefs, get_estimate, samples = samples,
+                                 probs = probs, na.rm = TRUE))
   } else if (length(dim(samples)) == 3) {
     out <- abind(lapply(1:dim(samples)[3], function(i)
-      do.call(cbind, lapply(c("mean", "sd", "quantile"), get_estimate, 
-                            samples = samples[, , i], probs = probs))), along = 3)
+      do.call(cbind, lapply(coefs, get_estimate, samples = samples[, , i],
+                            probs = probs))), along = 3)
     dimnames(out) <- list(NULL, NULL, paste0("P(Y = ", 1:dim(out)[3], ")")) 
   } else { 
     stop("dimension of samples must be either 2 or 3") 
@@ -315,6 +321,24 @@ get_cov_matrix_arma1 <- function(ar, ma, sigma, nrows, se2 = 0) {
   mat 
 }
 
+get_cov_matrix_ident <- function(sigma, nrows, se2 = 0) {
+  # compute a variance matrix without including ARMA parameters
+  # only used for ARMA covariance models when incl_autor = FALSE
+  # Args:
+  #   sigma: standard deviation samples of the AR1 process
+  #   se2: square of user defined standard errors (may be 0)
+  #   nrows: number of rows of the covariance matrix
+  # Returns:
+  #   An nsamples x nrows x nrows sigma array
+  mat <- aperm(array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma))),
+               perm = c(3, 1, 2))
+  sigma2 <- sigma^2
+  for (i in 1:nrows) {
+    mat[, i, i] <- mat[, i, i] + sigma2
+  }
+  mat
+}
+
 get_sigma <- function(x, data, i, method = c("fitted", "predict", "logLik")) {
   # get the residual standard devation of linear models
   # Args:
@@ -326,10 +350,11 @@ get_sigma <- function(x, data, i, method = c("fitted", "predict", "logLik")) {
   #      for fitted this is the number of samples
   method <- match.arg(method)
   if (is(x, "brmsfit")) {
-    sigma <- posterior_samples(x, pars = "^sigma_")$sigma
+    sigma <- posterior_samples(x, pars = "^sigma($|_)")$sigma
   } else {
     sigma <- x
   }
+  sigma <- as.vector(sigma)
   if (is.null(sigma)) {
     # user defined standard errors were applied
     sigma <- data$se
@@ -356,13 +381,13 @@ get_sigma <- function(x, data, i, method = c("fitted", "predict", "logLik")) {
   sigma
 }
 
-get_shape <- function(x, data, i = NULL, 
+get_shape <- function(x, data, i = NULL,
                       method = c("fitted", "predict", "logLik")) {
-  # get residual standard devation of linear models
+  # get the shape parameter of gamma, weibull and negbinomial models
   # Args:
-  #   x: a brmsfit object or posterior samples of sigma (can be NULL)
+  #   x: a brmsfit object or posterior samples of shape (can be NULL)
   #   data: data initially passed to Stan
-  #   method: S3 method from which get_sigma is called
+  #   method: S3 method from which get_shape is called
   #   i: only used for "predict" and "logLik": 
   #      the current observation number
   method <- match.arg(method)
@@ -371,6 +396,7 @@ get_shape <- function(x, data, i = NULL,
   } else {
     shape <- x
   }
+  shape <- as.vector(shape)
   if (!is.null(data$disp)) {
     if (method %in% c("predict", "logLik")) {
       shape <- shape * data$disp[i]
@@ -387,9 +413,8 @@ prepare_family <- function(x) {
   family <- family(x)
   nresp <- length(extract_effects(x$formula, family = family,
                                   nonlinear = x$nonlinear)$response)
-  if (is.lognormal(family, nresp = nresp)) {
-    family$family <- "lognormal"
-    family$link <- "identity"
+  if (is.old_lognormal(family, nresp = nresp, version = x$version)) {
+    family <- lognormal()
   } else if (is.linear(family) && nresp > 1L) {
     family$family <- paste0(family$family, "_multi")
   } else if (use_cov(x$autocor) && sum(x$autocor$p, x$autocor$q) > 0) {

@@ -66,6 +66,12 @@ rmMatch <- function(x, ...) {
   x
 }
 
+rm_attr <- function(x, attr) {
+  # remove certain attributes
+  attributes(x)[attr] <- NULL
+  x
+}
+
 subset_attr <- function(x, y) {
   # take a subset of vector, list, etc. 
   # while keeping all attributes except for names
@@ -141,6 +147,11 @@ nlist <- function(...) {
   }
   dots
 }
+
+named_list <- function(names) {
+  # initialize a named list
+  setNames(vector("list", length(names)), names)
+} 
 
 get_arg <- function(x, ...) {
   # find first occurrence of x in ... objects
@@ -286,6 +297,10 @@ log_inv_logit <- function(x) {
 
 log1m_inv_logit <- function(x) {
   log(1 - inv_logit(x))
+}
+
+fabs <- function(x) {
+  abs(x)
 }
 
 wsp <- function(x, nsp = 1) {

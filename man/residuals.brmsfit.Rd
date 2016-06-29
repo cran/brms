@@ -6,8 +6,8 @@
 \usage{
 \method{residuals}{brmsfit}(object, newdata = NULL, re_formula = NULL,
   type = c("ordinary", "pearson"), allow_new_levels = FALSE,
-  subset = NULL, nsamples = NULL, summary = TRUE, probs = c(0.025,
-  0.975), ...)
+  incl_autocor = TRUE, subset = NULL, nsamples = NULL, sort = FALSE,
+  summary = TRUE, robust = FALSE, probs = c(0.025, 0.975), ...)
 }
 \arguments{
 \item{object}{An object of class \code{brmsfit}}
@@ -28,6 +28,10 @@ More information is provided under 'Details'.}
 levels of random effects are allowed (defaults to \code{FALSE}). 
 Only relevant if \code{newdata} is provided.}
 
+\item{incl_autocor}{A flag indicating if autocorrelation
+parameters should be included in the predictions. 
+Defaults to \code{TRUE}.}
+
 \item{subset}{A numeric vector specifying
 the posterior samples to be used. 
 If \code{NULL} (the default), all samples are used.}
@@ -37,13 +41,23 @@ posterior samples should be used.
 If \code{NULL} (the default) all samples are used.
 Ignored if \code{subset} is not \code{NULL}.}
 
+\item{sort}{Logical. Only relevant for time series models. 
+Indicating whether to return predicted values in the original 
+order (\code{FALSE}; default) or in the order of the 
+time series (\code{TRUE}).}
+
 \item{summary}{Should summary statistics 
  (i.e. means, sds, and 95\% intervals) be returned
 instead of the raw values? Default is \code{TRUE}.}
 
-\item{probs}{The percentiles to be computed 
-by the \code{quantile} function. 
+\item{robust}{If \code{FALSE} (the default) the mean is used as 
+the measure of central tendency and the standard deviation as 
+the measure of variability. If \code{TRUE}, the median and the 
+median absolute deivation (MAD) are applied instead.
 Only used if \code{summary} is \code{TRUE}.}
+
+\item{probs}{The percentiles to be computed by the \code{quantile} 
+function. Only used if \code{summary} is \code{TRUE}.}
 
 \item{...}{Currently ignored}
 }

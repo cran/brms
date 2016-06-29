@@ -25,7 +25,7 @@ linear_predictor <- function(draws, i = NULL) {
     eta <- eta + matrix(rep(p(draws$data$offset, i), draws$nsamples), 
                         ncol = N, byrow = TRUE)
   }
-  # incorporate monotonous effects
+  # incorporate monotonic effects
   for (j in seq_along(draws$bm)) {
     eta <- eta + monef_predictor(Xm = p(draws$data$Xm[, j], i), 
                                  bm = as.vector(draws$bm[[j]]), 
@@ -36,6 +36,12 @@ linear_predictor <- function(draws, i = NULL) {
   for (j in seq_along(group)) {
     eta <- eta + ranef_predictor(Z = p(draws$Z[[group[j]]], i), 
                                  r = draws$r[[group[j]]]) 
+  }
+  # incorporate splines
+  splines <- names(draws$s)
+  for (j in seq_along(splines)) {
+    eta <- eta + fixef_predictor(X = p(draws$data[[paste0("Zs_", j)]], i),
+                                 b = draws$s[[splines[j]]])
   }
   if (!is.null(draws$arr)) {
     eta <- eta + fixef_predictor(X = p(draws$data$Yarr, i), b = draws$arr)
@@ -48,6 +54,9 @@ linear_predictor <- function(draws, i = NULL) {
     }
     eta <- arma_predictor(standata = draws$data, ar = draws$ar, 
                           ma = draws$ma, eta = eta, link = draws$f$link)
+  }
+  if (!is.null(draws$loclev)) {
+    eta <- eta + p(draws$loclev, i, row = FALSE)
   }
   if (is.ordinal(draws$f)) {
     if (!is.null(draws$p)) {
@@ -77,7 +86,7 @@ linear_predictor <- function(draws, i = NULL) {
       eta <- array(eta, dim = c(nrow(eta), ncol(eta) / ncat1, ncat1))
     }
   }
-  eta
+  unname(eta)
 }
 
 nonlinear_predictor <- function(draws, i = NULL) {
@@ -114,7 +123,7 @@ nonlinear_predictor <- function(draws, i = NULL) {
       stop(out, call. = FALSE)
     }
   }
-  out
+  unname(out)
 }
 
 fixef_predictor <- function(X, b) {
@@ -128,9 +137,9 @@ fixef_predictor <- function(X, b) {
 }
 
 monef_predictor <- function(Xm, bm, simplex) {
-  # compute eta for monotonous effects
+  # compute eta for monotonic effects
   # Args:
-  #   Xm: a vector of data for the monotonous effect
+  #   Xm: a vector of data for the monotonic effect
   #   bm: montonous effects samples
   #   simplex: matrix of samples of the simplex
   #            corresponding to bm

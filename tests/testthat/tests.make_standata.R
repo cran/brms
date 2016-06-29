@@ -303,7 +303,7 @@ test_that("brmdata is backwards compatible", {
 })
 
 test_that("make_standata correctly prepares data for non-linear models", {
-  nonlinear <- list(a ~ x + (1|g), b ~ monotonous(z) + (1|g))
+  nonlinear <- list(a ~ x + (1|g), b ~ mono(z) + (1|g))
   data <- data.frame(y = rnorm(9), x = rnorm(9), z = sample(1:4, 9, TRUE), 
                      g = rep(1:3, 3))
   standata <- make_standata(y ~ a - b^z, data = data, nonlinear = nonlinear)
@@ -317,10 +317,10 @@ test_that("make_standata correctly prepares data for non-linear models", {
   expect_equal(standata$J_b_1, as.array(data$g))
 })
 
-test_that("make_standata correctly prepares data for monotonous effects", {
+test_that("make_standata correctly prepares data for monotonic effects", {
   data <- data.frame(y = rpois(120, 10), x1 = rep(1:4, 30), 
                      x2 = factor(rep(c("a", "b", "c"), 40), ordered = TRUE))
-  sdata <- make_standata(y ~ monotonous(x1 + x2), data = data)
+  sdata <- make_standata(y ~ mono(x1 + x2), data = data)
   expect_true(all(c("Xm", "Jm", "con_simplex_1", "con_simplex_2") %in% names(sdata)))
   expect_equivalent(sdata$Xm, cbind(data$x1 - 1, as.numeric(data$x2) - 1))
   expect_equal(as.vector(unname(sdata$Jm)), 
@@ -328,10 +328,10 @@ test_that("make_standata correctly prepares data for monotonous effects", {
   expect_equal(sdata$con_simplex_1, rep(1, 3))
   prior <- c(set_prior("normal(0,1)", class = "b", coef = "x"),
              set_prior("dirichlet(c(1,0.5,2))", class = "simplex", coef = "x1"))
-  sdata <- make_standata(y ~ monotonous(x1 + x2), data = data, prior = prior)
+  sdata <- make_standata(y ~ monotonic(x1 + x2), data = data, prior = prior)
   expect_equal(sdata$con_simplex_1, c(1,0.5,2))
   prior <- c(set_prior("dirichlet(c(1,0.5,2))", class = "simplex", coef = "x2"))
-  expect_error(make_standata(y ~ monotonous(x1 + x2), data = data, prior = prior),
+  expect_error(make_standata(y ~ monotonic(x1 + x2), data = data, prior = prior),
                "Invalid dirichlet prior for the simplex of x2", fixed = TRUE)
 })
 
@@ -341,4 +341,30 @@ test_that("make_standata returns fixed residual covariance matrices", {
   expect_equal(make_standata(y~1, data, autocor = cor_fixed(V))$V, V)
   expect_error(make_standata(y~1, data, autocor = cor_fixed(diag(2))),
                "'V' must have the same number of rows as 'data'")
+})
+
+test_that("make_standata returns data for bsts models", {
+  dat <- data.frame(y = 1:5, g = c(1:3, sample(1:3, 2, TRUE)), t = 1:5)
+  expect_equal(make_standata(y~1, data = dat, autocor = cor_bsts(~t|g))$tg,
+               sort(dat$g))
+})
+
+test_that("make_standata returns data for GAMMs", {
+  dat <- data.frame(y = rnorm(10), x1 = rnorm(10), x2 = rnorm(10),
+                    z = rnorm(10), g = rep(1:2, 5))
+  standata <- make_standata(y ~ s(x1) + z + s(x2) + (1|g), data = dat)
+  expect_true(all(c("ns", "knots", "Zs_1", "Zs_2") %in% names(standata)))
+  expect_equal(standata$ns, 2)
+  expect_equal(as.vector(standata$knots), c(8, 8))
+  expect_equal(dim(standata$Zs_1), c(10, 8))
+  expect_equal(dim(standata$Zs_2), c(10, 8))
+  
+  standata <- make_standata(y ~ lp, nonlinear = lp ~ s(x1) + z + s(x2) + (1|g), 
+                            data = dat)
+  expect_true(all(c("ns_lp", "knots_lp", "Zs_lp_1", "Zs_lp_2") %in% 
+                    names(standata)))
+  expect_equal(standata$ns_lp, 2)
+  expect_equal(as.vector(standata$knots_lp), c(8, 8))
+  expect_equal(dim(standata$Zs_lp_1), c(10, 8))
+  expect_equal(dim(standata$Zs_lp_2), c(10, 8))
 })

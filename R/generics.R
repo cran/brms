@@ -6,7 +6,7 @@ brmsfit <- function(formula = NULL, family = "", link = "", data.name = "",
   # brmsfit class
   x <- nlist(formula, family, link, data.name, data, model, exclude, prior, 
              ranef, autocor, nonlinear, partial, threshold, cov_ranef, fit, 
-             algorithm)
+             algorithm, version = utils::packageVersion("brms"))
   class(x) <- "brmsfit"
   x
 }
@@ -142,11 +142,16 @@ hypothesis <- function(x, hypothesis, ...) {
 #'   (i.e., posterior samples) to be returned. 
 #'   If \code{NULL} (the default), all  posterior samples are returned.
 #' @param as.matrix Should the output be a \code{matrix} 
-#'   instead of a \code{data.frame}? Defaults to \code{FALSE}
-#' @param ... additional arguments
+#'   instead of a \code{data.frame}? Defaults to \code{FALSE}.
+#' @param row.names,optional See \code{\link[base:as.data.frame]{as.data.frame}}.
+#' @param ... For \code{as.data.frame} and \code{as.matrix}:
+#'   Further arguments to be passed to \code{posterior_samples}.
 #'   
 #' @details Currently there are methods for \code{brmsfit} objects.
-#' @return A data frame containing the posterior samples, 
+#'   \code{as.data.frame.brmsfit} and \code{as.matrix.brmsfit} are basically 
+#'   just aliases of \code{posterior_samples.brmsfit} and differ from
+#'   each other only in type of the returend object.
+#' @return A data frame (or matrix) containing the posterior samples, 
 #'   with one column per parameter.
 #' 
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
@@ -496,6 +501,8 @@ stanplot <- function(object, pars, ...) {
 #' @param re_formula A formula containing random effects to be considered 
 #'   in the marginal predictions. If \code{NULL}, include all random effects; 
 #'   if \code{NA} (default), include no random effects.
+#' @param robust If \code{FALSE} (the default) the mean is used as the 
+#'   measure of central tendency. If \code{TRUE} the median is used instead.
 #' @param probs The quantiles to be used in the computation of credible
 #'   intervals (defaults to 2.5 and 97.5 percent quantiles)
 #' @param method Either \code{"fitted"} or \code{"predict"}. 
@@ -561,3 +568,16 @@ marginal_effects <- function(x, ...) {
 expose_functions <- function(x, ...) {
   UseMethod("expose_functions")
 }
+
+# temporary pp_check generic function
+# 
+# will be removed as soon as the \pkg{ppcheck} package
+# has its own generic function
+# 
+# @param object an \code{R} object
+# @param ... further arguments 
+# 
+# @export
+# pp_check <- function(object, ...) {
+#   UseMethod("pp_check")
+# }

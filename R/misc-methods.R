@@ -30,6 +30,16 @@ print.brmssummary <- function(x, digits = 2, ...) {
                "         total post-warmup samples = ", final_samples, "\n"))
     cat(paste0("   WAIC: ", waic, "\n \n"))
     
+    if (length(x$splines)) {
+      cat("Spline Effects: \n")
+      if (x$algorithm == "sampling") {
+        x$splines[, "Eff.Sample"] <- 
+          round(x$splines[, "Eff.Sample"], digits = 0)
+      }
+      print(round(x$splines, digits = digits)) 
+      cat("\n")
+    }
+    
     if (length(x$random)) {
       cat("Group-Level Effects: \n")
       for (i in seq_along(x$random)) {
@@ -189,7 +199,8 @@ print.iclist <- function(x, digits = 2, ...) {
 #' @export
 print.brmshypothesis <- function(x, digits = 2, chars = 20, ...) {
   # make sure rownames are not too long
-  rownames(x$hypothesis) <- limit_chars(rownames(x$hypothesis), chars = chars)
+  rnames <- limit_chars(rownames(x$hypothesis), chars = chars)
+  rownames(x$hypothesis) <- make.unique(rnames, sep = " #")
   cat(paste0("Hypothesis Tests for class ", x$class, ":\n"))
   x$hypothesis[, 1:5] <- round(x$hypothesis[, 1:5], digits = digits)
   print(x$hypothesis, quote = FALSE)

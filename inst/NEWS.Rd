@@ -2,6 +2,48 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 0.10.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{ 
+      \item Add support for generalized additive mixed models
+      (GAMMs). Smoothing terms can be specified using
+      the \code{s} and \code{t2} functions in the model formula. 
+      \item Introduce \code{as.data.frame} and \code{as.matrix}
+      methods for \code{brmsfit} objects.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item The \code{gaussian("log")} family no longer implies
+      a log-normal distribution, but a normal distribution with 
+      log-link to match the behavior of \code{glm}. 
+      The log-normal distribution can now be specified via
+      family \code{lognormal}.
+      \item Update syntax of \pkg{Stan} models to match the 
+      recommended syntax of \pkg{Stan} 2.10.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{ 
+      \item The \code{ngrps} method should now always
+      return the correct result for non-linear models.
+      \item Fix problems in \code{marginal_effects} for
+      models using the reserved variable \code{intercept}
+      thanks to Frederik Aust.
+      \item Fix a bug in the \code{print} method of
+      \code{brmshypothesis} objects that could lead to 
+      duplicated and thus invalid row names.
+      \item Residual standard deviation parameters of 
+      multivariate models are again correctly displayed 
+      in the output of the \code{summary} method.
+      \item Fix problems when using variational Bayes
+      algorithms with \pkg{brms} while having 
+      \pkg{rstan} >= 2.10.0 installed thanks to the 
+      Github user cwerner87.
+    }
+  }
+}  
+
 \section{CHANGES IN VERSION 0.9.1}{
   \subsection{NEW FEATURES}{
     \itemize{ 
@@ -44,7 +86,7 @@
 \section{CHANGES IN VERSION 0.9.0}{
   \subsection{NEW FEATURES}{
     \itemize{ 
-      \item Add support for \code{monotonous} effects
+      \item Add support for \code{monotonic} effects
       allowing to use ordinal predictors without 
       assuming their categories to be equidistant.
       \item Apply multivariate formula syntax in categorical 

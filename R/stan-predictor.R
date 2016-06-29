@@ -19,16 +19,17 @@ stan_linear <- function(effects, data, family = gaussian(),
   #   the linear predictor in stan language
   stopifnot(is(family, "family"))
   # generate code for different types of effects
-  fixef <- colnames(get_model_matrix(rhs(effects$fixed), data = data, 
-                                     forked = is.forked(family),
-                                     cols2remove = intercepts))
+  fixef <- colnames(data_fixef(effects, data, family = family,
+                               autocor = autocor)$X)
+  # local level terms replace the intercepts in bsts models
+  if (is(autocor, "cor_bsts")) intercepts <- NULL
   text_fixef <- stan_fixef(fixef = fixef, intercepts = intercepts, 
                            family = family, prior = prior, 
                            sparse = sparse, threshold = threshold)
   # category specific effects
   csef <- colnames(get_model_matrix(effects$cse, data))
   text_csef <- stan_csef(csef = csef, prior = prior)
-  # monotonous effects
+  # monotonic effects
   monef <- colnames(data_monef(effects, data)$Xm)
   text_monef <- stan_monef(monef, prior = prior)
   # group-specific effects
@@ -36,7 +37,11 @@ stan_linear <- function(effects, data, family = gaussian(),
   text_ranef <- collapse_lists(
     lapply(seq_along(ranef), stan_ranef, ranef = ranef, 
            names_cov_ranef = names(cov_ranef), prior = prior))
-  out <- collapse_lists(list(text_fixef, text_csef, text_monef, text_ranef))
+  # spline terms 
+  splines <- get_spline_labels(effects) 
+  text_splines <- stan_splines(splines, prior = prior)
+  out <- collapse_lists(list(text_fixef, text_csef, text_monef, 
+                             text_ranef, text_splines))
   
   # generate Stan code for the linear predictor 'eta'
   is_multi <- is.linear(family) && length(effects$response) > 1L
@@ -56,9 +61,7 @@ stan_linear <- function(effects, data, family = gaussian(),
   wsp <- ifelse(is_multi, "  ", "")
   # transform eta before it is passed to the likelihood
   add <- is.formula(effects[c("weights", "cens", "trunc")])
-  simplify_log <- !(is_multi || is(autocor, "cor_fixed"))
-  out$transform <- stan_eta_transform(family$family, family$link, add = add,
-                                      simplify_log = simplify_log)
+  out$transform <- stan_eta_transform(family$family, family$link, add = add)
   eta_ilink <- rep("", 2)
   if (out$transform || (get_ar(autocor) && !use_cov(autocor))) {
     eta_ilink <- stan_eta_ilink(family$family, family$link, 
@@ -66,7 +69,7 @@ stan_linear <- function(effects, data, family = gaussian(),
     if (get_ar(autocor)) {
       eta_ar <- ifelse(!use_cov(autocor), " + head(E[n], Kar) * ar", "")
       out$transC3 <- paste0(out$transC3,  "    ", wsp, 
-        eta_obj," <- ", eta_ilink[1], eta_obj, eta_ar, eta_ilink[2], "; \n")
+        eta_obj," = ", eta_ilink[1], eta_obj, eta_ar, eta_ilink[2], "; \n")
       eta_ilink <- rep("", 2)  # don't apply the link function twice
     }
   }
@@ -75,22 +78,26 @@ stan_linear <- function(effects, data, family = gaussian(),
   eta_int <- if (nint > 1L) " + temp_Intercept[Jint[n]]"
   eta_ranef <- stan_eta_ranef(ranef)
   eta_monef <- stan_eta_monef(monef)
+  eta_splines <- stan_eta_splines(splines)
   eta_ma <- ifelse(get_ma(autocor) && !use_cov(autocor), 
                    " + head(E[n], Kma) * ma", "")
-  add2eta <- any(nchar(c(eta_int, eta_monef, eta_ma, eta_ranef, eta_ilink[1])))
+  eta_bsts <- stan_eta_bsts(autocor)
+  add2eta <- any(nchar(c(eta_int, eta_monef, eta_ma, eta_ranef, 
+                         eta_bsts, eta_ilink[1])))
   if (add2eta || is_multi) {
     out$transC2 <- paste0(out$transC2,
-      "    ", wsp, eta_obj," <- ", eta_ilink[1], "eta[n]", 
-      eta_int, eta_monef, eta_ranef, eta_ma, eta_ilink[2],"; \n")
+      "    ", wsp, eta_obj," = ", eta_ilink[1], "eta[n]", 
+      eta_int, eta_bsts, eta_monef, eta_ranef, eta_ma, eta_ilink[2],"; \n")
   }
   eta_fixef <- stan_eta_fixef(fixef, sparse = sparse)
-  eta_cse <- if (length(csef)) "  etap <- Xp * bp; \n"
+  eta_splines <- stan_eta_splines(splines)
+  eta_cse <- if (length(csef)) "  etap = Xp * bp; \n"
   out$transC1 <- paste0(out$transC1,
     "  // compute linear predictor \n",
-    "  eta <- ", eta_fixef, 
+    "  eta = ", eta_fixef, eta_splines,
     if (nint == 1L && !is.ordinal(family)) " + temp_Intercept",
     if (has_offset) " + offset",
-    if (get_arr(autocor)) " + Yarr * arr", 
+    if (get_arr(autocor)) " + Yarr * arr",
     "; \n", eta_cse)
   out
 }
@@ -119,19 +126,27 @@ stan_nonlinear <- function(effects, data, family = gaussian(),
         "  // non-linear effects of ", nlpar, "\n")
       eta_loop <- ""
       # include fixed effects
-      fixef <- colnames(get_model_matrix(effects$nonlinear[[i]]$fixed, data))
+      fixef <- colnames(data_fixef(effects$nonlinear[[i]], data = data,
+                                   nlpar = nlpar)[[paste0("X_", nlpar)]])
       if (length(fixef)) {
         text_fixef <- stan_fixef(fixef, intercepts = NULL, family = family,
                                  prior = prior, nlpar = nlpar)
         out <- collapse_lists(list(out, text_fixef))
-        out$transC1 <- paste0(out$transC1, "  ", eta, " <- ",
-                              stan_eta_fixef(fixef, nlpar = nlpar), "; \n") 
       }
-      # include monotonous effects
+      # include spline terms
+      splines <- get_spline_labels(effects$nonlinear[[i]])
+      text_splines <- stan_splines(splines, prior = prior, nlpar = nlpar)
+      out <- collapse_lists(list(out, text_splines))
+      # initialize eta_<nlpar>
+      out$transC1 <- paste0(out$transC1, "  ", eta, " = ",
+                            stan_eta_fixef(fixef, nlpar = nlpar), 
+                            stan_eta_splines(splines, nlpar = nlpar), 
+                            "; \n") 
+      # include monotonic effects
       monef <- colnames(data_monef(effects$nonlinear[[i]], data)$Xm)
       if (length(monef)) {
         text_monef <- stan_monef(monef, prior = prior, nlpar = nlpar)
-        if (length(out$fun) && grepl("#include fun_monotonous", out$fun)) {
+        if (length(out$fun) && grepl("#include fun_monotonic", out$fun)) {
           text_monef$fun <- NULL
         }
         out <- collapse_lists(list(out, text_monef))
@@ -150,7 +165,7 @@ stan_nonlinear <- function(effects, data, family = gaussian(),
       }
       if (nchar(eta_loop)) {
         out$transC2 <- paste0(out$transC2,
-          "    ", eta, "[n] <- ", eta, "[n]", eta_loop, "; \n")
+          "    ", eta, "[n] = ", eta, "[n]", eta_loop, "; \n")
       }
     }
     
@@ -174,8 +189,7 @@ stan_nonlinear <- function(effects, data, family = gaussian(),
                       c(new_nlpars, new_covars, "(", ")"))
     # possibly transform eta in the transformed params block
     add <- is.formula(effects[c("weights", "cens", "trunc")])
-    transform <- stan_eta_transform(family$family, family$link, add = add,
-                                    simplify_log = !is(autocor, "cor_fixed"))
+    transform <- stan_eta_transform(family$family, family$link, add = add)
     if (transform) {
       eta_ilink <- stan_eta_ilink(family$family, family$link, 
                                   disp = is.formula(effects$disp))
@@ -183,7 +197,7 @@ stan_nonlinear <- function(effects, data, family = gaussian(),
     out$transD <- paste0(out$transD, "  vector[N] eta; \n")
     out$transC2 <- paste0(out$transC2, 
       "    // compute non-linear predictor \n",
-      "    eta[n] <- ", eta_ilink[1], trimws(nlmodel), eta_ilink[2], "; \n")
+      "    eta[n] = ", eta_ilink[1], trimws(nlmodel), eta_ilink[2], "; \n")
   }
   out
 }
@@ -209,7 +223,7 @@ stan_fixef <- function(fixef, intercepts = "Intercept",
   p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
   out <- list()
   if (length(fixef)) {
-    centered <- ifelse(nint > 0, "centered", "")
+    centered <- ifelse(nint > 0L, "centered", "")
     out$data <- paste0(out$data, 
       "  int<lower=1> K", p, ";",
       "  // number of population-level effects \n", 
@@ -253,14 +267,14 @@ stan_fixef <- function(fixef, intercepts = "Intercept",
       # temp intercepts for ordinal models are defined in stan_ordinal
       out$data <- paste0(out$data, def_X_means)
       out$genD <- "  vector[ncat - 1] b_Intercept;  // thresholds \n" 
-      out$genC <- paste0("  b_Intercept <- temp_Intercept", sub_X_means, "; \n")
+      out$genC <- paste0("  b_Intercept = temp_Intercept", sub_X_means, "; \n")
     } else {
       if (nint == 1L) {
         out$data <- paste0(out$data, def_X_means)
         out$par <- paste0(out$par, 
           "  real temp_Intercept;  // temporary Intercept \n")
         out$genD <- "  real b_Intercept;  // population-level intercept \n"
-        out$genC <- paste0("  b_Intercept <- temp_Intercept", sub_X_means, "; \n")
+        out$genC <- paste0("  b_Intercept = temp_Intercept", sub_X_means, "; \n")
       } else if (nint > 1L) {
         out$data <- paste0(out$data,
           "  int nint;  // number of population-level intercepts \n",
@@ -271,7 +285,7 @@ stan_fixef <- function(fixef, intercepts = "Intercept",
         out$genD <- "  vector[nint] b_Intercept;  // population-level intercepts \n"
         out$genC <- paste0(
           "  for (i in 1:nint) { \n",
-          "    b_Intercept[i] <- temp_Intercept[i]", sub_X_means, "; \n",
+          "    b_Intercept[i] = temp_Intercept[i]", sub_X_means, "; \n",
           "  } \n")
       }
     }
@@ -287,7 +301,6 @@ stan_fixef <- function(fixef, intercepts = "Intercept",
 stan_ranef <- function(i, ranef, prior = prior_frame(), 
                        names_cov_ranef = NULL, nlpar = "") {
   # Random effects in Stan 
-  # 
   # Args:
   #   i: the index of the grouping factor
   #   ranef: a named list returned by gather_ranef
@@ -297,9 +310,8 @@ stan_ranef <- function(i, ranef, prior = prior_frame(),
   #                    for which custom covariance matrices are specified.
   #   par: an optional character string to add to the variable names
   #        (used for non-linear models)
-  #
   # Returns:
-  #   A vector of strings containing the random effects in stan language
+  #   A list of strings containing Stan code
   r <- ranef[[i]]
   g <- attr(ranef[[i]], "group")
   cor <- attr(ranef[[i]], "cor")
@@ -328,7 +340,7 @@ stan_ranef <- function(i, ranef, prior = prior_frame(),
     out$transD <- paste0(
       "  // group-specific effects \n",
       "  vector[N_", p, "] r_", p, "; \n")
-    out$transC1 <- paste0("  r_", p,  " <- sd_", p, " * (", 
+    out$transC1 <- paste0("  r_", p,  " = sd_", p, " * (", 
                           if (ccov) paste0("Lcov_", p, " * "), "z_", p, ");\n")
   } else if (length(r) > 1L) {
     j <- seq_along(r)
@@ -354,26 +366,26 @@ stan_ranef <- function(i, ranef, prior = prior_frame(),
         collapse("  vector[N_", p, "] r_", p, "_", j, "; \n"))
       if (ccov) {  # customized covariance matrix supplied
         out$transC1 <- paste0(
-          "  r_", p," <- as_matrix(kronecker(Lcov_", p, ",", 
+          "  r_", p," = as_matrix(kronecker(Lcov_", p, ",", 
           " diag_pre_multiply(sd_", p,", L_", p,")) *",
           " to_vector(z_", p, "), N_", p, ", K_", p, "); \n")
       } else { 
-        out$transC1 <- paste0("  r_", p, " <- ", 
-                              "(diag_pre_multiply(sd_", p, ", L_", p,") * z_", p, ")'; \n")
+        out$transC1 <- paste0("  r_", p, " = ", 
+          "(diag_pre_multiply(sd_", p, ", L_", p,") * z_", p, ")'; \n")
       }
       out$transC1 <- paste0(out$transC1, 
-                            collapse("  r_", p, "_", j, " <- r_", p, "[, ",j,"];  \n"))
+        collapse("  r_", p, "_", j, " = r_", p, "[, ",j,"];  \n"))
       # return correlations above the diagonal only
       cors_genC <- ulapply(2:length(r), function(k) 
         lapply(1:(k - 1), function(j) paste0(
           "  cor_", p, "[", (k - 1) * (k - 2) / 2 + j, 
-          "] <- Cor_", p, "[", j, ",", k, "]; \n")))
+          "] = Cor_", p, "[", j, ",", k, "]; \n")))
       out$genD <- paste0(
         "  corr_matrix[K_", p, "] Cor_", p, "; \n",
         "  vector<lower=-1,upper=1>[NC_", p, "] cor_", p, "; \n")
       out$genC <- paste0(
         "  // take only relevant parts of correlation matrix \n",
-        "  Cor_", p, " <- multiply_lower_tri_self_transpose(L_", p, "); \n",
+        "  Cor_", p, " = multiply_lower_tri_self_transpose(L_", p, "); \n",
         collapse(cors_genC)) 
     } else {  # multiple uncorrelated random effects
       out$par <- paste0(out$par,
@@ -384,37 +396,74 @@ stan_ranef <- function(i, ranef, prior = prior_frame(),
       out$transD <- paste0("  // group-specific effects \n", 
                            collapse("  vector[N_", p, "] r_", p, "_", j, "; \n"))
       out$transC1 <- collapse(
-        "  r_", p, "_", j, " <- sd_", p, "[", j, "] * (", 
+        "  r_", p, "_", j, " = sd_", p, "[", j, "] * (", 
         if (ccov) paste0("Lcov_", p, " * "), "z_", p, "[", j, "]); \n")
       out$genD <- paste0(
         "  matrix[N_", p, ", K_", p, "] r_", p, "; \n")
       out$genC <- collapse(
-        "  r_", p, "[, ", j, "] <- r_", p, "_", j, "; \n")
+        "  r_", p, "[, ", j, "] = r_", p, "_", j, "; \n")
     }
   }
   out
 }
 
-stan_monef <- function(monef, prior = prior_frame(), nlpar = "") {
-  # Stan code for monotonous effects
+stan_splines <- function(splines, prior = prior_frame(), nlpar = "") {
+  # Stan code of spline terms for GAMMs
   # Args:
-  #   csef: names of the monotonous effects
+  #   splines: names of the spline terms
+  #   prior: object of class prior_frame
+  #   nlpar: optional name of a non-linear parameter
+  # Returns:
+  #   A list of strings containing Stan code
+  out <- list()
+  p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
+  if (length(splines)) {
+    out$data <- paste0(
+      "  int ns", p, ";  // number of splines terms \n",
+      "  int knots", p, "[ns", p, "];",
+      "  // number of knots per spline \n")
+  }
+  for (i in seq_along(splines)) {
+    pi <- paste0(p, "_", i)
+    out$data <- paste0(out$data, 
+      "  // design matrix of spline ", splines[i], "\n",  
+      "  matrix[N, knots", p, "[", i, "]] Zs", pi, "; \n")
+    out$par <- paste0(out$par,
+      "  // parameters of spline ", splines[i], "\n", 
+      "  vector[knots", p, "[", i, "]] zs", pi, "; \n",
+      "  real<lower=0> sds", pi, "; \n")
+    out$transD <- paste0(out$transD,
+      "  vector[knots", p, "[", i, "]] s", pi, "; \n")
+    out$transC1 <- paste0(out$transC1,
+      "  s", pi, " = sds", pi, " * zs", pi, "; \n")
+    out$prior <- paste0(out$prior, 
+      "  zs", pi, " ~ normal(0, 1); \n",
+      stan_prior(class = "sds", coef = splines[i], 
+                 nlpar = nlpar, suffix = pi, prior = prior))
+  }
+  out
+}
+
+stan_monef <- function(monef, prior = prior_frame(), nlpar = "") {
+  # Stan code for monotonic effects
+  # Args:
+  #   csef: names of the monotonic effects
   #   prior: a data.frame containing user defined priors 
   #          as returned by check_prior
   p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
   out <- list()
   if (length(monef)) {
     I <- seq_along(monef)
-    out$fun <- "  #include fun_monotonous.stan \n"
+    out$fun <- "  #include fun_monotonic.stan \n"
     out$data <- paste0(
-      "  int<lower=1> Km", p, ";  // number of monotonous effects \n",
-      "  int Xm", p, "[N, Km", p, "];  // monotonous design matrix \n",
+      "  int<lower=1> Km", p, ";  // number of monotonic effects \n",
+      "  int Xm", p, "[N, Km", p, "];  // monotonic design matrix \n",
       "  int<lower=2> Jm", p, "[Km", p, "];  // length of simplexes \n",
       collapse("  vector[Jm", p, "[", I, "]]", 
                " con_simplex", p, "_", I, "; \n"))
     bound <- get_bound(prior, class = "b", nlpar = nlpar)
     out$par <- paste0(
-      "  // monotonous effects \n", 
+      "  // monotonic effects \n", 
       "  vector", bound, "[Km", p, "] bm", p, "; \n",
       collapse("  simplex[Jm", p, "[", I, "]]", 
                " simplex", p, "_", I, "; \n")) 
@@ -494,34 +543,57 @@ stan_eta_ranef <- function(ranef, nlpar = "") {
 }
 
 stan_eta_monef <- function(monef, nlpar = "") {
-  # write the linear predictor for monotonous effects
+  # write the linear predictor for monotonic effects
   # Args:
-  #   monef: names of the monotonous effects
-  #   nlpar: an optional character string to add to the variable names
+  #   monef: names of the monotonic effects
+  #   nlpar: an optional character string to add to the varnames
   #         (used for non-linear models)
   p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
   eta_monef <- ""
   for (i in seq_along(monef)) {
     eta_monef <- paste0(eta_monef,
-      " + bm", p, "[", i, "] * monotonous(",
+      " + bm", p, "[", i, "] * monotonic(",
       "simplex", p, "_", i, ", Xm", p, "[n, ", i, "])")
   }
   eta_monef
 }
 
-stan_eta_transform <- function(family, link, add = FALSE, 
-                               simplify_log = TRUE) {
+stan_eta_splines <- function(splines, nlpar = "") {
+  # write the linear predictor for spline terms
+  # Args:
+  #   splines: names of the spline terms
+  #   nlpar: an optional character string to add to the varnames
+  #         (used for non-linear models)
+  p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
+  eta_splines <- ""
+  for (i in seq_along(splines)) {
+    eta_splines <- paste0(eta_splines, 
+      " + Zs", p, "_", i, " * s", p, "_", i)
+  }
+  eta_splines
+}
+
+stan_eta_bsts <- function(autocor) {
+  # write the linear predictor for bsts terms
+  # Args:
+  #   autocor: object of class cor_brms
+  eta_bsts <- ""
+  if (is(autocor, "cor_bsts")) {
+    eta_bsts <- " + loclev[n]"
+  }
+  eta_bsts
+}
+
+stan_eta_transform <- function(family, link, add = FALSE) {
   # indicate whether eta needs to be transformed
   # in the transformed parameters block
   # Args:
   #   add: is the model weighted, censored, truncated?
-  #   simplify_log: convert gaussian(log) to lognormal? 
-  !(add || !is.skewed(family) && link == "identity" 
-    || family %in% "gaussian" && link == "log" && simplify_log
-    || is.count(family) && link == "log" 
-    || is.binary(family) && link == "logit"
-    || is.ordinal(family) || is.categorical(family) 
-    || is.zero_inflated(family) || is.hurdle(family))
+  !(add || !is.skewed(family) && link == "identity" ||
+    is.count(family) && link == "log" ||
+    is.binary(family) && link == "logit" ||
+    is.ordinal(family) || is.categorical(family) ||
+    is.zero_inflated(family) || is.hurdle(family))
 }
 
 stan_eta_ilink <- function(family, link, disp = FALSE) {

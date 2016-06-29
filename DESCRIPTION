@@ -1,15 +1,16 @@
 Package: brms
 Type: Package
 Title: Bayesian Regression Models using Stan
-Version: 0.9.1
-Date: 2016-05-09
+Version: 0.10.0
+Date: 2016-06-25
 Authors@R: person("Paul-Christian", "Buerkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
-Depends: R (>= 3.2.0), rstan (>= 2.9.0), ggplot2 (>= 2.0.0), methods
-Imports: loo (>= 0.1.4), shinystan (>= 2.1.0), gridExtra (>= 2.0.0),
-        lme4 (>= 1.1-11), Matrix (>= 1.1.1), coda, abind, statmod,
-        stats, graphics, utils, parallel, grDevices, grid
-Suggests: testthat (>= 0.9.1), mvtnorm, KernSmooth, R.rsp, knitr,
+Depends: R (>= 3.2.0), rstan (>= 2.10.1), ggplot2 (>= 2.0.0), methods
+Imports: loo (>= 0.1.6), shinystan (>= 2.2.0), gridExtra (>= 2.0.0),
+        lme4 (>= 1.1-11), Matrix (>= 1.1.1), mgcv (>= 1.7-23), coda,
+        abind, statmod, stats, graphics, utils, parallel, grDevices,
+        grid
+Suggests: testthat (>= 0.9.1), arm, mvtnorm, KernSmooth, R.rsp, knitr,
         rmarkdown
 Description: Fit Bayesian generalized (non-)linear mixed models using Stan for full
     Bayesian inference.
@@ -18,10 +19,10 @@ NeedsCompilation: yes
 License: GPL (>= 3)
 URL: http://github.com/paul-buerkner/brms
 BugReports: http://github.com/paul-buerkner/brms/issues
-VignetteBuilder: R.rsp, knitr
+VignetteBuilder: knitr, R.rsp
 RoxygenNote: 5.0.1
-Packaged: 2016-05-17 14:49:28 UTC; paulb
+Packaged: 2016-06-29 14:37:18 UTC; paulb
 Author: Paul-Christian Buerkner [aut, cre]
 Maintainer: Paul-Christian Buerkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2016-05-17 21:13:39
+Date/Publication: 2016-06-29 17:03:21
