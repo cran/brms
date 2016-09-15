@@ -4,7 +4,7 @@
 \alias{coef.brmsfit}
 \title{Extract model coefficients}
 \usage{
-\method{coef}{brmsfit}(object, estimate = "mean", ...)
+\method{coef}{brmsfit}(object, estimate = c("mean", "median"), ...)
 }
 \arguments{
 \item{object}{An object of class \code{brmsfit}}
@@ -16,9 +16,9 @@ for the random effects, either "mean" or "median".}
 specified in \code{estimate}}
 }
 \value{
-A list of matrices (one per grouping factor), 
- with factor levels as row names and 
- coefficients as column names
+A list of matrices (one per grouping factor and 
+ non-linear parameter) with factor levels as row names and 
+ coefficients as column names.
 }
 \description{
 Extract model coefficients, which are the sum of population-level 
@@ -28,10 +28,10 @@ effects and corresponding group-level effects
 \dontrun{
 fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1+Trt_c|visit), 
            data = epilepsy, family = "poisson", chains = 1)
-## extract fixed and random effects coefficients seperately
+## extract population and group-level coefficients separately
 fixef(fit)
 ranef(fit)
-## extract combined coefficients     
+## extract combined coefficients 
 coef(fit)
 }
 

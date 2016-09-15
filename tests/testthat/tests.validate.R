@@ -20,15 +20,14 @@ test_that("extract_effects finds all random effects terms", {
                list(~1+x, ~1+x, ~1))
   expect_equal(extract_effects(y ~ (1+x||g1/g2) + (1|g3))$random$cor, 
                c(FALSE, FALSE, TRUE))
+  expect_equal(extract_effects(y ~ 1|g1)$random$group, "g1")
   expect_error(extract_effects(y ~ (1+x|g1+g2) + x + (1|g1)))
-  expect_error(extract_effects(y ~ 1|g1),
-               "Random effects terms should be enclosed in brackets")
 })
 
 test_that("extract_effects accepts || syntax", {
-  random <- extract_effects(y ~ a + (1+x||g1) + (1+z|g2))$random
-  target <- data.frame(group = c("g1", "g2"), cor = c(FALSE, TRUE),
-                       stringsAsFactors = FALSE)
+  random <- brms:::extract_effects(y ~ a + (1+x||g1) + (1+z|g2))$random
+  target <- data.frame(group = c("g1", "g2"), gn = 1:2, id = c(NA, NA),
+                       cor = c(FALSE, TRUE), stringsAsFactors = FALSE)
   target$form <- list(~1+x, ~1+z)
   expect_equal(random, target)
   expect_equal(extract_effects(y ~ (1+x||g1:g2))$random$group, c("g1:g2"))
@@ -40,7 +39,7 @@ test_that("extract_effects finds all response variables", {
   expect_equal(extract_effects(cbind(y1,y2)~x)$response, 
                c("y1", "y2")) 
   expect_equal(extract_effects(cbind(y1,y2,y2)~x)$response, 
-               c("y1", "y2", "y2")) 
+               c("y1", "y2", "y21")) 
   expect_equal(extract_effects(y1+y2+y3~x)$response, "y1") 
   expect_equal(extract_effects(y1/y2 ~ (1|g))$response, "y1")
   expect_equal(extract_effects(cbind(y1/y2,y2,y3*3) ~ (1|g))$response,
@@ -63,7 +62,7 @@ test_that("extract_effects handles addition arguments correctly", {
                ~ .se(a+2))
   expect_equal(extract_effects(y | trials(10) ~ x, family = binomial())$trials, 
                10)
-  expect_equal(extract_effects(y | cat(cate) ~ x, family = cumulative())$cat, 
+  expect_equal(extract_effects(y | cat(cate) ~ x, family = sratio())$cat, 
                ~ .cat(cate))
   expect_equal(extract_effects(y | cens(cens^2) ~ z, family = weibull())$cens, 
                ~ .cens(cens^2))
@@ -72,7 +71,7 @@ test_that("extract_effects handles addition arguments correctly", {
                y ~ y + cens + z + x + patient)
   expect_equal(extract_effects(resp | disp(a + b) ~ x, 
                                family = gaussian())$disp,
-               ~.disp(a + b))
+               ~ .disp(a + b))
 })
 
 test_that("extract_effects accepts complicated random terms", {
@@ -98,65 +97,107 @@ test_that("extract_effects finds all variables in non-linear models", {
   expect_equal(ee$all, y ~ y + x + z1 + g1 + z2 + z3 + g2)
 })
 
-test_that("extract_effects rejects REs in non-linear formulas", {
+test_that("extract_effects parses reseverd variable 'intercept'", {
+  ee <- extract_effects(y ~ 0 + intercept)
+  expect_true(attr(ee$fixed, "rsv_intercept"))
+})
+
+test_that("extract_effects returns expected error messages", {
+  expect_error(extract_effects(~ x + (1|g)),
+               "Invalid formula: response variable is missing")
   expect_error(extract_effects(y ~ exp(-x/a) + (1|g), nonlinear = a ~ 1),
-               "Random effects in non-linear models", fixed = TRUE)
+               "Group-level effects in non-linear models", fixed = TRUE)
+  expect_error(extract_effects(y ~ a, nonlinear = a ~ 1, family = acat()),
+               "Non-linear effects are not yet allowed for this family", 
+               fixed = TRUE)
+  expect_error(extract_effects(y ~ mono(1)),
+               "invalid input to function 'monotonic'")
+  expect_error(extract_effects(y ~ mono(x1:x2)),
+               "Interactions cannot be modeled as monotonic effects")
+  expect_error(extract_effects(y | se(sei) ~ x, family = weibull()),
+               "Argument 'se' is not supported for family")
+  expect_error(extract_effects(y | se(sei) + se(sei2) ~ x, 
+                               family = gaussian()),
+               "Addition arguments may be only defined once")
+  expect_error(extract_effects(y | abc(sei) ~ x, family = gaussian()),
+               "Invalid addition part of formula")
+  expect_error(extract_effects(y | se(sei) + disp(sei) ~ x, 
+                               family = gaussian()),
+               "Addition arguments 'se' and 'disp' cannot be used")
+  expect_error(extract_effects(cbind(y1, y2) | se(z) ~ x, 
+                               family = gaussian()),
+               "Multivariate models currently allow only weights")
+  expect_error(extract_effects(bf(y ~ x, shape ~ x), family = gaussian()),
+               "Prediction of the parameter(s) 'shape' is not allowed",
+               fixed = TRUE)
 })
 
 test_that("extract_effects finds all spline terms", {
   ee <- extract_effects(y ~ s(x) + t2(z) + v)
   expect_equal(all.vars(ee$fixed), c("y", "v"))
-  expect_equivalent(ee$gam, y ~ s(x) + t2(z))
+  expect_equivalent(ee$gam, ~ s(x) + t2(z))
   ee <- extract_effects(y ~ lp , nonlinear = list(lp ~ s(x) + t2(z) + v))
   expect_equal(all.vars(ee$nonlinear[[1]]$fixed), "v")
-  expect_equivalent(ee$nonlinear[[1]]$gam, y ~ s(x) + t2(z))
+  expect_equivalent(ee$nonlinear[[1]]$gam, ~ s(x) + t2(z))
   expect_error(extract_effects(y ~ s(x) + te(z) + v), 
                "splines 'te' and 'ti' are not yet implemented")
 })
 
-test_that("nonlinear_effects rejects invalid non-linear models", {
-  expect_error(nonlinear_effects(list(a ~ 1, b ~ 1), model = y ~ a^x),
-               "missing in formula: b")
-  expect_error(nonlinear_effects(a~1, model = y ~ a^x),
-               "Argument 'nonlinear' must be a list of formulas")
-  expect_error(nonlinear_effects(list( ~ 1, a ~ 1), model = y ~ a),
-               "Non-linear formulas must be two-sided")
-  expect_error(nonlinear_effects(list(a + b ~ 1), model = y ~ exp(-x)),
-               "LHS of non-linear formula must contain exactly one variable")
-  expect_error(nonlinear_effects(list(a.b ~ 1), model = y ~ a^x),
-               "not contain dots or underscores")
-  expect_error(nonlinear_effects(list(a_b ~ 1), model = y ~ a^(x+b)),
-               "not contain dots or underscores")
+test_that("extract_effects correctly handles group IDs", {
+  form <- bf(y ~ x + (1+x|3|g) + (1|g2),
+             sigma = ~ (x|3|g) + (1||g2))
+  target <- data.frame(group = c("g", "g2"), gn = 1:2, id = c("3", NA),
+                       cor = c(TRUE, TRUE), stringsAsFactors = FALSE)
+  target$form <- list(~1+x, ~1)
+  expect_equal(extract_effects(form)$random, target)
+  
+  form <- bf(y ~ a, nonlinear = a ~ x + (1+x|3|g) + (1|g2),
+             sigma = ~ (x|3|g) + (1||g2))
+  target <- data.frame(group = c("g", "g2"), gn = 1:2, id = c("3", NA),
+                       cor = c(TRUE, FALSE), stringsAsFactors = FALSE)
+  target$form <- list(~x, ~1)
+  expect_equal(extract_effects(form)$sigma$random, target)
 })
 
-test_that("nonlinear_effect accepts valid non-linear models", {
-  nle <- nonlinear_effects(list(a ~ 1 + (1+x|origin), b ~ 1 + z), y ~ b - a^x)
+test_that("extract_effects handles very long RE terms", {
+  # tests issue #100
+  covariate_vector <- paste0("xxxxx", 1:80, collapse = "+")
+  formula <- paste(sprintf("y ~ 0 + trait + trait:(%s)", covariate_vector),
+                   sprintf("(1+%s|id)", covariate_vector), sep = " + ")
+  ee <- extract_effects(formula = as.formula(formula))
+  expect_equal(ee$random$group, "id")
+})
+
+test_that("nonlinear_effects finds missing parameters", {
+  expect_error(nonlinear_effects(list(a = a ~ 1, b = b ~ 1), model = y ~ a^x),
+               "missing in formula: b")
+})
+
+test_that("nonlinear_effects accepts valid non-linear models", {
+  nle <- nonlinear_effects(list(a = a ~ 1 + (1+x|origin), b = b ~ 1 + z), 
+                           model = y ~ b - a^x)
   expect_equal(names(nle), c("a", "b"))
   expect_equal(nle[["a"]]$all, ~x + origin)
   expect_equal(nle[["b"]]$all, ~z)
   expect_equal(nle[["a"]]$random$form[[1]], ~1+x)
 })
 
-test_that("nonlinear2list works correctly", {
-  expect_equal(nonlinear2list(a ~ 1), list(a ~ 1))
-  expect_equal(nonlinear2list(a + alpha ~ x + (x|g)), 
-               list(a ~ x + (x|g), alpha ~ x + (x|g)))
-  expect_equal(nonlinear2list(list(a ~ 1, b ~ 1 + z)),
-               list(a ~ 1, b ~ 1 + z))
-  expect_equal(nonlinear2list(NULL), NULL)
-  expect_error(nonlinear2list(1), "invalid 'nonlinear' argument")
-})
-
 test_that("extract_time returns all desired variables", {
-  expect_equal(extract_time(~1), list(time = "", group = "", all = ~1))
-  expect_equal(extract_time(~tt), list(time = "tt", group = "", all = ~1 + tt)) 
-  expect_equal(extract_time(~1|trait), list(time = "", group = "trait", all = ~1+trait)) 
+  expect_equal(extract_time(~1), 
+               list(time = "", group = "", all = ~1))
+  expect_equal(extract_time(~tt), 
+               list(time = "tt", group = "", all = ~1 + tt)) 
+  expect_equal(extract_time(~1|trait), 
+               list(time = "", group = "trait", all = ~1+trait)) 
   expect_equal(extract_time(~time|trait), 
                list(time = "time", group = "trait", all = ~1+time+trait)) 
   expect_equal(extract_time(~time|Site:trait),
-               list(time = "time", group = "Site:trait", all = ~1+time+Site+trait))
+               list(time = "time", group = "Site:trait", 
+                    all = ~1+time+Site+trait))
   expect_error(extract_time(~t1+t2|g1), 
                "Autocorrelation structures may only contain 1 time variable")
+  expect_error(extract_time(x~t1|g1), 
+               "autocorrelation formula must be one-sided")
   expect_error(extract_time(~1|g1/g2), 
                paste("Illegal grouping term: g1/g2"))
 })
@@ -169,45 +210,26 @@ test_that("update_formula returns correct formulas", {
 test_that("get_effect works correctly", {
   effects <- extract_effects(y ~ a - b^x, 
                nonlinear = list(a ~ z, b ~ v + mono(z)))
-  expect_equivalent(get_effect(effects), list(y ~ a - b^x, ~ z, ~ v))
-  expect_equivalent(get_effect(effects, "mono"), list(NULL, NULL, ~ z))
+  expect_equivalent(get_effect(effects), list(y ~ a - b^x, ~1 + z, ~ 1 + v))
+  expect_equivalent(get_effect(effects, "mono"), list(b = ~ z))
   effects <- extract_effects(y ~ x + z + (1|g))
-  expect_equivalent(get_effect(effects), list(y ~ x + z))
+  expect_equivalent(get_effect(effects), list(y ~ 1 + x + z))
 })
 
 test_that("check_re_formula returns correct REs", {
-  old_ranef = list(patient = c("Intercept"), visit = c("Trt_c", "Intercept"))
-  expect_equivalent(check_re_formula(~(1|visit), old_ranef = old_ranef, 
-                                data = epilepsy),
-                    list(visit = "Intercept"))
-  expect_equivalent(check_re_formula(~(1+Trt_c|visit), old_ranef = old_ranef, 
-                                data = epilepsy),
-                    list(visit = c("Intercept", "Trt_c")))
-  expect_equivalent(check_re_formula(~(0+Trt_c|visit) + (1|patient), 
-                                     old_ranef = old_ranef, data = epilepsy),
-                    list(patient = "Intercept", visit = "Trt_c"))
-})
-
-test_that("check_re_formula rejects invalid re_formulae", {
-  old_ranef = list(patient = c("Intercept"), visit = c("Trt_c", "Intercept"))
-  expect_error(check_re_formula(~ visit + (1|visit), old_ranef = old_ranef, 
-                                data = epilepsy),
-               "fixed effects are not allowed in re_formula")
-  expect_error(check_re_formula(count ~ (1+Trt_c|visit), old_ranef = old_ranef, 
-                                data = epilepsy),
-               "re_formula must be one-sided")
-  expect_error(check_re_formula(~(1|Trt_c), old_ranef = old_ranef, 
-                                data = epilepsy),
-               "Invalid grouping factors detected: Trt_c")
-  expect_error(check_re_formula(~(1+Trt_c|patient), old_ranef = old_ranef, 
-                                data = epilepsy),
-               "Invalid random effects detected for grouping factor patient: Trt_c")
+  old_form <- y ~ x + (1|patient) + (Trt_c|visit)
+  form <- check_re_formula(~(1|visit), old_form)
+  expect_equivalent(form, ~(1|visit))
+  form <- check_re_formula(~(1+Trt_c|visit), old_form)
+  expect_equivalent(form, ~(1+Trt_c|visit))
+  form <- check_re_formula(~(0+Trt_c|visit) + (1|patient), old_form)
+  expect_equivalent(form, ~ (1|patient) + (0+Trt_c | visit))
 })
 
 test_that("update_re_terms works correctly", {
-  expect_equivalent(update_re_terms(y ~ x, ~ (1|visit)), y ~ x + (1|visit))
-  expect_equivalent(update_re_terms(y ~ x + (1|patient), ~ (1|visit)), 
-                    y ~ x + (1|visit))
+  expect_equivalent(update_re_terms(y ~ x, ~ (1|visit)), y ~ x)
+  expect_equivalent(update_re_terms(y ~ x + (1+Trt_c|patient), ~ (1|patient)), 
+                    y ~ x + (1|patient))
   expect_equivalent(update_re_terms(y ~ x + (1|patient), ~ 1), 
                     y ~ x)
   expect_equivalent(update_re_terms(y ~ x + (1+visit|patient), NA), 
@@ -217,67 +239,81 @@ test_that("update_re_terms works correctly", {
   expect_equivalent(update_re_terms(y ~ (1|patient), NA), y ~ 1)
   expect_equivalent(update_re_terms(y ~ x + (1+x|visit), ~ (1|visit)), 
                     y ~ x + (1|visit))
+  expect_equivalent(update_re_terms(y ~ x + (1|visit), ~ (1|visit) + (x|visit)),
+                    y ~ x + (1|visit))
+  expect_equal(update_re_terms(bf(y ~ x, sigma = ~ x + (x|g)), ~ (1|g)),
+               bf(y ~ x, sigma = ~ x + (1|g)))
+  expect_equal(update_re_terms(bf(y ~ x, nonlinear = x ~ z + (1|g)), ~ (1|g)),
+               bf(y ~ x, nonlinear = x ~ z + (1|g)))
 })
 
 test_that("amend_terms performs expected changes to terms objects", {
   expect_equal(amend_terms("a"), NULL)
   expect_equal(amend_terms(y~x), terms(y~x))
-  form <- structure(y~x, rsv_intercept = TRUE)
-  expect_equal(attr(amend_terms(form), "rm_intercept"), TRUE)
-  t <- amend_terms(y ~ 0 + main + main:x + spec + spec:z, forked = TRUE)
-  expect_equal(attr(t, "intercept"), 1)
-  expect_equal(attr(t, "rm_intercept"), TRUE)
-  expect_error(amend_terms(y ~ main, forked = TRUE), "intercept")
-  expect_error(amend_terms(y ~ 0 + main + trait, forked = TRUE), 
-               "trait")
+  form <- structure(y ~ x, rsv_intercept = TRUE)
+  expect_true(attr(amend_terms(form), "rm_intercept"))
+  form <- structure(y ~ 0 + main, forked = TRUE, old_mv = TRUE)
+  expect_true(attr(amend_terms(form), "rm_intercept"))
+  form <- structure(y ~ main, forked = TRUE, old_mv = TRUE)
+  expect_error(amend_terms(form), "formula may not contain an intercept")
+  form <- structure(y ~ main + trait, forked = TRUE, old_mv = TRUE)
+  expect_error(amend_terms(form), "formula may not contain variable 'trait'")
 })
 
-test_that("gather_ranef works correctly", {
+test_that("tidy_ranef works correctly", {
   data <- data.frame(g = 1:10, x = 11:20, y = 1:10)
-  target <- list(g = c("Intercept", "x"))
-  attr(target$g, "levels") <- paste(1:10)
-  attr(target$g, "group") <- "g"
-  attr(target$g, "cor") <- FALSE
-  expect_equal(gather_ranef(extract_effects(y~(1+x||g)), data = data),
-               target)
-  expect_equal(gather_ranef(list()), list())
+  data[["g:x"]] <- with(data, paste0(g, "_", x))
+  
+  target <- data.frame(id = 1, group = "g", gn = 1, 
+                       coef = c("Intercept", "x"), cn = 1:2,
+                       nlpar = "", cor = FALSE, 
+                       stringsAsFactors = FALSE)
+  target$form <- replicate(2, ~1+x)
+  ranef <- tidy_ranef(extract_effects(y~(1+x||g)), data = data)
+  expect_equivalent(ranef, target)
+  
+  target <- data.frame(group = c("g", "g:x"), gn = 1:2,
+                       stringsAsFactors = FALSE)
+  ranef <- tidy_ranef(extract_effects(y~(1|g/x)), data = data)
+  expect_equal(ranef[, c("group", "gn")], target)
+  
+  ee <- extract_effects(bf(y ~ x + (1|ID1|g) + (1|g:x), 
+                           sigma ~ (1|ID1|g)))
+  ranef <- tidy_ranef(ee, data = data)
+  expect_equal(ranef$id, c(1, 2, 1))
+  
+  ee <- extract_effects(y ~ x + (1|abc|g/x))
+  expect_error(tidy_ranef(ee, data = data),
+    "Can only combine group-level terms of the same grouping factor")
+  
+  ranef <- tidy_ranef(extract_effects(y~x), data = data)
+  expect_equivalent(ranef, empty_ranef())
 })
 
 test_that("check_brm_input returns correct warnings and errors", {
   expect_error(check_brm_input(list(chains = 3, cluster = 2)), 
                "chains must be a multiple of cluster", fixed = TRUE)
-  x <- list(family = weibull(), inits = "random", chains = 1, cluster = 1,
+  x <- list(family = inverse.gaussian(), chains = 1, cluster = 1,
             algorithm = "sampling")
-  expect_warning(check_brm_input(x))
-  x$family <- inverse.gaussian()
   expect_warning(check_brm_input(x))
   x$family <- poisson("sqrt")
   expect_warning(check_brm_input(x))
 })
 
-test_that("check_mv_formula works correctly", {
-  effects <- extract_effects(cbind(y1,y2) ~ x)
-  expect_warning(check_mv_formula(gaussian(), effects),
-                 "did not use any of the variables")
-  effects <- extract_effects(y ~ x)
-  expect_warning(check_mv_formula(hurdle_gamma(), effects),
-                 "did not use any of the variables")
-  effects <- extract_effects(y ~ 0 + trait + trait:x)
-  expect_silent(check_mv_formula(hurdle_gamma(), effects))
-})
-
 test_that("exclude_pars returns expected parameter names", {
-  ranef <- list(g1 = structure(c("x", "z"), cor = TRUE),
-                g2 = structure(c("x"), cor = FALSE))
+  ranef <- data.frame(id = c(1, 1, 2), group = c("g1", "g1", "g2"),
+                       gn = c(1, 1, 2), coef = c("x", "z", "x"), 
+                       cn = c(1, 2, 1), nlpar = "", 
+                       cor = c(TRUE, TRUE, FALSE))
   ep <- exclude_pars(list(), ranef = ranef)
-  expect_true(all(c("r_1_1", "r_1_2") %in% ep))
+  expect_true(all(c("r_1", "r_2") %in% ep))
   ep <- exclude_pars(list(), ranef = ranef, save_ranef = FALSE)
-  expect_true("r_1" %in% ep)
-  nlranef <- list(g1 = structure(c("x", "z"), cor = TRUE, nlpar = "a"),
-                  g2 = structure(c("x"), cor = FALSE, nlpar = "a"))
-  ep <- exclude_pars(list(), ranef = nlranef)
-  expect_true(all(c("r_a_1_1", "r_a_1_2") %in% ep))
-  effects <- extract_effects(y ~ x + s(z))
+  expect_true("r_1_1" %in% ep)
+  
+  ranef$nlpar <- c("a", "a", "")
+  ep <- exclude_pars(list(), ranef = ranef, save_ranef = FALSE)
+  expect_true(all(c("r_1_a_1", "r_1_a_2") %in% ep))
+  effects <- brms:::extract_effects(y ~ x + s(z))
   expect_true("zs_1" %in% exclude_pars(effects = effects))
   effects <- extract_effects(y ~ eta, nonlinear = list(eta ~ x + s(z)))
   expect_true("zs_eta_1" %in% exclude_pars(effects = effects))

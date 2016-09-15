@@ -7,14 +7,13 @@
 \title{Display marginal effects of predictors}
 \usage{
 \method{marginal_effects}{brmsfit}(x, effects = NULL, conditions = NULL,
-  re_formula = NA, robust = FALSE, probs = c(0.025, 0.975),
+  re_formula = NA, robust = TRUE, probs = c(0.025, 0.975),
   method = c("fitted", "predict"), ...)
 
 marginal_effects(x, ...)
 
 \method{plot}{brmsMarginalEffects}(x, ncol = NULL, points = FALSE,
-  rug = FALSE, theme = ggplot2::theme(), ask = TRUE, do_plot = TRUE,
-  ...)
+  rug = FALSE, theme = ggplot2::theme(), ask = TRUE, plot = TRUE, ...)
 }
 \arguments{
 \item{x}{An object usually of class \code{brmsfit}}
@@ -35,8 +34,8 @@ by using their means and factors will get their reference level assigned.}
 in the marginal predictions. If \code{NULL}, include all random effects; 
 if \code{NA} (default), include no random effects.}
 
-\item{robust}{If \code{FALSE} (the default) the mean is used as the 
-measure of central tendency. If \code{TRUE} the median is used instead.}
+\item{robust}{If \code{TRUE} (the default) the median is used as the 
+measure of central tendency. If \code{FALSE} the mean is used instead.}
 
 \item{probs}{The quantiles to be used in the computation of credible
 intervals (defaults to 2.5 and 97.5 percent quantiles)}
@@ -68,9 +67,9 @@ Can be defined globally for the current session, via
 
 \item{ask}{logical; indicates if the user is prompted 
 before a new page is plotted. 
-Only used if \code{do_plot} is \code{TRUE}.}
+Only used if \code{plot} is \code{TRUE}.}
 
-\item{do_plot}{logical; indicates if plots should be
+\item{plot}{logical; indicates if plots should be
 plotted directly in the active graphic device.
 Defaults to \code{TRUE}.}
 }

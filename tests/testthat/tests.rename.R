@@ -22,27 +22,6 @@ test_that("rename perform correct renaming", {
 test_that("model_names works correctly", {
   expect_equal(model_name(NA), "brms-model")
   expect_equal(model_name(gaussian()), "gaussian(identity) brms-model")
-  expect_equal(model_name(bernoulli(type = "2PL")), 
-               "bernoulli(logit, 2PL) brms-model")
-})
-
-test_that("make_group_frame returns correct first and last indices", {
-  expect_equal(make_group_frame(list(a = c("x","Int"), b = c("x"))),
-               data.frame(g = c("a", "b"), nlp = "", first = c(1, 1), 
-                          last = c(2, 1)))
-  expect_equal(make_group_frame(list(a = c("x","Int"), b = c("x"), 
-                                     a = c("y","z"), b = c("b"))),
-               data.frame(g = c("a", "b", "a", "b"), nlp = "", 
-                          first = c(1, 1, 3, 2), last = c(2, 1, 4, 2)))
-  expect_equal(make_group_frame(list(a = c("x","Int"), b = c("x"), 
-                                     a = c("y","z"), a = c("b"))),
-               data.frame(g = c("a", "b", "a", "a"), nlp = "", 
-                          first = c(1, 1, 3, 5), last = c(2, 1, 4, 5)))
-  # test in case of a non-linear model
-  ranef <- list(a = structure(c("x","Int"), nlpar = "U"), 
-                b = structure(c("x"), nlpar = "U"), 
-                a = structure(c("y","z"), nlpar = "V"))
-  
 })
 
 test_that("make_index_names returns correct 1 and 2 dimensional indices", {
@@ -60,7 +39,7 @@ test_that("combine_duplicates works as expected", {
                list(a = c(2,2,4,2), b = c("a", "c")))
 })
 
-test_that("change_prior returns correct lists to be understood by rename_pars", {
+test_that("change_prior returns expected lists", {
   pars <- c("b", "b_1", "bp", "bp_1", "prior_b", "prior_b_1", 
             "prior_b_3", "sd_x[1]", "prior_bp_1")
   expect_equal(change_prior(class = "b", pars = pars, 
@@ -75,10 +54,41 @@ test_that("change_prior returns correct lists to be understood by rename_pars", 
                          pnames = "prior_b_x1", fnames = "prior_b_x1")))
 })
 
-test_that("change_fixef suggests renaming of fixed effects intercepts", {
-  pars <- c("b[1]", "b_Intercept[1]", "b_Intercept[2]", "sigma_y")
-  expect_equal(change_fixef(fixef = "x", intercepts = c("main", "spec"), 
-                            pars = pars)[[2]],
-               list(pos = c(FALSE, TRUE, TRUE, FALSE), oldname = "b_Intercept",
-                    pnames = c("b_main", "b_spec"), fnames = c("b_main", "b_spec")))
+test_that("change_old_ranef and change_old_ranef2 return expected lists", {
+  data <- data.frame(y = rnorm(10), x = rnorm(10), g = 1:10)
+  ee <- brms:::extract_effects(y ~ a, nonlinear = a ~ x + (1+x|g))
+  ranef <- brms:::tidy_ranef(ee, data = data)
+  target <- list(
+    list(pos = c(rep(FALSE, 2), TRUE, rep(FALSE, 22)),
+         oldname = "sd_a_g_Intercept", pnames = "sd_g__a_Intercept",
+         fnames = "sd_g__a_Intercept", dims = numeric(0)),
+    list(pos = c(rep(FALSE, 3), TRUE, rep(FALSE, 21)),
+         oldname = "sd_a_g_x", pnames = "sd_g__a_x",
+         fnames = "sd_g__a_x", dims = numeric(0)),
+    list(pos = c(rep(FALSE, 4), TRUE, rep(FALSE, 20)),
+         oldname = "cor_a_g_Intercept_x", pnames = "cor_g__a_Intercept__a_x",
+         fnames = "cor_g__a_Intercept__a_x", dims = numeric(0)),
+    list(pos = c(rep(FALSE, 5), rep(TRUE, 20)), oldname = "r_a_g",
+         pnames = "r_g__a", 
+         fnames = c(paste0("r_g__a[", 1:10, ",Intercept]"),
+                    paste0("r_g__a[", 1:10, ",x]")),
+         dims = c(10, 2)))
+  
+  pars <- c("b_a_Intercept", "b_a_x", "sd_a_g_Intercept", "sd_a_g_x",
+            "cor_a_g_Intercept_x", paste0("r_a_g[", 1:10, ",Intercept]"),
+            paste0("r_a_g[", 1:10, ",x]"))
+  dims <- list("sd_a_g_Intercept" = numeric(0), "sd_a_g_x" = numeric(0),
+               "cor_a_g_Intercept_x" = numeric(0), "r_a_g" = c(10, 2))
+  expect_equal(brms:::change_old_ranef(ranef, pars = pars, dims = dims), target)
+  
+  target[[1]]$oldname <- "sd_g_a_Intercept"
+  target[[2]]$oldname <- "sd_g_a_x"
+  target[[3]]$oldname <- "cor_g_a_Intercept_a_x"
+  target[[4]]$oldname <- "r_g_a"
+  pars <- c("b_a_Intercept", "b_a_x", "sd_g_a_Intercept", "sd_g_a_x",
+            "cor_g_a_Intercept_a_x", paste0("r_g_a[", 1:10, ",Intercept]"),
+            paste0("r_g_a[", 1:10, ",x]"))
+  dims <- list("sd_g_a_Intercept" = numeric(0), "sd_g_a_x" = numeric(0),
+               "cor_g_a_Intercept_a_x" = numeric(0), "r_g_a" = c(10, 2))
+  expect_equal(brms:::change_old_ranef2(ranef, pars = pars, dims = dims), target)
 })

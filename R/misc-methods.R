@@ -7,12 +7,8 @@ print.brmssummary <- function(x, digits = 2, ...) {
   } else {
     cat(paste0(x$family, " (", x$link, ") \n"))  
   }
-  cat("Formula:", gsub(" {1,}", " ", Reduce(paste, deparse(x$formula))), "\n")
-  if (length(x$nonlinear)) {
-    nl <- ulapply(x$nonlinear, function(y) 
-      gsub(" {1,}", " ", Reduce(paste, deparse(y))))
-    cat("        ", paste(nl, collapse = "; "), "\n")
-  }
+  cat("Formula: ")
+  print(x$formula, wsp = 9)
   cat(paste0("   Data: ", x$data.name, 
              " (Number of observations: ",x$nobs,") \n"))
   if (x$sampler == "") {

@@ -20,6 +20,8 @@ test_that("get_cornames returns desired correlation names", {
   names <- c("Intercept", "x", "y")
   expect_equal(get_cornames(names), c("cor(Intercept,x)", "cor(Intercept,y)", "cor(x,y)"))
   expect_equal(get_cornames(names, brackets = FALSE), 
+               c("cor__Intercept__x", "cor__Intercept__y", "cor__x__y"))
+  expect_equal(get_cornames(names, brackets = FALSE, sep = "_"), 
                c("cor_Intercept_x", "cor_Intercept_y", "cor_x_y"))
   expect_equal(get_cornames(names, type = "rescor"),
                c("rescor(Intercept,x)", "rescor(Intercept,y)", "rescor(x,y)"))
@@ -118,7 +120,8 @@ test_that("get_table returns correct dims and names", {
   res_table <- get_table(samples)
   expect_equal(dim(res_table), c(10, 5))
   expect_equal(dimnames(res_table), 
-               list(as.character(1:10), paste0("N(Y = ", 1:5, ")")))
+               list(as.character(1:10), paste0("P(Y = ", 1:5, ")")))
+  expect_equal(sum(res_table[5, ]), 1)
 })
 
 test_that("evidence_ratio runs without errors", {
@@ -132,16 +135,15 @@ test_that("evidence_ratio runs without errors", {
 })
 
 test_that("get_sigma correctly extract residual SDs", {
-  fit <- rename_pars(brmsfit_example)
-  expect_equal(length(get_sigma(fit, data = standata(fit), i = 2)), 
-               Nsamples(fit))
-  expect_equal(length(get_sigma(fit, data = list(se = 2:11), 
-                                method = "logLik", i = 3)), 
-               Nsamples(fit))
-  expect_equal(dim(get_sigma(NULL, data = list(se = 2:11, N = 10), i = 5)), 
-               c(5, 10))
-  expect_equal(get_sigma(NULL, data = list(sigma = 2:11), method = "predict", i = 5), 
-               6)
+  nsamples <- 40
+  sigma <- matrix(rexp(nsamples, 1))
+  expect_equal(length(get_sigma(sigma, data = list(), i = 2)), 
+               nsamples)
+  expect_equal(length(get_sigma(sigma, data = list(se = 2:11), i = 3)), 
+               nsamples)
+  expect_equal(dim(get_sigma(NULL, data = list(se = 2:11, N = 10), 
+                             dim = c(5, 10))), c(5, 10))
+  expect_equal(get_sigma(NULL, data = list(sigma = 2:11), i = 5), 6)
 })
 
 test_that("arma_predictor runs without errors", {

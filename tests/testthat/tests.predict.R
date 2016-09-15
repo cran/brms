@@ -2,8 +2,8 @@ test_that("predict for location shift models runs without errors", {
   ns <- 30
   nobs <- 10
   draws <- list(eta = matrix(rnorm(ns * nobs), ncol = nobs),
-            sigma = rchisq(ns, 3), nu = rgamma(ns, 4),
-            nsamples = ns)
+                sigma = rchisq(ns, 3), nu = rgamma(ns, 4),
+                nsamples = ns)
   i <- sample(nobs, 1)
   
   draws$f$link <- "identity"
@@ -43,13 +43,13 @@ test_that("predict for multivariate linear models runs without errors", {
   draws$data <- list(N = nobs, N_trait = ncols)
   draws$f$link <- "identity"
   
-  pred <- predict_gaussian_multi(1, draws = draws)
+  pred <- predict_gaussian_mv(1, draws = draws)
   expect_equal(dim(pred), c(ns, nvars))
   
-  pred <- predict_student_multi(2, draws = draws)
+  pred <- predict_student_mv(2, draws = draws)
   expect_equal(dim(pred), c(ns, nvars))
   
-  pred <- predict_cauchy_multi(3, draws = draws)
+  pred <- predict_cauchy_mv(3, draws = draws)
   expect_equal(dim(pred), c(ns, nvars))
 })
 
@@ -146,6 +146,17 @@ test_that("predict for bernoulli and beta models works correctly", {
   expect_equal(length(pred), ns)
 })
 
+test_that("predict for circular models runs without errors", {
+  ns <- 15
+  nobs <- 10
+  draws <- list(eta = matrix(rnorm(ns * nobs * 2), ncol = nobs * 2),
+                kappa = matrix(rgamma(ns, 4)), nsamples = ns)
+  draws$f$link <- "tan_half"
+  i <- sample(seq_len(nobs), 1)
+  pred <- predict_von_mises(i, draws = draws)
+  expect_equal(length(pred), ns)
+})
+
 test_that("predict for zero-inflated and hurdle models runs without erros", {
   ns <- 50
   nobs <- 8
@@ -215,16 +226,16 @@ test_that("truncated predict run without errors", {
                 sigma = rchisq(ns, 3), nsamples = ns)
   
   draws$f$link <- "identity"
-  draws$data <- list(lb = -4)
+  draws$data <- list(lb = sample(-(4:7), nobs, TRUE))
   pred <- sapply(1:nobs, predict_gaussian, draws = draws)
   expect_equal(dim(pred), c(ns, nobs))
   
   draws$f$link <- "log"
-  draws$data <- list(ub = 70)
+  draws$data <- list(ub = sample(70:80, nobs, TRUE))
   pred <- sapply(1:nobs, predict_poisson, draws = draws)
   expect_equal(dim(pred), c(ns, nobs))
   
-  draws$data <- list(lb = 0, ub = 70)
+  draws$data <- list(lb = rep(0, nobs), ub = sample(70:75, nobs, TRUE))
   pred <- sapply(1:nobs, predict_poisson, draws = draws)
   expect_equal(dim(pred), c(ns, nobs))
 })

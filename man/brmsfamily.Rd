@@ -6,7 +6,6 @@
 \alias{bernoulli}
 \alias{brmsfamily}
 \alias{categorical}
-\alias{cauchy}
 \alias{cratio}
 \alias{cumulative}
 \alias{exponential}
@@ -18,6 +17,7 @@
 \alias{negbinomial}
 \alias{sratio}
 \alias{student}
+\alias{von_mises}
 \alias{weibull}
 \alias{zero_inflated_beta}
 \alias{zero_inflated_binomial}
@@ -25,11 +25,11 @@
 \alias{zero_inflated_poisson}
 \title{Special Family Functions for \pkg{brms} Models}
 \usage{
+brmsfamily(family, link = NULL)
+
 student(link = "identity")
 
-cauchy(link = "identity")
-
-bernoulli(link = "logit", type = NULL)
+bernoulli(link = "logit")
 
 negbinomial(link = "log")
 
@@ -42,6 +42,8 @@ exponential(link = "log")
 weibull(link = "log")
 
 Beta(link = "logit")
+
+von_mises(link = "tan_half")
 
 hurdle_poisson(link = "log")
 
@@ -68,43 +70,98 @@ cratio(link = "logit")
 acat(link = "logit")
 }
 \arguments{
+\item{family}{A character string naming the distribution
+of the response variable be used in the model.
+Currently, the following families are supported:
+\code{gaussian}, \code{student}, \code{binomial}, 
+\code{bernoulli}, \code{poisson}, \code{negbinomial}, 
+\code{geometric}, \code{Gamma}, \code{lognormal}, \code{inverse.gaussian}, 
+\code{exponential}, \code{weibull}, \code{Beta}, \code{von_mises},
+\code{categorical}, \code{cumulative}, \code{cratio}, \code{sratio}, 
+\code{acat}, \code{hurdle_poisson}, \code{hurdle_negbinomial}, 
+\code{hurdle_gamma}, \code{zero_inflated_binomial},
+\code{zero_inflated_beta}, \code{zero_inflated_negbinomial}, 
+and \code{zero_inflated_poisson}.}
+
 \item{link}{A specification for the model link function. 
 This can be a name/expression or character string. 
-The following list only refers to \pkg{brms} specific family functions.
-Families \code{student}, and \code{cauchy} (deprecated) accept the links 
-(as names) \code{identity}, \code{log}, and \code{inverse};
-families \code{negbinomial}, and \code{geometric} the links 
-\code{log}, \code{identity}, and \code{sqrt}; 
-families \code{bernoulli}, \code{Beta}, \code{cumulative}, 
-\code{cratio}, \code{sratio}, and \code{acat} 
-the links \code{logit}, \code{probit}, \code{probit_approx}, 
-\code{cloglog}, and \code{cauchit};
-family \code{categorical}, the link \code{logit}; 
-families \code{weibull}, and \code{exponential} 
-the links \code{log}, \code{identity}, and \code{inverse};
-family \code{lognormal} the links \code{identity} and \code{inverse};
-families \code{hurdle_poisson}, \code{hurdle_gamma}, 
-\code{hurdle_negbinomial}, \code{zero_inflated_poisson}, 
-and \code{zero_inflated_negbinomial} the link \code{log};
-families \code{zero_inflated_binomial} and 
-\code{zero_inflated_beta} the link \code{logit}. 
-The first link mentioned for each family is the default.
-A full list of families and link functions supported by \pkg{brms}, 
-is provided in the 'Details' section of \code{\link[brms:brm]{brm}}.}
-
-\item{type}{An optional character string allowing to specify advanced 
-models implemented through certain families. Currently, 
-only the \code{bernoulli} family uses this argument to define 
-2PL models (applied in IRT) by setting \code{type = "2PL"}.
-Further options will follow in the future.}
+See the 'Details' section for more information on link
+functions supported by each family.}
 }
 \description{
 Family objects provide a convenient way to specify the details of the models 
-used by many model fitting functions. The families present here are currently 
-for use with \pkg{brms} only and will NOT work with other model fitting functions such as 
-\code{glm} or \code{glmer}. However, the standard family functions as decribed in
-\code{\link[stats:family]{family}} will work with \pkg{brms}. For a full list 
-of families and link functions supported by \pkg{brms}, see the documentation
-(in particular the 'Details' section) of \code{\link[brms:brm]{brm}}.
+used by many model fitting functions. The familiy functions present here are 
+currently for use with \pkg{brms} only and will NOT work with other model 
+fitting functions such as \code{glm} or \code{glmer}. 
+However, the standard family functions as decribed in
+\code{\link[stats:family]{family}} will work with \pkg{brms}.
+}
+\details{
+Family \code{gaussian} with \code{identity} link leads to linear regression. 
+  Family \code{student} with \code{identity} link leads to 
+  robust linear regression that is less influenced by outliers. 
+  Families \code{poisson}, \code{negbinomial}, and \code{geometric} 
+  with \code{log} link lead to regression models for count data. 
+  Families \code{binomial} and \code{bernoulli} with \code{logit} link leads to 
+  logistic regression and family \code{categorical} to multi-logistic regression 
+  when there are more than two possible outcomes.
+  Families \code{cumulative}, \code{cratio} ('contiuation ratio'), 
+  \code{sratio} ('stopping ratio'), and \code{acat} ('adjacent category') 
+  leads to ordinal regression. Families \code{Gamma}, \code{weibull}, 
+  \code{exponential}, \code{lognormal}, and \code{inverse.gaussian} can be used 
+  (among others) for survival regression.
+  Families \code{hurdle_poisson}, \code{hurdle_negbinomial}, \code{hurdle_gamma}, 
+  \code{zero_inflated_poisson}, and \cr
+  \code{zero_inflated_negbinomial} combined with the 
+  \code{log} link, and  \code{zero_inflated_binomial} with the \code{logit} link, 
+  allow to estimate zero-inflated and hurdle models. These models 
+  can be very helpful when there are many zeros in the data that cannot be explained 
+  by the primary distribution of the response. Family \code{hurdle_gamma} is 
+  especially useful, as a traditional \code{Gamma} model cannot be reasonably 
+  fitted for data containing zeros in the response. 
+  
+  In the following, we list all possible links for each family.
+  The families \code{gaussian}, and \code{student},
+  accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
+  families \code{poisson}, \code{negbinomial}, and \code{geometric} the links 
+  \code{log}, \code{identity}, and \code{sqrt}; 
+  families \code{binomial}, \code{bernoulli}, \code{Beta},
+  \code{cumulative}, \code{cratio}, \code{sratio}, and \code{acat} 
+  the links \code{logit}, \code{probit}, \code{probit_approx}, 
+  \code{cloglog}, and \code{cauchit}; 
+  family \code{categorical} the link \code{logit}; 
+  families \code{Gamma}, \code{weibull}, and \code{exponential} 
+  the links \code{log}, \code{identity}, and \code{inverse};
+  family \code{lognormal} the links \code{identity} and \code{inverse};
+  family \code{inverse.gaussian} the links \code{1/mu^2}, 
+  \code{inverse}, \code{identity} and \code{log}; 
+  families \code{hurdle_poisson}, \code{hurdle_negbinomial},
+  \code{hurdle_gamma}, \code{zero_inflated_poisson}, and
+  \code{zero_inflated_negbinomial} the link \code{log}. 
+  The first link mentioned for each family is the default.     
+  
+  Please note that when calling the \code{\link[stats:family]{Gamma}} 
+  family function, the default link will be \code{inverse} not \code{log}. 
+  Also, the \code{probit_approx} link cannot be used when calling the
+  \code{\link[stats:family]{binomial}} family function. 
+  
+  The current implementation of \code{inverse.gaussian} models has some 
+  convergence problems and requires carefully chosen prior distributions 
+  to work efficiently. For this reason, we currently do not recommend
+  to use the \code{inverse.gaussian} family, unless you really feel
+  that your data requires exactly this type of model. \cr
+}
+\examples{
+ # create a family object
+ (fam1 <- student("log"))
+ # alternatively use the brmsfamily function
+ (fam2 <- brmsfamily("student", "log"))
+ # both leads to the same object
+ identical(fam1, fam2) 
+
+}
+\seealso{
+\code{\link[brms:brm]{brm}}, 
+  \code{\link[stats:family]{family}}
 }
 

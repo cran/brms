@@ -1,12 +1,12 @@
 brmsfit <- function(formula = NULL, family = "", link = "", data.name = "", 
                     data = data.frame(), model = "", exclude = NULL,
                     prior = prior_frame(), ranef = TRUE, autocor = NULL,
-                    nonlinear = NULL, partial = NULL, threshold = "", 
-                    cov_ranef = NULL, fit = NA, algorithm = "sampling") {
+                    threshold = "", cov_ranef = NULL, fit = NA, 
+                    algorithm = "sampling") {
   # brmsfit class
   x <- nlist(formula, family, link, data.name, data, model, exclude, prior, 
-             ranef, autocor, nonlinear, partial, threshold, cov_ranef, fit, 
-             algorithm, version = utils::packageVersion("brms"))
+             ranef, autocor, threshold, cov_ranef, fit, algorithm, 
+             version = utils::packageVersion("brms"))
   class(x) <- "brmsfit"
   x
 }
@@ -15,14 +15,14 @@ brmssummary <- function(formula = NULL, family = "", link = "",
                         data.name = "", group = NULL, nobs = NULL, 
                         ngrps = NULL, chains = 1, iter = 2000, 
                         warmup = 500, thin = 1, sampler = "", 
-                        nonlinear = NULL, autocor = NULL, fixed = NULL, 
-                        random = list(), cor_pars = NULL, spec_pars = NULL, 
+                        autocor = NULL, fixed = NULL, random = list(), 
+                        cor_pars = NULL, spec_pars = NULL, 
                         mult_pars = NULL, WAIC = "Not computed",
                         algorithm = "sampling") {
   # brmssummary class
   x <- nlist(formula, family, link, data.name, group, nobs, ngrps, chains, 
-             iter,  warmup, thin, sampler, nonlinear, autocor, fixed, 
-             random, cor_pars, spec_pars, mult_pars, WAIC, algorithm)
+             iter,  warmup, thin, sampler, autocor, fixed, random, cor_pars, 
+             spec_pars, mult_pars, WAIC, algorithm)
   class(x) <- "brmssummary"
   x
 }
@@ -37,13 +37,13 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' @param hypothesis A character vector specifying one or more 
 #'  non-linear hypothesis concerning parameters of the model.
 #' @param class A string specifying the class of parameters being tested. 
-#'  Default is "b" for fixed effects. 
+#'  Default is "b" for population-level effects. 
 #'  Other typical options are "sd" or "cor". 
 #'  If \code{class = NULL}, all parameters can be tested
 #'  against each other, but have to be specified with their full name 
 #'  (see also \code{\link[brms:parnames]{parnames}}) 
 #' @param group Name of a grouping factor to evaluate only 
-#'  random effects parameters related to this grouping factor.
+#'  group-level effects parameters related to this grouping factor.
 #'  Ignored if \code{class} is not \code{"sd"} or \code{"cor"}.
 #' @param alpha The alpha-level of the tests (default is 0.05).
 #' @param ignore_prior A flag indicating if prior distributions 
@@ -58,7 +58,7 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' @param ... Currently ignored.
 #' 
 #' @details Among others, \code{hypothesis} computes an 
-#'  evidence ratio for each hypothesis. 
+#'  evidence ratio (\code{Evid.Ratio}) for each hypothesis. 
 #'  For a directed hypothesis, this is just the posterior probability 
 #'  under the hypothesis against its alternative.
 #'  For an undirected (i.e. point) hypothesis the evidence ratio 
@@ -86,7 +86,7 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' 
 #' ## fit a linear mixed effects models
 #' fit <- brm(time ~ age + sex + disease + (1 + age|patient),
-#'            data = kidney, family = gaussian("log"),
+#'            data = kidney, family = lognormal(),
 #'            prior = prior, sample_prior = TRUE, 
 #'            control = list(adapt_delta = 0.95))
 #' 
@@ -103,7 +103,7 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' 
 #' ## test the amount of random intercept variance on all variance
 #' h <- paste("sd_patient_Intercept^2 / (sd_patient_Intercept^2 +",
-#'            "sd_patient_age^2 + sigma_time^2) = 0")
+#'            "sd_patient_age^2 + sigma^2) = 0")
 #' (hyp2 <- hypothesis(fit, h, class = NULL))
 #' plot(hyp2)
 #' 
@@ -127,8 +127,8 @@ hypothesis <- function(x, hypothesis, ...) {
 #' @param x An \code{R} object typically of class \code{brmsfit}
 #' @param pars Names of parameters for which posterior samples 
 #'   should be returned, as given by a character vector or regular expressions.
-#'   By default, all posterior samples of all parameters are extracted
-#' @param parameters A deprecated alias of \code{pars}   
+#'   By default, all posterior samples of all parameters are extracted.
+#' @param parameters A deprecated alias of \code{pars}.  
 #' @param exact_match Indicates whether parameter names 
 #'   should be matched exactly or treated as regular expression. 
 #'   Default is \code{FALSE}.
@@ -137,7 +137,6 @@ hypothesis <- function(x, hypothesis, ...) {
 #'   indicates the chain in which each sample was generated, the \code{iter} 
 #'   column indicates the iteration number within each chain.
 #' @param add_chains A deprecated alias of \code{add_chain}.
-#'   Note that the \code{chain} column will be named \code{chains} instead.
 #' @param subset A numeric vector indicating the rows 
 #'   (i.e., posterior samples) to be returned. 
 #'   If \code{NULL} (the default), all  posterior samples are returned.
@@ -175,9 +174,12 @@ posterior_samples <- function(x, pars = NA, ...) {
   UseMethod("posterior_samples")
 }
 
-# deprecated alias of posterior_samples
 #' @export 
 posterior.samples <- function(x, pars = NA, ...) {
+  # deprecated alias of posterior_samples
+  warning("Method 'posterior.samples' is deprecated. ", 
+          "Please use method 'posterior_samples' instead.", 
+          call. = FALSE)
   UseMethod("posterior_samples")
 }
 
@@ -501,8 +503,8 @@ stanplot <- function(object, pars, ...) {
 #' @param re_formula A formula containing random effects to be considered 
 #'   in the marginal predictions. If \code{NULL}, include all random effects; 
 #'   if \code{NA} (default), include no random effects.
-#' @param robust If \code{FALSE} (the default) the mean is used as the 
-#'   measure of central tendency. If \code{TRUE} the median is used instead.
+#' @param robust If \code{TRUE} (the default) the median is used as the 
+#'   measure of central tendency. If \code{FALSE} the mean is used instead.
 #' @param probs The quantiles to be used in the computation of credible
 #'   intervals (defaults to 2.5 and 97.5 percent quantiles)
 #' @param method Either \code{"fitted"} or \code{"predict"}. 
@@ -569,15 +571,16 @@ expose_functions <- function(x, ...) {
   UseMethod("expose_functions")
 }
 
-# temporary pp_check generic function
-# 
-# will be removed as soon as the \pkg{ppcheck} package
-# has its own generic function
-# 
-# @param object an \code{R} object
-# @param ... further arguments 
-# 
-# @export
-# pp_check <- function(object, ...) {
-#   UseMethod("pp_check")
-# }
+#' Temporary pp_check generic function
+#' 
+#' @param object an \code{R} object
+#' @param ... further arguments
+#' 
+#' @details 
+#' See \code{\link[brms:pp_check.brmsfit]{pp_check.brmsfit}} for details.
+#' 
+#' @export
+pp_check <- function(object, ...) {
+  # NOTE: remove as soon as the bayesplot package is on CRAN
+  UseMethod("pp_check")
+}

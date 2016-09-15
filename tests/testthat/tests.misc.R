@@ -7,16 +7,6 @@ test_that("p performs correct indexing", {
   expect_equal(p(A, i = 2, row = FALSE), A[, 2, drop = FALSE]) 
 })
 
-test_that("is.formula is TRUE for formulas and otherwise FALSE", {
-  expect_equal(is.formula(y~1), TRUE)
-  expect_equal(is.formula("a"), FALSE)
-  expect_equal(is.formula(list(y~1, ~1)), TRUE)
-  expect_equal(is.formula(list(y~1,1)), TRUE)
-  expect_equal(is.formula(list("a",1)), FALSE)
-  expect_equal(is.formula(list(y~1, ~1), or = FALSE), TRUE)
-  expect_equal(is.formula(list(y~1,1), or = FALSE), FALSE)
-})
-
 test_that("rmNULL removes all NULL entries", {
   expect_equal(rmNULL(list(a = NULL, b = 1, c = list(NULL, 1))),
                list(b = 1, c = list(1)))
@@ -30,7 +20,7 @@ test_that("rmNum remove all numeric entries", {
 })
 
 test_that("forumla2string performs correct conversion", {
-  expect_error(formula2string("y~x"))
+  expect_equal(formula2string("y~x"), "y~x")
   expect_equal(formula2string(y ~ x + c), "y~x+c")
   expect_equal(formula2string(abc ~ x + cd, rm = c(3,2)), "~x+")
 })
@@ -70,15 +60,10 @@ test_that("convenience functions for model families work correctly", {
   expect_true(has_trials("zero_inflated_binomial"))
   expect_true(has_cat("acat"))
   expect_true(has_sigma(student()))
-  expect_true(!has_sigma("cauchy", se = TRUE))
-  expect_true(has_sigma("cauchy", se = TRUE, autocor = cor_ar()))
-})
-
-test_that("check_intercept updates FE names", {
-  expect_equal(check_intercept(c("Intercept", "x", "z")),
-               list(names = c("x", "z"), has_intercept = TRUE))
-  expect_equal(check_intercept(c("x", "z")),
-               list(names = c("x", "z"), has_intercept = FALSE))
+  effects <- list(se = TRUE)
+  expect_true(!has_sigma("cauchy", effects = effects))
+  expect_true(has_sigma("cauchy", effects = effects, 
+                        autocor = cor_ar(cov = TRUE)))
 })
 
 test_that("use_alias works correctly", {
@@ -102,4 +87,10 @@ test_that("lsp works correctly", {
                c("log", "log10", "log1p", "log2", "logb", "logical"))
   expect_equal(lsp("brms", pattern = "^log_"),
                c("log_diff_exp", "log_inv_logit", "log_sum_exp"))
+})
+
+test_that(".addition and .cat works correctly", {
+  expect_equal(.addition(~ brms:::.cat(x), data = data.frame(x = 2:3)), 2:3)
+  expect_error(.addition(~ brms:::.cat(x), data = data.frame(x = -2)),
+               "number of categories must be positive integers")
 })

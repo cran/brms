@@ -2,24 +2,26 @@ test_that(paste("make_standata returns correct data names",
                 "for fixed and random effects"), {
   expect_equal(names(make_standata(rating ~ treat + period + carry 
                                    + (1|subject), data = inhaler)),
-               c("N", "Y",  "K", "X_means", "X", 
-                 "J_1", "N_1", "K_1", "NC_1", "Z_1", "prior_only"))
+               c("N", "Y",  "K", "X_means", "X", "Z_1_1",
+                 "J_1", "N_1", "M_1", "NC_1", "prior_only"))
   expect_equal(names(make_standata(rating ~ treat + period + carry 
-                                   + (1+treat|subject), data = inhaler,
+                                   + (1+treat|id|subject), data = inhaler,
                                    family = "categorical")),
-               c("N", "Y", "K", "X_means", "X", "J_1", "N_1", "K_1", "NC_1", 
-                 "Z_1_1", "Z_1_2", "ncat", "max_obs", "N_trait", "J_trait",
+               c("N", "Y", "K_2", "X_means_2", "X_2", "Z_1_2_1", "Z_1_2_2", 
+                 "K_3", "X_means_3", "X_3", "Z_1_3_3", "Z_1_3_4",
+                 "K_4", "X_means_4", "X_4", "Z_1_4_5", "Z_1_4_6",
+                 "J_1", "N_1", "M_1", "NC_1", "ncat", "max_obs", 
                  "prior_only"))
   expect_equal(names(make_standata(rating ~ treat + period + carry 
                                    + (1+treat|subject), data = inhaler,
                                    control = list(not4stan = TRUE))),
-               c("N", "Y", "K", "X", "J_1", "N_1", "K_1",
-                 "NC_1", "Z_1", "prior_only"))
+               c("N", "Y", "K", "X", "Z_1", "J_1", "N_1", "M_1",
+                 "NC_1", "prior_only"))
   temp_data <- data.frame(y = 1:10, g = 1:10, h = 11:10, x = rep(0,10))
   expect_equal(names(make_standata(y ~ x + (1|g) + (1|h), family = "poisson",
                                    data = temp_data)),
-               c("N", "Y", "K", "X_means", "X", "J_1", "N_1", "K_1",
-                 "NC_1", "Z_1", "J_2", "N_2", "K_2", "NC_2", "Z_2", 
+               c("N", "Y", "K", "X_means", "X", "Z_1_1", "Z_2_1",
+                 "J_1", "N_1", "M_1", "NC_1", "J_2", "N_2", "M_2", "NC_2", 
                  "prior_only"))
 })
 
@@ -44,7 +46,7 @@ test_that(paste("make_standata returns correct data names",
   expect_equal(names(make_standata(y | weights(w) ~ x, family = "gaussian", 
                                    data = temp_data)), 
                c("N", "Y", "K", "X_means", "X", "weights", "prior_only"))
-  expect_equal(names(make_standata(y | cens(c) ~ x, family = "cauchy", 
+  expect_equal(names(make_standata(y | cens(c) ~ x, family = "student", 
                                    data = temp_data)), 
                c("N", "Y", "K", "X_means", "X", "cens", "prior_only"))
   expect_equal(names(make_standata(y | trials(t) ~ x, family = "binomial", 
@@ -65,7 +67,10 @@ test_that(paste("make_standata returns correct data names",
                  "prior_only"))
   standata <- make_standata(y | trunc(0,20) ~ x, family = "gaussian", 
                             data = temp_data)
-  expect_true(standata$lb == 0 && standata$ub == 20)
+  expect_true(all(standata$lb == 0) && all(standata$ub == 20))
+  standata <- make_standata(y | trunc(ub = 21:30) ~ x, family = "gaussian", 
+                            data = temp_data)
+  expect_true(all(all(standata$ub == 21:30)))
 })
 
 test_that(paste("make_standata accepts correct response variables", 
@@ -102,8 +107,8 @@ test_that(paste("make_standata accepts correct response variables",
 test_that(paste("make_standata rejects incorrect response variables", 
                 "depending on the family"), {
   expect_error(make_standata(y ~ 1, data = data.frame(y = factor(1:10)), 
-                             family = "cauchy"),
-               "family cauchy expects numeric response variable")
+                             family = "student"),
+               "family student expects numeric response variable")
   expect_error(make_standata(y ~ 1, data = data.frame(y = -5:5), 
                              family = "geometric"),
                "family geometric expects response variable of non-negative integers")
@@ -121,7 +126,10 @@ test_that(paste("make_standata rejects incorrect response variables",
                "family gamma requires response variable to be positive")
   expect_error(make_standata(y ~ 1, data = data.frame(y = c(0, 0.5, 1)),
                              family = Beta()),
-               "beta regression requires responses between 0 and 1")
+               "requires responses between 0 and 1")
+  expect_error(make_standata(y ~ 1, data = data.frame(y = c(0, 0.5, 4)),
+                             family = von_mises()),
+               "requires responses between -pi and pi")
   expect_error(make_standata(y ~ 1, data = data.frame(y = c(-1, 2, 5)),
                              family = hurdle_gamma()),
                "requires response variable to be non-negative")
@@ -188,14 +196,9 @@ test_that(paste("make_standata handles addition arguments",
                1:10)
   expect_equal(make_standata(cbind(y1,y2) | weights(w) ~ x, 
                              family = "gaussian", data = temp_data,
-                             autocor = cor_ar(~tim | g:trait))$Y,
+                             autocor = cor_ar(~tim | g))$Y,
                cbind(c(seq(9,1,-2), seq(10,2,-2)), 
                      c(seq(19,11,-2), seq(20,12,-2))))
-  expect_error(make_standata(cbind(y1,y2) | weights(w) ~ x, 
-                             family = "gaussian", data = temp_data,
-                             autocor = cor.ar(~tim | g)),
-               paste("autocorrelation structures for multiple responses", 
-                     "must contain 'trait' as grouping variable"))
 })
 
 test_that(paste("make_standata returns correct data", 
@@ -231,10 +234,10 @@ test_that("make_standata allows to retrieve the initial data order", {
   expect_equal(temp_data$y1, as.numeric(sdata1$Y[attr(sdata1, "old_order")]))
   # multivariate model
   sdata2 <- make_standata(cbind(y1, y2) ~ 1, data = temp_data, 
-                          autocor = cor_ma(~time|id:trait),
+                          autocor = cor_ma(~time|id),
                           control = list(save_order = TRUE))
   expect_equal(c(temp_data$y1, temp_data$y2), 
-               as.numeric(sdata2$Y[attr(sdata2, "old_order")]))
+               as.numeric(sdata2$Y[attr(sdata2, "old_order"), ]))
 })
 
 test_that("make_standata rejects invalid input for cse effects", {
@@ -278,18 +281,6 @@ test_that("make_standata computes data for inverse.gaussian models", {
   expect_equal(as.numeric(standata$log_Y), log(temp_data$y))                         
 })
 
-test_that("make_standata computes data for 2PL models", {
-  temp_data <- data.frame(y = sample(0:1, 10, TRUE), x = rnorm(10))
-  standata <- make_standata(y ~ x, data = temp_data,
-                            family = bernoulli(type = "2PL"))
-  expect_equal(standata$Y, as.array(temp_data$y))
-  expect_equal(standata$N_trait, 10)
-  temp_data$y <- factor(rep(c("N", "Y"), each = 5), levels = c("N", "Y"))
-  standata <- make_standata(y ~ x, data = temp_data,
-                            family = bernoulli(type = "2PL"))
-  expect_equal(standata$Y, as.array(rep(0:1, each = 5)))
-})
-
 test_that("brmdata is backwards compatible", {
   temp_data <- data.frame(y = 1:10, x = sample(1:5, 10, TRUE))
   expect_identical(brmdata(y ~ x + (1|x), data = temp_data, 
@@ -303,18 +294,17 @@ test_that("brmdata is backwards compatible", {
 })
 
 test_that("make_standata correctly prepares data for non-linear models", {
-  nonlinear <- list(a ~ x + (1|g), b ~ mono(z) + (1|g))
+  nonlinear <- list(a ~ x + (1|1|g), b ~ mono(z) + (1|1|g))
   data <- data.frame(y = rnorm(9), x = rnorm(9), z = sample(1:4, 9, TRUE), 
                      g = rep(1:3, 3))
   standata <- make_standata(y ~ a - b^z, data = data, nonlinear = nonlinear)
-  expect_equal(names(standata), c("N", "Y", "KC", "C", "K_a", "X_a", "J_a_1", 
-                                  "N_a_1", "K_a_1", "NC_a_1", "Z_a_1","K_b", 
-                                  "X_b", "Km_b", "Xm_b", "Jm_b", 
-                                  "con_simplex_b_1", "J_b_1", "N_b_1",
-                                  "K_b_1", "NC_b_1", "Z_b_1", "prior_only"))
+  expect_equal(names(standata), c("N", "Y", "KC", "C", "K_a", "X_a", "Z_1_a_1", 
+                                  "K_b", "X_b", "Km_b", "Xm_b", "Jm_b", 
+                                  "con_simplex_b_1", "Z_1_b_2", "J_1", "N_1", 
+                                  "M_1", "NC_1", "prior_only"))
   expect_equal(colnames(standata$X_a), c("Intercept", "x"))
   expect_equal(colnames(standata$C), "z")
-  expect_equal(standata$J_b_1, as.array(data$g))
+  expect_equal(standata$J_1, as.array(data$g))
 })
 
 test_that("make_standata correctly prepares data for monotonic effects", {
@@ -326,10 +316,18 @@ test_that("make_standata correctly prepares data for monotonic effects", {
   expect_equal(as.vector(unname(sdata$Jm)), 
                c(max(data$x1) - 1, length(unique(data$x2)) - 1))
   expect_equal(sdata$con_simplex_1, rep(1, 3))
+  
+  prior <- set_prior("dirichlet(1:3)", coef = "x1", 
+                     class = "simplex", nlpar = "sigma")
+  sdata <- make_standata(bf(y ~ 1, sigma ~ mono(x1)), 
+                         data = data, prior = prior)
+  expect_equal(sdata$con_simplex_sigma_1, 1:3)
+  
   prior <- c(set_prior("normal(0,1)", class = "b", coef = "x"),
              set_prior("dirichlet(c(1,0.5,2))", class = "simplex", coef = "x1"))
   sdata <- make_standata(y ~ monotonic(x1 + x2), data = data, prior = prior)
   expect_equal(sdata$con_simplex_1, c(1,0.5,2))
+  
   prior <- c(set_prior("dirichlet(c(1,0.5,2))", class = "simplex", coef = "x2"))
   expect_error(make_standata(y ~ monotonic(x1 + x2), data = data, prior = prior),
                "Invalid dirichlet prior for the simplex of x2", fixed = TRUE)
@@ -338,8 +336,8 @@ test_that("make_standata correctly prepares data for monotonic effects", {
 test_that("make_standata returns fixed residual covariance matrices", {
   data <- data.frame(y = 1:5)
   V <- diag(5)
-  expect_equal(make_standata(y~1, data, autocor = cor_fixed(V))$V, V)
-  expect_error(make_standata(y~1, data, autocor = cor_fixed(diag(2))),
+  expect_equal(make_standata(y~1, data, autocor = SW(cor_fixed(V)))$V, V)
+  expect_error(make_standata(y~1, data, autocor = cov_fixed(diag(2))),
                "'V' must have the same number of rows as 'data'")
 })
 
@@ -367,4 +365,30 @@ test_that("make_standata returns data for GAMMs", {
   expect_equal(as.vector(standata$knots_lp), c(8, 8))
   expect_equal(dim(standata$Zs_lp_1), c(10, 8))
   expect_equal(dim(standata$Zs_lp_2), c(10, 8))
+})
+
+test_that("make_standata returns correct group ID data", {
+  form <- bf(count ~ Trt_c + (1+Trt_c|3|visit) + (1|patient), 
+             shape ~ (1|3|visit) + (Trt_c||patient))
+  sdata <- make_standata(form, data = epilepsy, family = negbinomial())
+  expect_true(all(c("Z_1_1", "Z_2_2", "Z_3_shape_1", "Z_2_shape_3") %in% 
+                    names(sdata)))
+  
+  form <- bf(count ~ a, sigma ~ (1|3|visit) + (Trt_c||patient),
+             nonlinear = a ~ Trt_c + (1+Trt_c|3|visit) + (1|patient))
+  sdata <- make_standata(form, data = epilepsy, family = student())
+  expect_true(all(c("Z_1_sigma_1", "Z_2_a_3", "Z_2_sigma_1",  
+                    "Z_3_a_1") %in% names(sdata)))
+})
+
+test_that("make_standata does not center X in models without an intercept", {
+  dat <- data.frame(y = rnorm(10), x = 1:10)
+  sdata <- make_standata(y~0+x, data = dat)
+  expect_equal(unname(sdata$X[, 1]), dat$x)
+})
+
+test_that("make_standata handles variable 'intercept' correclty", {
+  dat <- data.frame(y = rnorm(10), x = 1:10)
+  sdata <- make_standata(y~0+intercept + x, data = dat)
+  expect_equal(unname(sdata$X), cbind(1, dat$x))
 })

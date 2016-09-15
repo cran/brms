@@ -1,5 +1,5 @@
 <!-- README.md is generated from README.Rmd. Please edit that file -->
-[![Build Status](https://travis-ci.org/paul-buerkner/brms.svg?branch=master)](https://travis-ci.org/paul-buerkner/brms) [![Coverage Status](https://codecov.io/github/paul-buerkner/brms/coverage.svg?branch=master)](https://codecov.io/github/paul-buerkner/brms?branch=master) [![CRAN Version](http://www.r-pkg.org/badges/version/brms)](http://cran.r-project.org/package=brms)
+[![Build Status](https://travis-ci.org/paul-buerkner/brms.svg?branch=master)](https://travis-ci.org/paul-buerkner/brms) [![Coverage Status](https://codecov.io/github/paul-buerkner/brms/coverage.svg?branch=master)](https://codecov.io/github/paul-buerkner/brms?branch=master) [![CRAN Version](http://www.r-pkg.org/badges/version/brms)](https://cran.r-project.org/package=brms) [![Codewake](https://www.codewake.com/badges/ask_question.svg)](https://www.codewake.com/p/brms)
 
 brms
 ====
@@ -33,28 +33,28 @@ summary(fit, waic = TRUE)
 #>    Data: epilepsy (Number of observations: 236) 
 #> Samples: 4 chains, each with iter = 2000; warmup = 1000; thin = 1; 
 #>          total post-warmup samples = 4000
-#>    WAIC: 1145.78
+#>    WAIC: 1146.21
 #>  
 #> Group-Level Effects: 
 #> ~obs (Number of levels: 236) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.37      0.04     0.29     0.46       1279    1
+#> sd(Intercept)     0.37      0.04     0.29     0.46       1322    1
 #> 
 #> ~patient (Number of levels: 59) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.51      0.07     0.38     0.66        979    1
+#> sd(Intercept)     0.51      0.07     0.38     0.66       1363    1
 #> 
 #> ~visit (Number of levels: 4) 
 #>               Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> sd(Intercept)     0.11      0.11        0     0.42        769    1
+#> sd(Intercept)     0.11      0.11        0      0.4       1457    1
 #> 
 #> Population-Level Effects: 
 #>                   Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-#> Intercept             1.56      0.10     1.35     1.78        851    1
-#> log_Age_c             0.46      0.36    -0.25     1.18        953    1
-#> log_Base4_c           1.07      0.11     0.85     1.29        956    1
-#> Trt_c                -0.33      0.16    -0.66    -0.01        848    1
-#> log_Base4_c:Trt_c     0.36      0.21    -0.06     0.78       1080    1
+#> Intercept             1.56      0.10     1.36     1.76       1457 1.00
+#> log_Age_c             0.47      0.37    -0.27     1.18       1495 1.00
+#> log_Base4_c           1.06      0.11     0.85     1.28       1565 1.00
+#> Trt_c                -0.34      0.15    -0.64    -0.03       1021 1.01
+#> log_Base4_c:Trt_c     0.35      0.22    -0.09     0.78       1714 1.00
 #> 
 #> Samples were drawn using sampling(NUTS). For each parameter, Eff.Sample 
 #> is a crude measure of effective sample size, and Rhat is the potential 
@@ -63,7 +63,7 @@ summary(fit, waic = TRUE)
 
 On the top of the output, some general information on the model is given, such as family, formula, number of iterations and chains, as well as the WAIC, which is an information criterion for Bayesian models. Next, random effects are displayed seperately for each grouping factor in terms of standard deviations and (in case of more than one random effect per grouping factor; not displayed here) correlations between random effects. On the bottom of the output, fixed effects are displayed. If incorporated, autocorrelation effects and family specific parameters (e.g., the residual standard deviation 'sigma' in normal models) are also given.
 
-In general, every parameter is summarized using the mean ('Estimate') and the standard deviation ('Est.Error') of the posterior distribution as well as two-sided 95% Credible intervals ('l-95% CI' and 'u-95% CI') based on quantiles. The last two values ('Eff.Sample' and 'Rhat') provide information on how well the algorithm could estimate the posterior distribution of this parameter. If 'Rhat' is considerably greater than 1, the algorithm has not yet converged and it is necessary to run more iterations and / or set stronger priors.
+In general, every parameter is summarized using the mean ('Estimate') and the standard deviation ('Est.Error') of the posterior distribution as well as two-sided 95% credible intervals ('l-95% CI' and 'u-95% CI') based on quantiles. The last two values ('Eff.Sample' and 'Rhat') provide information on how well the algorithm could estimate the posterior distribution of this parameter. If 'Rhat' is considerably greater than 1, the algorithm has not yet converged and it is necessary to run more iterations and / or set stronger priors.
 
 To visually investigate the chains as well as the posterior distributions, you can use
 
@@ -84,8 +84,8 @@ newdata <- data.frame(Trt_c = c(0.5, -0.5), log_Age_c = 0,
                       log_Base4_c = 0, visit = 4)
 predict(fit, newdata = newdata, allow_new_levels = TRUE, probs = c(0.05, 0.95))
 #>   Estimate Est.Error 5%ile 95%ile
-#> 1  4.71100  3.861503     0     12
-#> 2  6.54625  5.355327     1     16
+#> 1  4.78700  3.861005     0     12
+#> 2  6.65325  5.178583     1     17
 ```
 
 We need to set `allow_new_levels = TRUE` because we want to predict responses of a person that was not present in the data used to fit the model. While the `predict` method returns predictions of the responses, the `fitted` method returns predictions of the regression line.
@@ -93,8 +93,8 @@ We need to set `allow_new_levels = TRUE` because we want to predict responses of
 ``` r
 fitted(fit, newdata = newdata, allow_new_levels = TRUE, probs = c(0.05, 0.95))
 #>   Estimate Est.Error    5%ile   95%ile
-#> 1 4.736238  3.273596 1.347698 10.97859
-#> 2 6.603166  4.560335 1.868479 15.71147
+#> 1 4.799676  3.268087 1.347292 11.19560
+#> 2 6.728674  4.603833 1.915995 15.62788
 ```
 
 Both methods return the same etimate (up to random error), while the latter has smaller variance, because the uncertainty in the regression line is smaller than the uncertainty in each response. If we want to predict values of the original data, we can just leave the `newdata` argument empty.
@@ -167,4 +167,4 @@ What is the difference between brms and rstanarm?
 What is the best way to ask a question or propose a new feature?
 ----------------------------------------------------------------
 
-You can either open an issue on [github](https://github.com/paul-buerkner/brms) or write me an email (<paul.buerkner@gmail.com>).
+Questions can be asked on [codewake](https://www.codewake.com/p/brms). To propose a new feature or report a bug, please open an issue on [github](https://github.com/paul-buerkner/brms). Of course, you can always write me an email (<paul.buerkner@gmail.com>).

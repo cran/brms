@@ -9,58 +9,58 @@ linear_predictor <- function(draws, i = NULL) {
   # Returns:
   #   Usually an S x N matrix where S is the number of samples
   #   and N is the number of observations or length of i if specified. 
-  if (length(i) == 1L && is.categorical(draws$f) && !isTRUE(draws$old_cat)) {
-    # new categorical models are using multivariate syntax
-    # isTRUE(.) is mandatory as draws$old_cat may be NULL
+  if (length(i) == 1L && is.categorical(draws$f) && 
+      isTRUE(draws$old_cat == 2L)) {
+    # for some time categorical models were using mv syntax
     nobs <- draws$data$N_trait * (draws$data$ncat - 1)
     i <- seq(i, nobs, draws$data$N_trait)
   }
   N <- ifelse(!is.null(i), length(i), draws$data$N) 
   
   eta <- matrix(0, nrow = draws$nsamples, ncol = N)
-  if (!is.null(draws$b)) {
-    eta <- eta + fixef_predictor(X = p(draws$data$X, i), b = draws$b)  
+  if (!is.null(draws[["b"]])) {
+    eta <- eta + fixef_predictor(X = p(draws$data$X, i), b = draws[["b"]])  
   }
   if (!is.null(draws$data$offset)) {
     eta <- eta + matrix(rep(p(draws$data$offset, i), draws$nsamples), 
                         ncol = N, byrow = TRUE)
   }
   # incorporate monotonic effects
-  for (j in seq_along(draws$bm)) {
+  for (j in seq_along(draws[["bm"]])) {
     eta <- eta + monef_predictor(Xm = p(draws$data$Xm[, j], i), 
-                                 bm = as.vector(draws$bm[[j]]), 
+                                 bm = as.vector(draws[["bm"]][[j]]), 
                                  simplex = draws$simplex[[j]])
   }
   # incorporate random effects
-  group <- names(draws$r)
+  group <- names(draws[["r"]])
   for (j in seq_along(group)) {
-    eta <- eta + ranef_predictor(Z = p(draws$Z[[group[j]]], i), 
-                                 r = draws$r[[group[j]]]) 
+    eta <- eta + ranef_predictor(Z = p(draws[["Z"]][[group[j]]], i), 
+                                 r = draws[["r"]][[group[j]]]) 
   }
   # incorporate splines
-  splines <- names(draws$s)
+  splines <- names(draws[["s"]])
   for (j in seq_along(splines)) {
     eta <- eta + fixef_predictor(X = p(draws$data[[paste0("Zs_", j)]], i),
-                                 b = draws$s[[splines[j]]])
+                                 b = draws[["s"]][[splines[j]]])
   }
-  if (!is.null(draws$arr)) {
-    eta <- eta + fixef_predictor(X = p(draws$data$Yarr, i), b = draws$arr)
+  if (!is.null(draws[["arr"]])) {
+    eta <- eta + fixef_predictor(X = p(draws$data$Yarr, i), b = draws[["arr"]])
   }
-  if ((!is.null(draws$ar) || !is.null(draws$ma)) && !use_cov(draws$autocor)) {
+  if (length(rmNULL(draws[c("ar", "ma")])) && !use_cov(draws$autocor)) {
     # only run when ARMA effects were modeled as part of eta
     if (!is.null(i)) {
       stop("Pointwise evaluation is not yet implemented for ARMA models.",
            call. = FALSE)
     }
-    eta <- arma_predictor(standata = draws$data, ar = draws$ar, 
-                          ma = draws$ma, eta = eta, link = draws$f$link)
+    eta <- arma_predictor(standata = draws$data, ar = draws[["ar"]], 
+                          ma = draws[["ma"]], eta = eta, link = draws$f$link)
   }
   if (!is.null(draws$loclev)) {
     eta <- eta + p(draws$loclev, i, row = FALSE)
   }
   if (is.ordinal(draws$f)) {
-    if (!is.null(draws$p)) {
-      eta <- cse_predictor(Xp = p(draws$data$Xp, i), p = draws$p, 
+    if (!is.null(draws[["p"]])) {
+      eta <- cse_predictor(Xp = p(draws$data$Xp, i), p = draws[["p"]], 
                            eta = eta, ncat = draws$data$max_obs)
     } else {
       eta <- array(eta, dim = c(dim(eta), draws$data$max_obs - 1))
@@ -72,21 +72,34 @@ linear_predictor <- function(draws, i = NULL) {
         eta[, , k] <- eta[, , k] - draws$Intercept[, k]
       }
     }
-  } else if (is.categorical(draws$f)) {
-    if (isTRUE(draws$old_cat)) {
+  } else if (isTRUE(draws$old_cat > 0L)) {
+    if (draws$old_cat == 1L) {
       # deprecated as of brms > 0.8.0
-      if (!is.null(draws$p)) {
-        eta <- cse_predictor(Xp = p(draws$data$X, i), p = draws$p, 
+      if (!is.null(draws[["p"]])) {
+        eta <- cse_predictor(Xp = p(draws$data$X, i), p = draws[["p"]], 
                              eta = eta, ncat = draws$data$max_obs)
       } else {
         eta <- array(eta, dim = c(dim(eta), draws$data$max_obs - 1))
       }
-    } else {
+    } else if (draws$old_cat == 2L) {
+      # deprecated as of brms > 0.10.0
       ncat1 <- draws$data$ncat - 1 
       eta <- array(eta, dim = c(nrow(eta), ncol(eta) / ncat1, ncat1))
     }
   }
   unname(eta)
+}
+
+linear_predictor_mv <- function(draws, i = NULL) {
+  # compute the linear predictor Eta for multivariate models
+  # Returns:
+  #   An array of dimension Nsamples (or length(i)) x Nobs x Nresp
+  resp <- names(draws[["mv"]])
+  tmp <- named_list(resp)
+  for (r in resp) {
+    tmp[[r]] <- linear_predictor(draws[["mv"]][[r]], i = i)
+  }
+  aperm(do.call(abind::abind, c(tmp, along = 0)), perm = c(2, 3, 1))
 }
 
 nonlinear_predictor <- function(draws, i = NULL) {
@@ -102,11 +115,12 @@ nonlinear_predictor <- function(draws, i = NULL) {
   #   and N is the number of observations or length of i if specified. 
   nlmodel_list <- list()
   nlpars <- names(draws$nonlinear)
-  for (j in seq_along(nlpars)) {
-    nlmodel_list[[nlpars[j]]] <- 
-      linear_predictor(draws$nonlinear[[nlpars[j]]], i = i)
+  for (nlp in nlpars) {
+    nlmodel_list[[nlp]] <- linear_predictor(draws$nonlinear[[nlp]], i = i)
   }
-  nlmodel_list[names(draws$C)] <- p(draws$C, i, row = FALSE)
+  for (cov in names(draws$C)) {
+    nlmodel_list[[cov]] <- p(draws$C[[cov]], i, row = FALSE)  
+  }
   # evaluate non-linear predictor
   out <- try(with(nlmodel_list, eval(draws$nlform)), silent = TRUE)
   if (is(out, "try-error")) {
@@ -232,22 +246,26 @@ cse_predictor <- function(Xp, p, eta, ncat) {
   eta
 }
 
-get_eta <- function(i, draws, ordinal = FALSE) {
+get_eta <- function(draws, i) {
   # extract the linear predictor of observation i from draws
   # Args:
+  #   draws: a list generated by extract_draws
   #   i: a vector (typically of length 1) indicating the
   #      observation for which to extract eta
-  #   draws: a list generated by extract_draws
-  #   ordinal: does draws$eta have 3 dimensions?
   if (!is.null(draws$eta)) {
-    if (ordinal) {
-      draws$eta[, i, , drop = FALSE]  
+    if (is.null(i)) {
+      eta <- draws$eta
+    } else if (length(dim(draws$eta)) == 3L) {
+      eta <- draws$eta[, i, , drop = FALSE]  
     } else {
-      draws$eta[, i]  
+      eta <- draws$eta[, i, drop = FALSE]  
     }
   } else if (!is.null(draws$nonlinear)) {
-    nonlinear_predictor(draws, i = i)
+    eta <- nonlinear_predictor(draws, i = i)
+  } else if (!is.null(draws[["mv"]])) {
+    eta <- linear_predictor_mv(draws, i = i)
   } else {
-    linear_predictor(draws, i = i)
+    eta <- linear_predictor(draws, i = i)
   }
+  eta
 }

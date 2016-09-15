@@ -1,18 +1,73 @@
+update_data <- function(data, family, effects, ..., 
+                        na.action = na.omit,
+                        drop.unused.levels = TRUE,
+                        terms_attr = NULL, knots = NULL) {
+  # Update data for use in brms functions
+  # Args:
+  #   data: the original data.frame
+  #   family: the model family
+  #   effects: output of extract_effects (see validate.R)
+  #   ...: More formulae passed to combine_groups
+  #        Currently only used for autocorrelation structures
+  #   na.action: function defining how to treat NAs
+  #   drop.unused.levels: indicates if unused factor levels
+  #                       should be removed
+  #   terms_attr: a list of attributes of the terms object of 
+  #     the original model.frame; only used with newdata;
+  #     this ensures that (1) calls to 'poly' work correctly
+  #     and (2) that the number of variables matches the number 
+  #     of variable names; fixes issue #73
+  #   knots: a list of knot values for GAMMS
+  # Returns:
+  #   model.frame in long format with combined grouping variables if present
+  if (is.null(attr(data, "terms")) && "brms.frame" %in% class(data)) {
+    # to avoid error described in #30
+    # brms.frame class is deprecated as of brms > 0.7.0
+    data <- as.data.frame(data)
+  }
+  if (!(isTRUE(attr(data, "brmsframe")) || "brms.frame" %in% class(data))) {
+    effects$all <- terms(effects$all)
+    attributes(effects$all)[names(terms_attr)] <- terms_attr
+    if (isTRUE(attr(effects$formula, "old_mv"))) {
+      data <- melt_data(data, family = family, effects = effects)
+    } else {
+      check_data_old_mv(data, family = family, effects = effects)
+    }
+    data <- data_rsv_intercept(data, effects = effects)
+    data <- model.frame(effects$all, data = data, na.action = na.pass,
+                        drop.unused.levels = drop.unused.levels)
+    nrow_with_NA <- nrow(data)
+    data <- na.action(data)
+    if (nrow(data) != nrow_with_NA) {
+      warning("Rows containing NAs were excluded from the model",
+              call. = FALSE)
+    }
+    if (any(grepl("__|_$", colnames(data)))) {
+      stop("Variable names may not contain double underscores ",
+           "or underscores at the end.", call. = FALSE)
+    }
+    data <- combine_groups(data, get_random(effects)$group, ...)
+    data <- fix_factor_contrasts(data)
+    attr(data, "knots") <- knots
+    attr(data, "brmsframe") <- TRUE
+  }
+  data
+}
+
 melt_data <- function(data, family, effects) {
-  # melt data frame for multinormal models
-  #
+  # add reserved variables to the data
+  # and transform it into long format for mv models
+  # DEPRECATED as of brms 1.0.0
   # Args:
   #   data: a data.frame
   #   family: the model family
-  #   effects: a named list as returned by extract_effects
-  #
-  # Returns:
-  #   data in long format 
+  #   effects: output of extract_effects
   response <- effects$response
   nresp <- length(response)
   if (is.mv(family, response = response)) {
     if (!is(data, "data.frame")) {
-      stop("'data' must be a data.frame for this model", call. = FALSE)
+      stop("Argument 'data' must be a data.frame for this model", 
+           call. = FALSE)
     }
     # only keep variables that are relevant for the model
     rel_vars <- c(all.vars(attr(terms(effects$all), "variables")), 
@@ -62,41 +117,64 @@ melt_data <- function(data, family, effects) {
     data <- cbind(do.call(rbind, data), new_cols)
     data <- fix_factor_contrasts(data, optdata = old_data)
   }
+  data
+}
+
+check_data_old_mv <- function(data, family, effects) {
+  # check if the deprecated MV syntax was used in a new model
+  # Args:
+  #   see update_data
+  rsv_vars <- rsv_vars(family, nresp = length(effects$response),
+                       old_mv = TRUE)
+  rsv_vars <- setdiff(rsv_vars, names(data))
+  used_rsv_vars <- intersect(rsv_vars, all.vars(effects$all))
+  if (length(used_rsv_vars)) {
+    stop("It is no longer possible (and necessary) to specify models ", 
+         "using the multivariate 'trait' syntax. See help(brmsformula) ",
+         "for details on the new syntax.", call. = FALSE)
+  }
+  invisible(NULL)
+}
+
+data_rsv_intercept <- function(data, effects) {
+  # introduces the resevered variable "intercept" to the data
+  # Args:
+  #   data: data.frame or list
+  #   effects: output of extract_effects
   if (isTRUE(attr(effects$fixed, "rsv_intercept"))) {
-    if (is.null(data)) 
-      stop("'data' must be a data.frame or list", call. = FALSE)
-    if ("intercept" %in% names(data)) {
-      stop(paste("'intercept' is a reserved variable name in models",
-                 "without a fixed effects intercept"), call. = FALSE)
+    if (is.list(data) && length(data)) {
+      if ("intercept" %in% names(data)) {
+        stop("'intercept' is a reserved variable name in models ",
+             "without a fixed effects intercept", call. = FALSE)
+      }
+      data$intercept <- rep(1, length(data[[1]]))
+    } else {
+      stop("Argument 'data' must be a non empty data.frame ", 
+           "or list for this model.", call. = FALSE)
     }
-    data$intercept <- rep(1, length(data[[1]]))
   }
   data
-}  
+}
 
 combine_groups <- function(data, ...) {
   # combine grouping factors
-  #
   # Args:
   #   data: a data.frame
   #   ...: the grouping factors to be combined. 
-  #
   # Returns:
   #   a data.frame containing all old variables and 
   #   the new combined grouping factors
   group <- c(...)
-  if (length(group)) {
-    for (i in 1:length(group)) {
-      sgroup <- unlist(strsplit(group[[i]], ":"))
-      if (length(sgroup) > 1) {
-        new.var <- get(sgroup[1], data)
-        for (j in 2:length(sgroup)) {
-          new.var <- paste0(new.var, "_", get(sgroup[j], data))
-        }
-        data[[group[[i]]]] <- new.var
+  for (i in seq_along(group)) {
+    sgroup <- unlist(strsplit(group[[i]], ":"))
+    if (length(sgroup) > 1) {
+      new.var <- get(sgroup[1], data)
+      for (j in 2:length(sgroup)) {
+        new.var <- paste0(new.var, "_", get(sgroup[j], data))
       }
-    } 
-  }
+      data[[group[[i]]]] <- new.var
+    }
+  } 
   data
 }
 
@@ -111,6 +189,7 @@ fix_factor_contrasts <- function(data, optdata = NULL) {
   #   a data.frame with amended contrasts attributes
   stopifnot(is(data, "data.frame"))
   stopifnot(is.null(optdata) || is.list(optdata))
+  optdata <- as.data.frame(optdata)  # fixes issue #105
   for (i in seq_along(data)) {
     if (is.factor(data[[i]]) && is.null(attr(data[[i]], "contrasts"))) {
       if (!is.null(attr(optdata[[names(data)[i]]], "contrasts"))) {
@@ -125,62 +204,11 @@ fix_factor_contrasts <- function(data, optdata = NULL) {
   data
 }
 
-update_data <- function(data, family, effects, ..., 
-                        na.action = na.omit,
-                        drop.unused.levels = TRUE,
-                        terms_attr = NULL, knots = NULL) {
-  # Update data for use in brms functions
-  # Args:
-  #   data: the original data.frame
-  #   family: the model family
-  #   effects: output of extract_effects (see validate.R)
-  #   ...: More formulae passed to combine_groups
-  #        Currently only used for autocorrelation structures
-  #   na.action: function defining how to treat NAs
-  #   drop.unused.levels: indicates if unused factor levels
-  #                       should be removed
-  #   terms_attr: a list of attributes of the terms object of 
-  #     the original model.frame; only used with newdata;
-  #     this ensures that (1) calls to 'poly' work correctly
-  #     and (2) that the number of variables matches the number 
-  #     of variable names; fixes issue #73
-  #   knots: a list of knot values for GAMMS
-  # Returns:
-  #   model.frame in long format with combined grouping variables if present
-  if (is.null(attr(data, "terms")) && "brms.frame" %in% class(data)) {
-    # to avoid error described in #30
-    # brms.frame class is deprecated as of brms > 0.7.0
-    data <- as.data.frame(data)
-  }
-  if (!(isTRUE(attr(data, "brmsframe")) || "brms.frame" %in% class(data))) {
-    effects$all <- terms(effects$all)
-    attributes(effects$all)[names(terms_attr)] <- terms_attr
-    data <- melt_data(data, family = family, effects = effects)
-    data <- model.frame(effects$all, data = data, na.action = na.pass,
-                        drop.unused.levels = drop.unused.levels)
-    nrow_with_NA <- nrow(data)
-    data <- na.action(data)
-    if (nrow(data) != nrow_with_NA) {
-      warning("Rows containing NAs were excluded from the model",
-              call. = FALSE)
-    }
-    if (any(grepl("__", colnames(data))))
-      stop("variable names may not contain double underscores '__'",
-           call. = FALSE)
-    data <- combine_groups(data, get_random(effects)$group, ...)
-    data <- fix_factor_contrasts(data)
-    attr(data, "knots") <- knots
-    attr(data, "brmsframe") <- TRUE
-  }
-  data
-}
-
 amend_newdata <- function(newdata, fit, re_formula = NULL, 
                           allow_new_levels = FALSE,
                           return_standata = TRUE,
                           check_response = FALSE) {
   # amend newdata passed to predict and fitted methods
-  # 
   # Args:
   #   newdata: a data.frame containing new data for prediction 
   #   fit: an object of class brmsfit
@@ -190,10 +218,8 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
   #                    to Stan, or just return the updated newdata?
   #   check_response: Should response variables be checked
   #                   for existence and validity?
-  #
   # Notes:
   #   used in predict.brmsfit, fitted.brmsfit and linear_predictor.brmsfit
-  #
   # Returns:
   #   updated data.frame being compatible with fit$formula
   if (is.null(newdata) || is(newdata, "list")) {
@@ -207,14 +233,10 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     stop("newdata must be a data.frame", call. = FALSE)
   }
   # standata will be based on an updated formula if re_formula is specified
-  new_ranef <- check_re_formula(re_formula, old_ranef = fit$ranef,
-                                data = model.frame(fit))
-  new_formula <- update_re_terms(fit$formula, re_formula = re_formula)
-  new_nonlinear <- lapply(fit$nonlinear, update_re_terms, 
-                          re_formula = re_formula)
+  new_formula <- update_re_terms(formula(fit), re_formula = re_formula)
   et <- extract_time(fit$autocor$formula)
   ee <- extract_effects(new_formula, et$all, family = family(fit),
-                        nonlinear = new_nonlinear, resp_rhs_all = FALSE)
+                        resp_rhs_all = FALSE)
   resp_only_vars <- setdiff(all.vars(ee$respform), all.vars(rhs(ee$all)))
   missing_resp <- setdiff(resp_only_vars, names(newdata))
   if (check_response && length(missing_resp)) {
@@ -231,23 +253,14 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
       newdata[[cens]] <- 0 # add irrelevant censor variables
     }
   }
-  if (length(fit$ranef)) {
-    if (length(new_ranef) && allow_new_levels) {
-      # random effects grouping factors do not need to be specified 
-      # by the user if new_levels are allowed
-      new_gf <- unique(unlist(strsplit(names(new_ranef), split = ":")))
+  new_ranef <- tidy_ranef(ee, data = model.frame(fit))
+  if (nrow(fit$ranef)) {
+    if (nrow(new_ranef) && allow_new_levels) {
+      # grouping factors do not need to be specified 
+      # by the user if new levels are allowed
+      new_gf <- unique(unlist(strsplit(new_ranef$group, split = ":")))
       missing_gf <- setdiff(new_gf, names(newdata))
       newdata[, missing_gf] <- NA
-    }
-    # brms:::update_data expects all original variables to be present
-    # even if not actually used later on
-    old_gf <- unique(unlist(strsplit(names(fit$ranef), split = ":")))
-    old_ee <- extract_effects(formula(fit), et$all, family = family(fit),
-                              nonlinear = fit$nonlinear)
-    old_slopes <- unique(ulapply(get_random(old_ee)$form, all.vars))
-    unused_vars <- setdiff(union(old_gf, old_slopes), all.vars(ee$all))
-    if (length(unused_vars)) {
-      newdata[, unused_vars] <- NA
     }
   }
   newdata <- combine_groups(newdata, get_random(ee)$group)
@@ -257,7 +270,7 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     list_data <- lapply(as.list(fit$data), function(x)
       if (is.numeric(x)) x else as.factor(x))
     is_factor <- sapply(list_data, is.factor)
-    is_group <- names(list_data) %in% names(fit$ranef)
+    is_group <- names(list_data) %in% fit$ranef$group
     factors <- list_data[is_factor & !is_group]
     if (length(factors)) {
       factor_names <- names(factors)
@@ -272,7 +285,9 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
           old_levels <- factor_levels[[i]]
           old_contrasts <- contrasts(factors[[i]])
           to_zero <- is.na(new_factor) | new_factor %in% ".ZERO"
-          if (any(to_zero)) {
+          # don't add the '.ZERO' level to response variables
+          is_resp <- factor_names[i] %in% all.vars(ee$respform)
+          if (!is_resp && any(to_zero)) {
             levels(new_factor) <- c(new_levels, ".ZERO")
             new_factor[to_zero] <- ".ZERO"
             old_levels <- c(old_levels, ".ZERO")
@@ -310,76 +325,60 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
         attr(newdata[[v]], "min") <- min_value
       }
     }
+    # brms:::update_data expects all original variables to be present
+    # even if not actually used later on
+    rsv_vars <- rsv_vars(family(fit), nresp = length(ee$response),
+                         rsv_intercept = has_rsv_intercept(ee$formula),
+                         old_mv = attr(ee$formula, "old_mv"))
+    used_vars <- unique(c(names(newdata), all.vars(ee$all), rsv_vars))
+    unused_vars <- setdiff(names(model.frame(fit)), used_vars)
+    if (length(unused_vars)) {
+      newdata[, unused_vars] <- NA
+    }
   } else {
     warning(paste("Validity of factors cannot be checked for", 
                   "fitted model objects created with brms <= 0.5.0"),
             call. = FALSE)
   }
   # validate grouping factors
-  if (length(new_ranef)) {
-    gnames <- names(new_ranef)
-    for (i in seq_along(gnames)) {
-      gf <- as.character(get(gnames[i], newdata))
-      new_levels <- unique(gf)
-      old_levels <- attr(new_ranef[[i]], "levels")
-      unknown_levels <- setdiff(new_levels, old_levels)
-      if (!allow_new_levels && length(unknown_levels)) {
-        stop(paste("levels", paste0(unknown_levels, collapse = ", "), 
-                   "of grouping factor", gnames[i], 
-                   "not found in the fitted model"), call. = FALSE)
-      } 
-      if (return_standata) {
-        # transform grouping factor levels into their corresponding integers
-        # to match the output of make_standata
-        newdata[[gnames[i]]] <- sapply(gf, match, table = old_levels)
-      }
+  gnames <- unique(new_ranef$group)
+  old_levels <- named_list(gnames)
+  for (i in seq_along(gnames)) {
+    new_levels <- unique(as.character(get(gnames[i], newdata)))
+    old_levels[[i]] <- attr(new_ranef, "levels")[[gnames[i]]]
+    unknown_levels <- setdiff(new_levels, old_levels[[i]])
+    if (!allow_new_levels && length(unknown_levels)) {
+      stop(paste("levels", paste0(unknown_levels, collapse = ", "), 
+                 "of grouping factor", gnames[i], 
+                 "not found in the fitted model"), call. = FALSE)
     }
   }
   if (return_standata) {
-    control <- list(is_newdata = TRUE, not4stan = TRUE,
-                    save_order = TRUE, omit_response = !check_response)
-    control$old_cat <- is.old_categorical(fit)
+    control <- list(is_newdata = TRUE, not4stan = TRUE, 
+                    old_levels = old_levels, save_order = TRUE, 
+                    omit_response = !check_response,
+                    old_cat <- is.old_categorical(fit))
     old_terms <- attr(model.frame(fit), "terms")
     control$terms_attr <- attributes(old_terms)[c("variables", "predvars")]
-    has_mono <- length(rmNULL(get_effect(ee, "mono")))
-    p <- if (length(ee$nonlinear)) paste0("_", names(ee$nonlinear)) else ""
+    has_mono <- length(get_effect(ee, "mono")) > 0L
     if (has_trials(fit$family) || has_cat(fit$family) || has_mono) {
       # some components should not be computed based on newdata
-      comp <- c("trials", "ncat", paste0("Jm", p))
-      control[comp] <- standata(fit)[comp]
+      pars <- c(names(ee$nonlinear), intersect(auxpars(), names(ee)))
+      comp <- c("trials", "ncat", paste0("Jm", c("", paste0("_", pars))))
+      old_standata <- rmNULL(standata(fit)[comp])
+      control[c("trials", "ncat")] <- old_standata[c("trials", "ncat")]
+      Jm <- old_standata[grepl("^Jm", names(old_standata))]
+      names(Jm) <- sub("^Jm$", "mu", sub("^Jm_", "", names(Jm)))
+      control[["Jm"]] <- Jm 
     }
-    knots <- attr(model.frame(fit), "knots")
-    if (has_splines(ee)) {
-      gam.setup <- eval(parse(text = "mgcv:::gam.setup"))
-      olddata <- rm_attr(model.frame(fit), "terms")
-      if (length(ee$nonlinear)) {
-        G <- named_list(names(ee$nonlinear))
-        for (i in seq_along(G)) {
-          nle <- ee$nonlinear[[i]]
-          if (has_splines(nle)) {
-            G[[i]] <- gam.setup(mgcv::interpret.gam(nle$gam),
-                                pterms = terms(ee$respform),
-                                data = olddata, knots = knots, sp = NULL,
-                                min.sp = NULL, H = NULL, absorb.cons = TRUE,
-                                sparse.cons = 0, gamm.call = TRUE)
-          }
-        }
-      } else {
-        G <- gam.setup(mgcv::interpret.gam(ee$gam),
-                       pterms = terms(ee$respform),
-                       data = olddata, knots = knots, sp = NULL,
-                       min.sp = NULL, H = NULL, absorb.cons = TRUE,
-                       sparse.cons = 0, gamm.call = TRUE)
-      }
-      control$G <- G
-    }
-    if (is(fit$autocor, "cor_fixed")) {
+    control$smooth <- make_smooth_list(ee, model.frame(fit))
+    if (is(fit$autocor, "cov_fixed")) {
       fit$autocor$V <- diag(median(diag(fit$autocor$V), na.rm = TRUE), 
                             nrow(newdata))
     }
-    newdata <- make_standata(new_formula, data = newdata, family = fit$family, 
-                             autocor = fit$autocor, nonlinear = new_nonlinear,
-                             partial = fit$partial, knots = knots,
+    knots <- attr(model.frame(fit), "knots")
+    newdata <- make_standata(new_formula, data = newdata, family = fit$family,
+                             autocor = fit$autocor, knots = knots, 
                              control = control)
   }
   newdata
@@ -388,21 +387,19 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
 get_model_matrix <- function(formula, data = environment(formula),
                              cols2remove = NULL, ...) {
   # Construct Design Matrices for \code{brms} models
-  # 
   # Args:
   #   formula: An object of class formula
   #   data: A data frame created with model.frame. 
   #         If another sort of object, model.frame is called first.
   #   cols2remove: names of the columns to remove from 
   #                the model matrix (mainly used for intercepts)
-  #   ...: Further arguments passed to amend_terms
-  # 
+  #   ...: currently ignored
   # Returns:
   #   The design matrix for a regression-like model 
   #   with the specified formula and data. 
   #   For details see the documentation of \code{model.matrix}.
   stopifnot(is.atomic(cols2remove))
-  terms <- amend_terms(formula, ...)
+  terms <- amend_terms(formula)
   if (is.null(terms)) {
     return(NULL)
   }
@@ -411,51 +408,11 @@ get_model_matrix <- function(formula, data = environment(formula),
   }
   X <- stats::model.matrix(terms, data)
   colnames(X) <- rename(colnames(X), check_dup = TRUE)
+  cols2remove <- which(colnames(X) %in% cols2remove)
   if (length(cols2remove)) {
-    X <- X[, - which(colnames(X) %in% cols2remove), drop = FALSE]
+    X <- X[, -cols2remove, drop = FALSE]
   }
   X   
-}
-
-get_intercepts <- function(effects, data, family = gaussian()) {
-  # create a named list with one element per intercept
-  # each containing observation numbers corresponding to it
-  if (length(effects$nonlinear)) {
-    int_names <- NULL
-  } else {
-    terms <- terms(rhs(effects$fixed))
-    if (is.mv(family, response = effects$response)) {
-      term_labels <- attr(terms, "term.labels")
-      if (attr(terms, "intercept")) {
-        int_names <- "Intercept"
-      } else {
-        if ("trait" %in% term_labels) {
-          int_names <- paste0("trait", levels(data$trait))
-        } else if (is.forked(family) && all(c("main", "spec") %in% term_labels)) {
-          int_names <- c("main", "spec")
-        } else {
-          int_names <- NULL
-        }
-      }
-    } else {
-      if (attr(terms, "intercept")) {
-        int_names <- "Intercept"
-      } else {
-        int_names <- NULL
-      }
-    }
-  }
-  if (length(int_names)) {
-    mm <- stats::model.matrix(terms, data)
-    colnames(mm) <- rename(colnames(mm), check_dup = TRUE)
-    out <- lapply(int_names, function(x) which(mm[, x] != 0))
-    Jint <- rep(0, nrow(data))
-    for (i in seq_along(out)) Jint[out[[i]]] <- i
-    out <- structure(out, names = int_names, Jint = Jint)
-  } else {
-    out <- list()
-  }
-  out
 }
 
 prepare_mono_vars <- function(data, vars, check = TRUE) {
@@ -494,6 +451,52 @@ prepare_mono_vars <- function(data, vars, check = TRUE) {
   data
 }
 
+make_smooth_list <- function(effects, data) {
+  # compute smoothing objects based on the original data
+  # as the basis for doing predictions with new data
+  # Args:
+  #   effects: output of extract_effects
+  #   data: the original model.frame
+  # Returns:
+  #   A named list of lists of smoothing objects
+  #   one element per (non-linear) parameter    
+  if (has_splines(effects)) {
+    knots <- attr(data, "knots")
+    data <- rm_attr(data, "terms")
+    gam_args <- list(data = data, knots = knots, 
+                     absorb.cons = TRUE, modCon = 3)
+    if (length(effects$nonlinear)) {
+      smooth <- named_list(names(effects$nonlinear))
+      for (nlp in names(smooth)) {
+        splines <- get_spline_labels(effects$nonlinear[[nlp]])
+        for (i in seq_along(splines)) {
+          sc_args <- c(list(eval_spline(splines[i])), gam_args)
+          smooth[[nlp]][[i]] <- do.call(mgcv::smoothCon, sc_args)[[1]]
+        }
+      }
+    } else {
+      smooth <- named_list("mu")
+      splines <- get_spline_labels(effects)
+      for (i in seq_along(splines)) {
+        sc_args <- c(list(eval_spline(splines[i])), gam_args)
+        smooth[["mu"]][[i]] <- do.call(mgcv::smoothCon, sc_args)[[1]]
+      }
+    }
+    auxpars <- intersect(auxpars(), names(effects))
+    smooth <- c(smooth, named_list(auxpars))
+    for (ap in auxpars) {
+      splines <- get_spline_labels(effects[[ap]])
+      for (i in seq_along(splines)) {
+        sc_args <- c(list(eval_spline(splines[i])), gam_args)
+        smooth[[ap]][[i]] <- do.call(mgcv::smoothCon, sc_args)[[1]]
+      }
+    }
+  } else {
+    smooth <- list()
+  }
+  smooth
+}
+
 arr_design_matrix <- function(Y, r, group)  { 
   # calculate design matrix for autoregressive effects of the response
   #
@@ -501,10 +504,8 @@ arr_design_matrix <- function(Y, r, group)  {
   #   Y: a vector containing the response variable
   #   r: ARR order
   #   group: vector containing the grouping variable for each observation
-  #
   # Notes: 
   #   expects Y to be sorted after group already
-  # 
   # Returns:
   #   the design matrix for ARR effects
   stopifnot(length(Y) == length(group))
@@ -526,65 +527,76 @@ arr_design_matrix <- function(Y, r, group)  {
   out
 }
 
-data_fixef <- function(effects, data, family = gaussian(),
-                       autocor = cor_arma(), knots = NULL,
-                       nlpar = "", not4stan = FALSE, G = NULL) {
-  # prepare data for fixed effects for use in Stan 
+data_effects <- function(effects, data, family = gaussian(),
+                         ranef = empty_ranef(), prior = prior_frame(), 
+                         autocor = cor_arma(), knots = NULL, nlpar = "", 
+                         rm_intercept = TRUE, not4stan = FALSE, 
+                         smooth = NULL, Jm = NULL) {
+  # combine data for all types of effects
   # Args:
   #   effects: a list returned by extract_effects
   #   data: the data passed by the user
   #   family: the model family
+  #   prior: an object of class prior_frame
   #   autocor: object of class 'cor_brms'
+  #   cov_ranef: name list of user-defined covariance matrices
+  #   knots: optional knot values for smoothing terms
   #   nlpar: optional character string naming a non-linear parameter
+  #   rm_intercept: should the fixed effects intercept be removed?
   #   not4stan: is the data for use in S3 methods only?
-  #   G: optional list returned by gam.setup based on the original data
-  #      used only to compute smoothing terms for new data
+  #   old_levels: original levels of grouping factors
+  #   smooth: optional list of smoothing objects based on 
+  #           the original data
+  #   Jm: optional precomputed values of Jm for monotonic effects
+  # Returns:
+  #   A named list of data to be passed to Stan
+  data_fixef <- data_fixef(effects, data = data, family = family, 
+                           autocor = autocor, nlpar = nlpar, 
+                           rm_intercept = rm_intercept,
+                           knots = knots,  not4stan = not4stan, 
+                           smooth = smooth)
+  data_monef <- data_monef(effects, data = data, prior = prior, 
+                           Jm = Jm, nlpar = nlpar)
+  data_ranef <- data_ranef(ranef, data = data, nlpar = nlpar, 
+                           not4stan = not4stan)
+  c(data_fixef, data_monef, data_ranef)
+}
+
+data_fixef <- function(effects, data, family = gaussian(),
+                       autocor = cor_arma(), knots = NULL,
+                       rm_intercept = TRUE, nlpar = "", 
+                       not4stan = FALSE, smooth = NULL) {
+  # prepare data for fixed effects for use in Stan 
+  # Args: see data_effects
   stopifnot(length(nlpar) == 1L)
-  p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
+  p <- usc(nlpar, "prefix")
   is_ordinal <- is.ordinal(family)
   is_bsts <- is(autocor, "cor_bsts")
-  out <- list()
-  if (not4stan && !is_ordinal && !is_bsts || nchar(nlpar)) {
-    intercepts <- NULL  # don't remove any intercept columns
+  has_intercept <- has_intercept(effects$fixed)
+  temp_intercept <- has_intercept && rm_intercept && !not4stan && !is_bsts
+  if (temp_intercept || is_ordinal || is_bsts) {
+    intercept <- "Intercept"
   } else {
-    intercepts <- get_intercepts(effects, data = data, family = family)  
+    intercept <- NULL  # don't remove the intercept column
   }
-  X <- get_model_matrix(rhs(effects$fixed), data, 
-                        forked = is.forked(family),
-                        cols2remove = names(intercepts))
+  out <- list()
+  X <- get_model_matrix(rhs(effects$fixed), data, cols2remove = intercept)
   splines <- get_spline_labels(effects)
   if (length(splines)) {
-    # avoid R CMD CHECK warnings when using the ::: operator
-    gam.setup <- eval(parse(text = "mgcv:::gam.setup"))
-    smooth2random <- eval(parse(text = "mgcv:::smooth2random"))
-    if (!is.null(G)) {
-      # compute smoothing terms for newdata
-      Xl <- vector("list", length(G$smooth))
-      for (i in seq_along(G$smooth)) {
-        Xl[[i]] <- mgcv::PredictMat(G$smooth[[i]], rm_attr(data, "terms"))
+    stopifnot(is.null(smooth) || length(smooth) == length(splines))
+    Xs <- Zs <- vector("list", length(splines))
+    for (i in seq_along(splines)) {
+      if (is.null(smooth[[i]])) {
+        sm <- mgcv::smoothCon(eval_spline(splines[i]), data = data, 
+                              knots = knots, absorb.cons = TRUE)[[1]]
+      } else {
+        sm <- smooth[[i]]
+        sm$X <- mgcv::PredictMat(sm, rm_attr(data, "terms"))
       }
-      G$X <- cbind(1, do.call(cbind, Xl))
-      if (any(ulapply(G$smooth, is, "t2.smooth"))) {
-        stop(paste("Prediction of t2 smoothing terms with", 
-                   "new data is not yet working correctly."), 
-                call. = FALSE)
-      }
-    } else {
-      # parse it like mgcv:::gamm.setup
-      G <- gam.setup(mgcv::interpret.gam(effects$gam), 
-                     pterms = terms(effects$respform), 
-                     data = data, knots = knots, sp = NULL, 
-                     min.sp = NULL, H = NULL, absorb.cons = TRUE, 
-                     sparse.cons = 0, gamm.call = TRUE)
-    }
-    Xs <- Zs <- vector("list", length(G$smooth))
-    for (i in seq_along(G$smooth)) {
-      sm <- G$smooth[[i]]
-      sm$X <- G$X[, sm$first.para:sm$last.para, drop = FALSE]
-      rasm <- smooth2random(sm, names(data))
+      rasm <- mgcv::smooth2random(sm, names(data))
       # mgcv:::gamm.setup loops over rasm$rand 
       # although it should have only one element anyway
-      # if it has more elements the current brms implementation will fail
+      # if it has more elements the brms implementation will fail
       stopifnot(length(rasm$rand) <= 1L)
       Xs[[i]] <- rasm$Xf
       if (ncol(Xs[[i]])) {
@@ -598,23 +610,12 @@ data_fixef <- function(effects, data, family = gaussian(),
     X <- cbind(X, do.call(cbind, Xs))
     colnames(X) <- rename(colnames(X))
   }
+  avoid_auxpars(colnames(X), effects = effects)
   out[[paste0("K", p)]] <- ncol(X)
-  center_X <- length(intercepts) && !is_bsts && !(is_ordinal && not4stan)
-  if (center_X) {
-    if (length(intercepts) == 1L) {
-      X_means <- colMeans(X)
-      X <- sweep(X, 2L, X_means, FUN = "-")
-    } else {
-      # multiple intercepts for 'multivariate' models
-      X_means <- matrix(0, nrow = length(intercepts), ncol = ncol(X))
-      for (i in seq_along(intercepts)) {
-        X_part <- X[intercepts[[i]], , drop = FALSE]
-        X_means[i, ] <- colMeans(X_part)
-        X[intercepts[[i]], ] <- sweep(X_part, 2L, X_means[i, ], FUN = "-")
-      }
-      out[[paste0("nint", p)]] <- length(intercepts)
-      out[[paste0("Jint", p)]] <- attr(intercepts, "Jint")
-    }
+  if (temp_intercept) {
+    # centered design matrices lead to faster sampling in Stan
+    X_means <- colMeans(X)
+    X <- sweep(X, 2L, X_means, FUN = "-")
     out[[paste0("X_means", p)]] <- as.array(X_means)
   }
   out[[paste0("X", p)]] <- X
@@ -623,20 +624,16 @@ data_fixef <- function(effects, data, family = gaussian(),
 
 data_monef <- function(effects, data, prior = prior_frame(), 
                        nlpar = "", Jm = NULL) {
-  # prepare data for monotonic effects for use in Stan 
-  # Args:
-  #   effects: a list returned by extract_effects
-  #   data: the data passed by the user
-  #   prior: an object of class prior_frame
-  #   nlpar: optional character string naming a non-linear parameter
-  #   Jm: optional precomputed values of Jm
+  # prepare data for monotonic effects for use in Stan
+  # Args: see data_effects
   stopifnot(length(nlpar) == 1L)
   p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
   out <- list()
-  if (is.formula(effects$mono)) {
+  if (is.formula(effects[["mono"]])) {
     mmf <- model.frame(effects$mono, data)
     mmf <- prepare_mono_vars(mmf, names(mmf), check = is.null(Jm))
     Xm <- get_model_matrix(effects$mono, mmf)
+    avoid_auxpars(colnames(Xm), effects = effects)
     if (is.null(Jm)) {
       Jm <- as.array(apply(Xm, 2, max))
     }
@@ -665,98 +662,104 @@ data_monef <- function(effects, data, prior = prior_frame(),
   out
 }
 
-data_csef <- function(effects, data) {
-  # prepare data for fixed effects for use in Stan 
-  # Args:
-  #   effects: a list returned by extract_effects
-  #   data: the data passed by the user
+data_ranef <- function(ranef, data, nlpar = "", not4stan = FALSE) {
+  # prepare data for group-level effects for use in Stan
+  # Args: see data_effects
+  stopifnot(length(nlpar) == 1L)
   out <- list()
-  if (is.formula(effects$cse)) {
-    Xp <- get_model_matrix(effects$cse, data)
-    out <- c(out, list(Kp = ncol(Xp), Xp = Xp))
+  ranef <- ranef[ranef$nlpar == nlpar, ]
+  if (nrow(ranef)) {
+    Z <- lapply(ranef[!duplicated(ranef$gn), ]$form, 
+                get_model_matrix, data = data)
+    gn <- unique(ranef$gn)
+    for (i in seq_along(gn)) {
+      r <- ranef[ranef$gn == gn[i], ]
+      idp <- paste0(r$id[1], usc(nlpar, "prefix"))
+      if (isTRUE(not4stan)) {
+        # for internal use in S3 methods
+        if (ncol(Z[[i]]) == 1L) {
+          Z[[i]] <- as.vector(Z[[i]])
+        }
+        Zname <- paste0("Z_", gn[i])
+        out <- c(out, setNames(Z[i], Zname))
+      } else {
+        Zname <- paste0("Z_", idp, "_", r$cn)
+        for (j in seq_len(ncol(Z[[i]]))) {
+          out <- c(out, setNames(list(as.array(Z[[i]][, j])), Zname[j]))
+        }
+      }
+    }
   }
   out
 }
 
-data_ranef <- function(effects, data, family = gaussian(),
-                       nlpar = "", cov_ranef = NULL,
-                       is_newdata = FALSE, not4stan = FALSE) {
-  # prepare data for random effects for use in Stan 
+data_group <- function(ranef, data, cov_ranef = NULL, old_levels = NULL) {
+  # compute data specific for each group-level-ID
+  # Args:
+  #   ranef: data.frame returned by tidy_ranef
+  #   data: the model.frame
+  #   cov_ranef: name list of user-defined covariance matrices
+  #   old_levels: original levels of grouping factors
+  #               only relevant for newdata
+  expr <- expression(as.array(as.numeric(factor(get(g, data)))), 
+                     length(unique(get(g, data))), # number of levels 
+                     nranef,  # number of group-level effects
+                     nranef * (nranef - 1) / 2)  # number of cors
+  if (length(old_levels)) {
+    # for newdata numeration has to depend on the original levels
+    expr[1] <- expression(ulapply(get(g, data), match, old_levels[[g]]))
+  }
+  out <- list()
+  ids <- unique(ranef$id)
+  for (id in ids) {
+    id_ranef <- ranef[ranef$id == id, ]
+    nranef <- nrow(id_ranef)
+    g <- id_ranef$group[1]
+    name <- paste0(c("J_", "N_", "M_", "NC_"), id)
+    for (j in seq_along(name)) {
+      out <- c(out, setNames(list(eval(expr[j])), name[j]))
+    }
+    if (g %in% names(cov_ranef)) {
+      cov_mat <- as.matrix(cov_ranef[[g]])
+      if (!isSymmetric(unname(cov_mat))) {
+        stop(paste("covariance matrix of grouping factor", g, 
+                   "is not symmetric"), call. = FALSE)
+      }
+      found_level_names <- rownames(cov_mat)
+      if (is.null(found_level_names)) {
+        stop(paste("rownames are required for covariance matrix of", g),
+             call. = FALSE)
+      }
+      colnames(cov_mat) <- found_level_names
+      true_level_names <- levels(factor(get(g, data)))
+      found <- true_level_names %in% found_level_names
+      if (any(!found)) {
+        stop(paste("rownames of covariance matrix of", g, 
+                   "do not match names of the grouping levels"),
+             call. = FALSE)
+      }
+      cov_mat <- cov_mat[true_level_names, true_level_names, drop = FALSE]
+      evs <- eigen(cov_mat, symmetric = TRUE, only.values = TRUE)$values
+      if (min(evs) <= 0) {
+        stop("Covariance matrix of grouping factor '", g, 
+             "' is not positive definite.", call. = FALSE)
+      }
+      out <- c(out, setNames(list(t(chol(cov_mat))), paste0("Lcov_", id)))
+    }
+  }
+  out
+}
+
+data_csef <- function(effects, data) {
+  # prepare data for category specific effects for use in Stan
   # Args:
   #   effects: a list returned by extract_effects
   #   data: the data passed by the user
-  #   family: the model family
-  #   nlpar: optional character string naming a non-linear parameter
-  #   cov_ranef: name list of user-defined covariance matrices
-  #   is_newdata: was new data passed to the 'data' argument?
-  #   not4stan: is the data for use in S3 methods only?
-  stopifnot(length(nlpar) == 1L)
   out <- list()
-  random <- effects$random
-  if (nrow(random)) {
-    Z <- lapply(random$form, get_model_matrix, data = data, 
-                forked = is.forked(family))
-    r <- lapply(Z, colnames)
-    ncolZ <- lapply(Z, ncol)
-    # numeric levels passed to Stan
-    expr <- expression(as.array(as.numeric(factor(get(g, data)))), 
-                       length(unique(get(g, data))), # number of levels 
-                       ncolZ[[i]],  # number of random effects
-                       ncolZ[[i]] * (ncolZ[[i]] - 1) / 2)  # number of correlations
-    if (is_newdata) {
-      # for newdata only as levels are already defined in amend_newdata
-      expr[1] <- expression(get(g, data)) 
-    }
-    for (i in 1:nrow(random)) {
-      g <- random$group[[i]]
-      p <- if (nchar(nlpar)) paste0(nlpar, "_", i) else i
-      name <- paste0(c("J_", "N_", "K_", "NC_"), p)
-      for (j in 1:length(name)) {
-        out <- c(out, setNames(list(eval(expr[j])), name[j]))
-      }
-      Zname <- paste0("Z_", p)
-      if (isTRUE(not4stan)) {
-        # for internal use in S3 methods
-        if (ncolZ[[i]] == 1L) {
-          Z[[i]] <- as.vector(Z[[i]])
-        }
-        out <- c(out, setNames(Z[i], Zname))
-      } else {
-        if (ncolZ[[i]] > 1L) {
-          Zname <- paste0(Zname, "_", 1:ncolZ[[i]])
-        }
-        for (j in 1:ncolZ[[i]]) {
-          out <- c(out, setNames(list(as.array(Z[[i]][, j])), Zname[j]))
-        }
-      }
-      if (g %in% names(cov_ranef)) {
-        cov_mat <- as.matrix(cov_ranef[[g]])
-        if (!isSymmetric(unname(cov_mat))) {
-          stop(paste("covariance matrix of grouping factor", g, 
-                     "is not symmetric"), call. = FALSE)
-        }
-        found_level_names <- rownames(cov_mat)
-        if (is.null(found_level_names)) {
-          stop(paste("rownames are required for covariance matrix of", g),
-               call. = FALSE)
-        }
-        colnames(cov_mat) <- found_level_names
-        true_level_names <- levels(factor(get(g, data)))
-        found <- true_level_names %in% found_level_names
-        if (any(!found)) {
-          stop(paste("rownames of covariance matrix of", g, 
-                     "do not match names of the grouping levels"),
-               call. = FALSE)
-        }
-        cov_mat <- cov_mat[true_level_names, true_level_names, drop = FALSE]
-        if (min(eigen(cov_mat, symmetric = TRUE, 
-                      only.values = TRUE)$values) <= 0) {
-          warning(paste("covariance matrix of grouping factor", g, 
-                        "may not be positive definite"), call. = FALSE)
-        }
-        out <- c(out, setNames(list(t(chol(cov_mat))), paste0("Lcov_", p)))
-      }
-    }
+  if (is.formula(effects[["cse"]])) {
+    Xp <- get_model_matrix(effects$cse, data)
+    avoid_auxpars(colnames(Xp), effects = effects)
+    out <- c(out, list(Kp = ncol(Xp), Xp = Xp))
   }
   out
 }

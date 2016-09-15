@@ -2,6 +2,82 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.0.0}{
+  This is one of the largest updates of \code{brms} since its 
+  initial release. In addition to many new features, 
+  the multivariate \code{'trait'} syntax has been removed 
+  from the package as it was confusing for users, required 
+  much special case coding, and was hard to maintain.
+  See \code{help(brmsformula)} for details of the formula
+  syntax applied in \pkg{brms}.
+  \subsection{NEW FEATURES}{
+    \itemize{ 
+      \item Allow estimating correlations between 
+      group-level effects defined across multiple formulae 
+      (e.g., in non-linear models) by specifying IDs in
+      each grouping term via an extended \pkg{lme4} syntax.
+      \item Implement distributional regression models
+      allowing to fully predict auxiliary parameters 
+      of the response distribution. Among many other 
+      possibilities, this can be used to model 
+      heterogeneity of variances.
+      \item Zero-inflated and hurdle models do not use
+      multivariate syntax anymore but instead have
+      special auxiliary parameters named \code{zi} and 
+      \code{hu} defining zero-inflation / hurdle probabilities.
+      \item Implement the \code{von_mises} family to model
+      circular responses.
+      \item Introduce the \code{brmsfamily} function for
+      convenient specification of \code{family} objects.
+      \item Allow predictions of \code{t2} smoothing
+      terms for new data.
+      \item Feature vectors as arguments for the addition 
+      argument \code{trunc} in order to model varying
+      truncation points.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Remove the \code{cauchy} family
+      after several months of deprecation.
+      \item Make sure that group-level parameter names
+      are unambiguous by adding double underscores 
+      thanks to the idea of the GitHub user schmettow.
+      \item The \code{predict} method now returns predicted 
+      probabilities instead of absolute frequencies of 
+      samples for ordinal and categorical models.
+      \item Compute the linear predictor in the model
+      block of the Stan program instead of in the
+      transformed parameters block. This avoids saving
+      samples of unnecessary parameters to disk.
+      Thanks goes to Rick Arrano for pointing me 
+      to this issue.
+      \item Colour points in \code{marginal_effects} plots if 
+      sensible.
+      \item Set the default of the \code{robust} argument 
+      to \code{TRUE} in \code{marginal_effects.brmsfit}.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{ 
+      \item Fix a bug that could occur when predicting             
+      factorial response variables for new data.
+      Only affects categorical and ordinal models.
+      \item Fix a bug that could lead to duplicated  
+      variable names in the Stan code when sampling 
+      from priors in non-linear models thanks to Tom Wallis.
+      \item Fix problems when trying to pointwise 
+      evaluate non-linear formulae in 
+      \code{logLik.brmsfit} thanks to Tom Wallis.
+      \item Ensure full compatibility of the \code{ranef}
+      and \code{coef} methods with non-linear models.
+      \item Fix problems that occasionally occured when
+      handling \pkg{dplyr} datasets thanks to the
+      GitHub user Atan1988.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 0.10.0}{
   \subsection{NEW FEATURES}{
     \itemize{ 
@@ -39,7 +115,7 @@
       \item Fix problems when using variational Bayes
       algorithms with \pkg{brms} while having 
       \pkg{rstan} >= 2.10.0 installed thanks to the 
-      Github user cwerner87.
+      GitHub user cwerner87.
     }
   }
 }  

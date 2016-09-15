@@ -7,7 +7,7 @@ p <- function(x, i = NULL, row = TRUE) {
   #        only relevant if x has two dimensions
   if (!length(i)) {
     x
-  } else if (!is.null(dim(x)) && length(dim(x)) == 2L) {
+  } else if (length(dim(x)) == 2L) {
     if (row) {
       x[i, , drop = FALSE]
     } else {
@@ -23,10 +23,13 @@ isNULL <- function(x) {
   is.null(x) || ifelse(is.vector(x), all(sapply(x, is.null)), FALSE)
 }
 
-rmNULL <- function(x) {
+rmNULL <- function(x, recursive = TRUE) {
   # recursively removes NULL entries from an object
   x <- Filter(Negate(isNULL), x)
-  lapply(x, function(x) if (is.list(x)) rmNULL(x) else x)
+  if (recursive) {
+    x <- lapply(x, function(x) if (is.list(x)) rmNULL(x) else x)
+  }
+  x
 }
 
 first_not_null <- function(...) {
@@ -57,7 +60,8 @@ rmNum <- function(x) {
 }
 
 rmMatch <- function(x, ...) {
-  # remove all elements in x that also appear in ... while keeping all attributes
+  # remove all elements in x that also appear in ... 
+  # while keeping all attributes
   att <- attributes(x)
   keep <- which(!(x %in% c(...)))
   x <- x[keep]
@@ -96,15 +100,6 @@ ulapply <- function(X, FUN, ...) {
   unlist(lapply(X = X, FUN = FUN, ...))
 }
 
-as_matrix <- function(x, ...) {
-  # wrapper around as.matrix that can handle NULL
-  if (is.null(x)) {
-    NULL
-  } else {
-    as.matrix(x, ...) 
-  }
-}
-
 lc <- function(l, x) {
   # append x to l
   l[[length(l) + 1]] <- x
@@ -118,10 +113,8 @@ collapse <- function(..., sep = "") {
 
 collapse_lists <- function(ls) {
   # collapse strings having the same name in different lists
-  #
   # Args:
   #  ls: a list of named lists
-  # 
   # Returns:
   #  a named list containg the collapsed strings
   elements <- unique(unlist(lapply(ls, names)))
@@ -148,9 +141,21 @@ nlist <- function(...) {
   dots
 }
 
-named_list <- function(names) {
+named_list <- function(names, values = NULL) {
   # initialize a named list
-  setNames(vector("list", length(names)), names)
+  # Args:
+  #   names: names of the elements
+  #   values: values of the elements
+  if (length(values)) {
+    if (length(values) == 1L) {
+      values <- replicate(length(names), values)
+    }
+    values <- as.list(values)
+    stopifnot(length(values) == length(names))
+  } else {
+    values <- vector("list", length(names))
+  }
+  setNames(values, names)
 } 
 
 get_arg <- function(x, ...) {
@@ -164,7 +169,9 @@ get_arg <- function(x, ...) {
   while(i <= length(dots) && is.null(out)) {
     if (!is.null(dots[[i]][[x]])) {
       out <- dots[[i]][[x]]
-    } else i <- i + 1
+    } else {
+      i <- i + 1
+    }
   }
   out
 }
@@ -180,7 +187,11 @@ rhs <- function(x) {
 lhs <- function(x) {
   # return the lefthand side of a formula
   x <- as.formula(x)
-  if (length(x) == 3) update(x, . ~ 1) else NULL
+  if (length(x) == 3L) update(x, . ~ 1) else NULL
+}
+
+is.formula <- function(x) {
+  is(x, "formula")
 }
 
 SW <- function(expr) {
@@ -191,7 +202,24 @@ SW <- function(expr) {
 get_matches <- function(pattern, text, simplify = TRUE, ...) {
   # get pattern matches in text as vector
   x <- regmatches(text, gregexpr(pattern, text, ...))
-  if (simplify) x <- unlist(x)
+  if (simplify) {
+    x <- unlist(x)
+  }
+  x
+}
+
+usc <- function(x, pos = c("prefix", "suffix")) {
+  # add an underscore to non-empty character strings
+  # Args:
+  #   x: a character vector
+  #   pos: position of the underscore
+  pos <- match.arg(pos)
+  x <- as.character(x)
+  if (pos == "prefix") {
+    x <- ifelse(nzchar(x), paste0("_", x), "")
+  } else {
+    x <- ifelse(nzchar(x), paste0(x, "_"), "")
+  }
   x
 }
 
@@ -288,7 +316,8 @@ log_diff_exp <- function(x, y) {
 }
 
 log_sum_exp <- function(x, y) {
-  log(exp(x) + exp(y))
+  max <- max(x, y)
+  max + log(exp(x - max) + exp(y - max))
 }
 
 log_inv_logit <- function(x) {
@@ -309,8 +338,11 @@ wsp <- function(x, nsp = 1) {
   #   x: object accepted by paste
   #   nsp: number of whitespaces to add
   sp <- collapse(rep(" ", nsp))
-  if (length(x)) paste0(sp, x, sp)
-  else NULL
+  if (length(x)) {
+    paste0(sp, x, sp)
+  } else {
+    NULL
+  } 
 }
 
 limit_chars <- function(x, chars = NULL, lsuffix = 4) {
@@ -331,14 +363,17 @@ limit_chars <- function(x, chars = NULL, lsuffix = 4) {
   x
 }
 
-use_alias <- function(arg, alias = NULL, warn = TRUE) {
+use_alias <- function(arg, alias = NULL, default = NULL,
+                      warn = TRUE) {
   # ensure that deprecated arguments still work
   # Args:
   #   arg: input to the new argument
   #   alias: input to the deprecated argument
+  #   default: the default value of alias
+  #   warn: should a warning be printed if alias is specified?
   arg_name <- Reduce(paste, deparse(substitute(arg)))
   alias_name <- Reduce(paste, deparse(substitute(alias)))
-  if (!is.null(alias)) {
+  if (!is_equal(alias, default)) {
     arg <- alias
     if (substr(alias_name, 1, 5) == "dots$") {
       alias_name <- substr(alias_name, 6, nchar(alias_name))
@@ -354,8 +389,7 @@ use_alias <- function(arg, alias = NULL, warn = TRUE) {
 
 .addition <- function(formula, data = NULL) {
   # computes data for addition arguments
-  if (!is.formula(formula))
-    formula <- as.formula(formula)
+  formula <- as.formula(formula)
   eval(formula[[2]], data, environment(formula))
 }
 
@@ -409,7 +443,7 @@ use_alias <- function(arg, alias = NULL, warn = TRUE) {
     else if (grepl(paste0("^", x), "left")) x <- -1
     else x
   }))
-  if (!all(unique(cens) %in% c(-1:1)))
+  if (!all(unique(cens) %in% -1:1))
     stop (paste0("Invalid censoring data. Accepted values are ", 
                  "'left', 'none', and 'right' \n(abbreviations are allowed) ", 
                  "or -1, 0, and 1. TRUE and FALSE are also accepted \n",
@@ -421,10 +455,28 @@ use_alias <- function(arg, alias = NULL, warn = TRUE) {
 .trunc <- function(lb = -Inf, ub = Inf) {
   lb <- as.numeric(lb)
   ub <- as.numeric(ub)
-  if (length(lb) != 1 || length(ub) != 1) {
-    stop("invalid truncation values", call. = FALSE)
+  if (any(lb >= ub)) {
+    stop("Invalid truncation bounds", call. = FALSE)
   }
   nlist(lb, ub)
+}
+
+cse <- function(...) {
+  stop("inappropriate use of function 'cse'", call. = FALSE)
+}
+
+monotonic <- function(...) {
+  stop("inappropriate use of function 'monotonic'", call. = FALSE)
+}
+
+mono <- function(...) {
+  # abbreviation of monotonic
+  stop("inappropriate use of function 'monotonic'", call. = FALSE)
+}
+
+monotonous <- function(...) {
+  # abbreviation of monotonic
+  stop("please use function 'monotonic' instead", call. = FALSE)
 }
 
 # startup messages for brms
