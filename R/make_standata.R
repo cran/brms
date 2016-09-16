@@ -40,9 +40,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
   is_newdata <- isTRUE(control$is_newdata)
   # use deprecated arguments if specified
   cov_ranef <- use_alias(cov_ranef, dots$cov.ranef, warn = FALSE)
-  # some input checks 
-  if (!(is.null(data) || is.list(data)))
-    stop("argument 'data' must be a data.frame or list", call. = FALSE)
+  # some input checks
   family <- check_family(family)
   formula <- update_formula(formula, data = data, family = family,
                             partial = partial, nonlinear = nonlinear)
@@ -147,7 +145,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
   
   # data for various kinds of effects
   ranef <- tidy_ranef(ee, data)
-  args_eff <- nlist(data, family, ranef, prior, autocor, knots, not4stan)
+  args_eff <- nlist(data, family, ranef, prior, knots, not4stan)
   if (length(ee$nonlinear)) {
     nlpars <- names(ee$nonlinear)
     # matrix of covariates appearing in the non-linear formula
@@ -160,15 +158,15 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
     for (nlp in nlpars) {
       args_eff_spec <- list(effects = ee$nonlinear[[nlp]], nlpar = nlp,
                             smooth = control$smooth[[nlp]],
-                            Jm = control$Jm[[nlp]],
-                            rm_intercept = FALSE)
+                            Jm = control$Jm[[nlp]])
       data_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
       standata <- c(standata, data_eff)
     }
   } else {
     resp <- ee$response
     if (length(resp) > 1L && !old_mv) {
-      args_eff_spec <- list(effects = ee, Jm = control$Jm[["mu"]],
+      args_eff_spec <- list(effects = ee, autocor = autocor,
+                            Jm = control$Jm[["mu"]],
                             smooth = control$smooth[["mu"]])
       for (r in resp) {
         data_eff <- do.call(data_effects, 
@@ -181,20 +179,20 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
         standata$nrescor <- length(resp) * (length(resp) - 1) / 2 
       }
     } else {
-      args_eff_spec <- list(effects = ee, Jm = control$Jm[["mu"]],
+      # pass autocor here to not affect non-linear and auxiliary pars
+      args_eff_spec <- list(effects = ee, autocor = autocor, 
+                            Jm = control$Jm[["mu"]],
                             smooth = control$smooth[["mu"]])
       data_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
       standata <- c(standata, data_eff, data_csef(ee, data = data))
       standata$offset <- model.offset(data)
     }
-   
   }
   # data for predictors of scale / shape parameters
   for (ap in intersect(auxpars(), names(ee))) {
     args_eff_spec <- list(effects = ee[[ap]], nlpar = ap,
                           smooth = control$smooth[[ap]],
-                          Jm = control$Jm[[ap]],
-                          rm_intercept = FALSE)
+                          Jm = control$Jm[[ap]])
     data_aux_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
     standata <- c(standata, data_aux_eff)
   }
@@ -396,11 +394,10 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
 }  
 
 #' @export
-brmdata <- function(formula, data = NULL, family = "gaussian", 
-                    autocor = NULL, partial = NULL, 
-                    cov_ranef = NULL, ...)  {
-  # deprectated alias of make_standata
-  make_standata(formula = formula, data = data, 
-                family = family, autocor = autocor,
-                partial = partial, cov_ranef = cov_ranef, ...)
+brmdata <- function(...)  {
+  # deprecated alias of make_standata
+  warning("Function 'brmdata' is deprecated. ",
+          "Please use 'make_standata' instead.", 
+          call. = FALSE)
+  make_standata(...)
 }

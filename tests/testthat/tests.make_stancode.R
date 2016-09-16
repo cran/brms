@@ -4,7 +4,7 @@ test_that("make_stancode handles horseshoe priors correctly", {
   temp_stancode <- make_stancode(rating ~ treat*period*carry, data = inhaler,
                                  prior = prior)
   expect_match(temp_stancode, fixed = TRUE,
-               "  vector<lower=0>[K] hs_local; \n  real<lower=0> hs_global; \n")
+               "  vector<lower=0>[Kc] hs_local; \n  real<lower=0> hs_global; \n")
   expect_match(temp_stancode, fixed = TRUE,
                "  hs_local ~ student_t(7, 0, 1); \n  hs_global ~ cauchy(0, 1); \n")
 })
@@ -80,11 +80,11 @@ test_that("make_stancode handles models without fixed effects correctly", {
 test_that("make_stancode correctly restricts FE parameters", {
   data <- data.frame(y = rep(0:1, each = 5), x = rnorm(10))
   sc <- make_stancode(y ~ x, data, prior = set_prior("", lb = 2))
-  expect_match(sc, "vector<lower=2>[K] b", fixed = TRUE)
+  expect_match(sc, "vector<lower=2>[Kc] b", fixed = TRUE)
   sc <- make_stancode(y ~ x, data, prior = set_prior("normal(0,2)", ub = "4"))
-  expect_match(sc, "vector<upper=4>[K] b", fixed = TRUE)
+  expect_match(sc, "vector<upper=4>[Kc] b", fixed = TRUE)
   prior <- set_prior("normal(0,5)", lb = "-3", ub = 5)
-  sc <- make_stancode(y ~ x, data, prior = prior)
+  sc <- make_stancode(y ~ 0 + x, data, prior = prior)
   expect_match(sc, "vector<lower=-3,upper=5>[K] b", fixed = TRUE)
 })
 
@@ -187,6 +187,11 @@ test_that("make_stancode returns correct code for intercept only models", {
                "b_Intercept = temp_Intercept;", fixed = TRUE) 
   expect_match(make_stancode(rating ~ 1, data = inhaler, family = categorical()),
                "b_3_Intercept = temp_3_Intercept;", fixed = TRUE) 
+})
+
+test_that("make_stancode returns correct code for spline only models", {
+  expect_match(make_stancode(count ~ s(log_Age_c), data = epilepsy),
+               "matrix[N, K - 1] Xc;", fixed = TRUE)
 })
 
 test_that("make_stancode generates correct code for category specific effects", {

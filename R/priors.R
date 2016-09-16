@@ -383,8 +383,6 @@ get_prior <- function(formula, data = NULL, family = gaussian(),
                       threshold = c("flexible", "equidistant"), 
                       internal = FALSE) {
   # note that default priors are stored in this function
-  if (!(is.null(data) || is.list(data)))
-    stop("argument 'data' must be a data.frame or list", call. = FALSE)
   family <- check_family(family) 
   link <- family$link
   formula <- update_formula(formula, data = data, family = family, 
@@ -512,8 +510,7 @@ get_prior_effects <- function(effects, data, autocor = cor_arma(),
   # removal of the intercept for ordinal models
   # Args:
   #   spec_intercept: special parameter class for the FE Intercept? 
-  fixef <- colnames(data_fixef(effects, data, autocor = autocor, 
-                               rm_intercept = FALSE)$X)
+  fixef <- colnames(data_fixef(effects, data, autocor = autocor)$X)
   spec_intercept <- has_intercept(effects$fixed) && spec_intercept
   prior_fixef <- get_prior_fixef(fixef, spec_intercept = spec_intercept,
                                  nlpar = nlpar, internal = internal)
