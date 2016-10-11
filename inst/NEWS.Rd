@@ -2,6 +2,54 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.1.0}{
+   \subsection{NEW FEATURES}{
+    \itemize{
+      \item Estimate monotonic group-level effects.
+      \item Estimate category specific group-level effects.
+      \item Allow \code{t2} smooth terms based on
+      multiple covariates.
+      \item Estimate interval censored data via the
+      addition argument \code{cens} in the model formula.
+      \item Allow to compute \code{residuals} also based 
+      on predicted values instead of fitted values.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Use the prefix \code{bcs} in parameter names
+      of category specific effects and the prefix \code{bm} 
+      in parameter names of monotonic effects (instead
+      of the prefix \code{b}) to simplify their identifaction.
+      \item Ensure full compatibility with 
+      \pkg{ggplot2} version 2.2.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{ 
+      \item Fix a bug that could result in incorrect
+      threshold estimates for \code{cumulative} and
+      \code{sratio} models thanks to Peter Congdon.
+      \item Fix a bug that sometimes kept distributional 
+      \code{gamma} models from being compiled 
+      thanks to Tim Beechey.
+      \item Fix a bug causing an error in \code{predict} 
+      and related methods when two-level factors or 
+      logical variables were used as covariates in
+      non-linear models thanks to Martin Schmettow.
+      \item Fix a bug causing an error when passing 
+      lists to additional arguments of smoothing 
+      functions thanks to Wayne Folta.
+      \item Fix a bug causing an error in the 
+      \code{prior_samples} method for models with
+      multiple group-level terms that refer to the same 
+      grouping factor thanks to Marco Tullio Liuzza.
+      \item Fix a bug sometimes causing an error when 
+      calling \code{marginal_effects} for weighted models.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.0.1}{
   \subsection{MINOR CHANGES}{
     \itemize{

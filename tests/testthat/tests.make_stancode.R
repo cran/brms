@@ -46,7 +46,7 @@ test_that(paste("make_stancode returns correct strings",
 test_that("make_stancode handles addition arguments correctly", {
   expect_match(make_stancode(time | cens(censored) ~ age + sex + disease, 
                              data = kidney, family = c("weibull", "log")), 
-               "vector[N] cens;", fixed = TRUE)
+               "int<lower=-1,upper=2> cens[N];", fixed = TRUE)
   expect_match(make_stancode(time | trunc(0) ~ age + sex + disease,
                              data = kidney, family = "gamma"), 
                "T[lb[n], ];", fixed = TRUE)
@@ -197,10 +197,20 @@ test_that("make_stancode returns correct code for spline only models", {
 test_that("make_stancode generates correct code for category specific effects", {
   scode <- make_stancode(rating ~ period + carry + cse(treat), 
                          data = inhaler, family = sratio())
-  expect_match(scode, "matrix[N, Kp] Xp;", fixed = TRUE)
-  expect_match(scode, "matrix[Kp, ncat - 1] bp;", fixed = TRUE)
-  expect_match(scode, "etap = Xp * bp;", fixed = TRUE)
-  expect_match(scode, "sratio(eta[n], etap[n], temp_Intercept);", fixed = TRUE)
+  expect_match(scode, "matrix[N, Kcs] Xcs;", fixed = TRUE)
+  expect_match(scode, "matrix[Kcs, ncat - 1] bcs;", fixed = TRUE)
+  expect_match(scode, "etacs = Xcs * bcs;", fixed = TRUE)
+  expect_match(scode, "sratio(eta[n], etacs[n], temp_Intercept);", fixed = TRUE)
+  scode <- make_stancode(rating ~ period + carry + cse(treat) + (cse(1)|subject), 
+                         data = inhaler, family = acat())
+  expect_match(scode, "etacs[n, 1] = etacs[n, 1] + r_1_1[J_1[n]] * Z_1_1[n];",
+               fixed = TRUE)
+  scode <- make_stancode(rating ~ period + carry + (cse(treat)|subject), 
+                         data = inhaler, family = acat())
+  expect_match(scode, paste("etacs[n, 3] = etacs[n, 3] + r_1_3[J_1[n]] * Z_1_3[n]", 
+                             "+ r_1_6[J_1[n]] * Z_1_6[n];"), fixed = TRUE)
+  expect_match(scode, "Y[n] ~ acat(eta[n], etacs[n], temp_Intercept);", 
+               fixed = TRUE)
 })
 
 test_that("make_stancode generates correct code for monotonic effects", {
@@ -209,8 +219,16 @@ test_that("make_stancode generates correct code for monotonic effects", {
   scode <- make_stancode(y ~ monotonic(x1 + x2), data = data)
   expect_match(scode, "int Xm[N, Km];", fixed = TRUE)
   expect_match(scode, "simplex[Jm[1]] simplex_1;", fixed = TRUE)
-  expect_match(scode, "bm[2] * monotonic(simplex_2, Xm[n, 2]);", fixed = TRUE)
+  expect_match(scode, "(bm[2]) * monotonic(simplex_2, Xm[n, 2]);", fixed = TRUE)
   expect_match(scode, "simplex_1 ~ dirichlet(con_simplex_1);", fixed = TRUE)
+  scode <- make_stancode(y ~ mono(x1) + (mono(x1)|x2) + (1|x2), data = data)
+  expect_match(scode, "(bm[1] + r_1_1[J_1[n]]) * monotonic(simplex_1, Xm[n, 1]);",
+               fixed = TRUE)
+  # check that Z_1_1 is (correctly) undefined
+  expect_match(scode, paste0("  int<lower=1> M_1; \n",
+    "  // data for group-specific effects of ID 2"), fixed = TRUE)
+  expect_error(make_stancode(y ~ mono(x1) + (mono(x1+x2)|x2), data = data),
+               "Monotonic group-level terms require", fixed = TRUE)
 })
 
 test_that("make_stancode generates correct code for non-linear models", {
@@ -324,19 +342,26 @@ test_that("make_stancode correctly generates code for GAMMs", {
   dat <- data.frame(y = rnorm(10), x = rnorm(10), g = rep(1:2, 5))
   stancode <- make_stancode(y ~ s(x) + (1|g), data = dat,
                             prior = set_prior("normal(0,2)", "sds"))
-  expect_match(stancode, "Zs_1 * s_1", fixed = TRUE)
-  expect_match(stancode, "matrix[N, knots[1]] Zs_1", fixed = TRUE)
-  expect_match(stancode, "zs_1 ~ normal(0, 1)", fixed = TRUE)
-  expect_match(stancode, "sds_1 ~ normal(0,2)", fixed = TRUE)
+  expect_match(stancode, "Zs_1_1 * s_1_1", fixed = TRUE)
+  expect_match(stancode, "matrix[N, knots_1[1]] Zs_1_1", fixed = TRUE)
+  expect_match(stancode, "zs_1_1 ~ normal(0, 1)", fixed = TRUE)
+  expect_match(stancode, "sds_1_1 ~ normal(0,2)", fixed = TRUE)
   
   prior <- c(set_prior("normal(0,5)", nlpar = "lp"),
              set_prior("normal(0,2)", "sds", nlpar = "lp"))
   stancode <- make_stancode(y ~ lp, nonlinear = lp ~ s(x) + (1|g), data = dat, 
                             prior = prior)
-  expect_match(stancode, "Zs_lp_1 * s_lp_1", fixed = TRUE)
-  expect_match(stancode, "matrix[N, knots_lp[1]] Zs_lp_1", fixed = TRUE)
-  expect_match(stancode, "zs_lp_1 ~ normal(0, 1)", fixed = TRUE)
-  expect_match(stancode, "sds_lp_1 ~ normal(0,2)", fixed = TRUE)
+  expect_match(stancode, "Zs_lp_1_1 * s_lp_1_1", fixed = TRUE)
+  expect_match(stancode, "matrix[N, knots_lp_1[1]] Zs_lp_1_1", fixed = TRUE)
+  expect_match(stancode, "zs_lp_1_1 ~ normal(0, 1)", fixed = TRUE)
+  expect_match(stancode, "sds_lp_1_1 ~ normal(0,2)", fixed = TRUE)
+  
+  stancode <- make_stancode(y ~ s(x) + t2(x,y), data = dat,
+                            prior = set_prior("normal(0,2)", "sds"))
+  expect_match(stancode, "Zs_2_2 * s_2_2", fixed = TRUE)
+  expect_match(stancode, "matrix[N, knots_2[2]] Zs_2_2", fixed = TRUE)
+  expect_match(stancode, "zs_2_2 ~ normal(0, 1)", fixed = TRUE)
+  expect_match(stancode, "sds_2_2 ~ normal(0,2)", fixed = TRUE)
 })
 
 test_that("make_stancode correctly handles the group ID syntax", {
@@ -352,4 +377,56 @@ test_that("make_stancode correctly handles the group ID syntax", {
                       prior = set_prior("normal(0,5)", nlpar = "a"))
   expect_match(sc, "r_2_a_3 = r_2[, 3];", fixed = TRUE)
   expect_match(sc, "r_1_sigma_2 = sd_1[2] * (z_1[2]);", fixed = TRUE)
+})
+
+test_that("make_stancode correctly computes ordinal thresholds", {
+  sc <- make_stancode(rating ~ period + carry + treat, 
+                      data = inhaler, family = cumulative())
+  expect_match(sc, "b_Intercept = temp_Intercept + dot_product(means_X, b);",
+               fixed = TRUE)
+  sc <- make_stancode(rating ~ period + carry + treat, 
+                      data = inhaler, family = acat())
+  expect_match(sc, "b_Intercept = temp_Intercept - dot_product(means_X, b);",
+               fixed = TRUE)
+})
+
+test_that("make_stancode correctly parses distributional gamma models", {
+  # test fix of issue #124
+  scode <- make_stancode(bf(time ~ age * sex + disease + (1|patient), 
+                            shape ~ age + (1|patient)), 
+                         data = kidney, family = Gamma("log"))
+  expect_match(scode, paste0("    shape[n] = exp(shape[n]); \n", 
+                             "    eta[n] = shape[n] * exp(-(eta[n]));"),
+               fixed = TRUE)
+  
+  scode <- make_stancode(bf(time ~ inv_logit(a) * exp(b * age),
+                            nonlinear = a + b ~ sex + (1|patient), 
+                            shape ~ age + (1|patient)), 
+                         data = kidney, family = Gamma("identity"),
+                         prior = c(set_prior("normal(2,2)", nlpar = "a"),
+                                   set_prior("normal(0,3)", nlpar = "b")))
+  expect_match(scode, paste0(
+    "    shape[n] = exp(shape[n]); \n", 
+    "    // compute non-linear predictor \n",
+    "    eta[n] = shape[n] / (inv_logit(eta_a[n]) * exp(eta_b[n] * C[n, 1]));"),
+    fixed = TRUE)
+})
+
+test_that("make_stancode handles censored responses correctly", {
+  dat <- data.frame(y = 1:9, x = rep(-1:1, 3), y2 = 10:18)
+  expect_match(make_stancode(y | cens(x, y2) ~ 1, dat, poisson()),
+               "target += poisson_lpmf(Y[n] | eta[n]); \n", 
+               fixed = TRUE)
+  expect_match(make_stancode(y | cens(x) ~ 1, dat, weibull()), 
+               "target += weibull_lccdf(Y[n] | shape, eta[n]); \n",
+               fixed = TRUE)
+  dat$x[1] <- 2
+  expect_match(make_stancode(y | cens(x, y2) ~ 1, dat, gaussian()), 
+               "target += log_diff_exp(normal_lcdf(rcens[n] | eta[n], sigma),",
+               fixed = TRUE)
+  dat$x <- 1
+  make_stancode(y | cens(x) + weights(x) ~ 1, dat, weibull())
+  expect_match(make_stancode(y | cens(x) + weights(x) ~ 1, dat, weibull()),
+               paste("target += weights[n] * weibull_lccdf(Y[n] |", 
+                     "shape, eta[n]); \n"), fixed = TRUE)
 })

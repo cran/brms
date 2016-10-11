@@ -1,11 +1,11 @@
 Package: brms
 Type: Package
 Title: Bayesian Regression Models using Stan
-Version: 1.0.1
-Date: 2016-09-15
+Version: 1.1.0
+Date: 2016-10-11
 Authors@R: person("Paul-Christian", "Buerkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
-Depends: R (>= 3.2.0), rstan (>= 2.12.1), ggplot2 (>= 2.0.0), methods
+Depends: R (>= 3.2.0), rstan (>= 2.12.0), ggplot2 (>= 2.0.0), methods
 Imports: loo (>= 0.1.6), shinystan (>= 2.2.1), gridExtra (>= 2.0.0),
         lme4 (>= 1.1-11), Matrix (>= 1.1.1), mgcv (>= 1.8-13), coda,
         abind, statmod, stats, CircStats, graphics, utils, parallel,
@@ -21,8 +21,8 @@ URL: https://github.com/paul-buerkner/brms
 BugReports: https://github.com/paul-buerkner/brms/issues
 VignetteBuilder: knitr, R.rsp
 RoxygenNote: 5.0.1
-Packaged: 2016-09-16 07:54:39 UTC; paulb
+Packaged: 2016-10-11 20:54:40 UTC; paulb
 Author: Paul-Christian Buerkner [aut, cre]
 Maintainer: Paul-Christian Buerkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2016-09-16 12:50:24
+Date/Publication: 2016-10-11 23:53:54

@@ -65,8 +65,8 @@
 #'   For more details on this model class see \code{\link[mgcv:gam]{gam}} 
 #'   and \code{\link[mgcv:gamm]{gamm}}.
 #'   
-#'   The \code{Pterms} part may contain two non-standard types
-#'   of population-level effects namely monotonic and category specific effects,
+#'   The \code{Pterms} and \code{Gterms} parts may contain two non-standard
+#'   effect types namely monotonic and category specific effects,
 #'   which can be specified using terms of the form \code{monotonic(<predictors>)} 
 #'   and \code{cse(<predictors>)} respectively. The latter can only be applied in
 #'   ordinal models and is explained in more detail in the package's vignette
@@ -101,8 +101,8 @@
 #'   \code{study} is a variable uniquely identifying every study.
 #'   If desired, meta-regression can be performed via 
 #'   \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1|study)} 
-#'   or \cr \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1 + mod1 + mod2|study)}, where
-#'   \code{mod1} and \code{mod2} represent moderator variables. 
+#'   or \cr \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1 + mod1 + mod2|study)}, 
+#'   where \code{mod1} and \code{mod2} represent moderator variables. 
 #'   
 #'   For all families, weighted regression may be performed using
 #'   \code{weights} in the addition part. Internally, this is 
@@ -139,12 +139,19 @@
 #'   If not given, the number of categories is calculated from the data.
 #'   
 #'   With the expection of \code{categorical} and ordinal families, 
-#'   left and right censoring can be modeled through 
-#'   \code{yi | cens(censored) ~ predictors}.
-#'   The censoring variable (named \code{censored} in this example) should 
-#'   contain the values \code{'left'}, \code{'none'}, and \code{'right'}  
-#'   (or equivalenty -1, 0, and 1) to indicate that the corresponding observation is 
-#'   left censored, not censored, or right censored. 
+#'   left, right, and interval censoring can be modeled through 
+#'   \code{y | cens(censored) ~ predictors}. The censoring variable 
+#'   (named \code{censored} in this example) should contain the values 
+#'   \code{'left'}, \code{'none'}, \code{'right'}, and \code{'interval'} 
+#'   (or equivalenty \code{-1}, \code{0}, \code{1}, and \code{2}) to indicate that 
+#'   the corresponding observation is left censored, not censored, right censored,
+#'   or interval censored. For interval censored data, a second variable
+#'   (let's call it \code{y2}) has to be passed to \code{cens}. In this case, 
+#'   the formula has the structure \code{y | cens(censored, y2) ~ predictors}. 
+#'   While the lower bounds are given in \code{y}, 
+#'   the upper bounds are given in \code{y2} for interval
+#'   censored data. Intervals are assumed to be open on the left and closed 
+#'   on the right: \code{(y, y2]}.
 #'   
 #'   With the expection of \code{categorical} and ordinal families, the response 
 #'   distribution can be truncated using the \code{trunc} function in the addition part.
@@ -180,7 +187,7 @@
 #'   \code{cbind(y1,y2) ~ x + (1+x|2|g)}. Of course, you could also use
 #'   any value other than \code{2} as ID. It is not yet possible
 #'   to model terms as only affecting certain responses (and not others),
-#'   but this will comebe implemented in the future.
+#'   but this will be implemented in the future.
 #'    
 #'   Categorical models use the same syntax as multivariate
 #'   models. As in most other implementations of categorical models,
@@ -313,6 +320,9 @@
 #' # specify a predictor as category specific
 #' # for ordinal models only
 #' bf(y ~ cse(x) + more_predictors)
+#' 
+#' # add a category specific group-level intercept
+#' bf(y ~ cse(x) + (cse(1)|g))
 #' 
 #' @export
 brmsformula <- function(formula, ..., nonlinear = NULL) {

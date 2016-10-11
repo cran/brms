@@ -1,6 +1,6 @@
 test_that("all S3 methods have reasonable ouputs", {
-  fit1 <- brms:::rename_pars(brmsfit_example1)
-  fit2 <- brms:::rename_pars(brmsfit_example2)
+  fit1 <- brms:::rename_pars(brms:::brmsfit_example1)
+  fit2 <- brms:::rename_pars(brms:::brmsfit_example2)
   # test S3 methods in alphabetical order
   # as.data.frame
   ps <- as.data.frame(fit1)
@@ -124,8 +124,8 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(nobs(fit1), nrow(epilepsy))
   # parnames 
   expect_equal(parnames(fit1)[c(1, 8, 9, 13, 15, 17, 27, 35, 38, 46)],
-               c("b_Intercept", "b_Exp", "ar[1]", "cor_visit__Intercept__Trt", 
-                 "nu", "simplex_Exp[2]", "r_visit[4,Trt]", "s_sAge[8]", 
+               c("b_Intercept", "bm_Exp", "ar[1]", "cor_visit__Intercept__Trt", 
+                 "nu", "simplex_Exp[2]", "r_visit[4,Trt]", "s_sAge_1[8]", 
                  "prior_sd_visit", "lp__"))
   expect_equal(parnames(fit2)[c(1, 4, 6, 7, 9, 71, 129)],
                c("b_a_Intercept", "b_b_Age", "sd_patient__b_Intercept",
@@ -138,9 +138,8 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(ps), c(Nsamples(fit1), length(parnames(fit1))))
   expect_equal(names(ps), parnames(fit1))
   expect_equal(names(posterior_samples(fit1, pars = "^b_")),
-               c("b_Intercept", "b_Trt", "b_Age", 
-                 "b_Trt:Age", "b_sAge_1", "b_sigma_Intercept",
-                 "b_sigma_Trt", "b_Exp"))
+               c("b_Intercept", "b_Trt", "b_Age", "b_Trt:Age", 
+                 "b_sAge_1", "b_sigma_Intercept", "b_sigma_Trt"))
   # pp_check
   # commented out as long a bayesplot is not on CRAN
   # expect_true(is(pp_check(fit1), "ggplot"))
@@ -182,7 +181,7 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_output(SW(print(fit1)), "Group-Level Effects:")
   # prior_samples
   prs1 <- prior_samples(fit1)
-  prior_names <- c("sds_sAge", "nu", "sd_visit", "b", "bm", 
+  prior_names <- c("sds_sAge_1", "nu", "sd_visit", "b", "bm", 
                    paste0("simplex_Exp[", 1:4, "]"), "cor_visit")
   expect_equal(dimnames(prs1),
                list(as.character(1:Nsamples(fit1)), prior_names))
@@ -217,7 +216,7 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_output(print(stancode(fit1)), "generated quantities")
   # standata
   expect_equal(names(standata(fit1)),
-               c("N", "Y", "ns", "knots", "Zs_1", "K", "X", 
+               c("N", "Y", "nb_1", "knots_1", "Zs_1_1", "K", "X", 
                  "Km", "Xm", "Jm", "con_simplex_1", "Z_1_1", "Z_1_2", 
                  "offset", "K_sigma", "X_sigma", "J_1", "N_1", "M_1", 
                  "NC_1", "tg", "Kar", "Kma", "Karma", "prior_only"))
@@ -245,8 +244,9 @@ test_that("all S3 methods have reasonable ouputs", {
   # do not actually refit the model as is causes CRAN checks to fail
   up <- update(fit1, testmode = TRUE)
   expect_true(is(up, "brmsfit"))
-  new_data <- data.frame(Age = c(0, 1, -1), visit = c(3, 2, 4),
-                         Trt = c(0, 0.5, -0.5), count = c(5, 17, 28),
+  new_data <- data.frame(Age = rnorm(18), visit = rep(c(3, 2, 4), 6),
+                         Trt = rep(c(0, 0.5, -0.5), 6), 
+                         count = rep(c(5, 17, 28), 6),
                          patient = 1, Exp = 4)
   up <- update(fit1, newdata = new_data, ranef = FALSE, testmode = TRUE)
   expect_true(is(up, "brmsfit"))
@@ -298,5 +298,5 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_true(is.numeric(waic2[["waic"]]))
   waic_pointwise <- WAIC(fit2, pointwise = TRUE)
   expect_equal(waic2, waic_pointwise)
-  expect_warning(WAIC(fit1, fit2), "model comparisons are invalid")
+  expect_warning(WAIC(fit1, fit2), "Model comparisons are most likely invalid")
 })

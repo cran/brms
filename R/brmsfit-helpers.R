@@ -5,13 +5,13 @@ array2list <- function(x) {
   # Returns: 
   #   A list of arrays of dimension d-1
   if (is.null(dim(x))) stop("Argument x has no dimension")
-  n.dim <- length(dim(x))
-  l <- list(length = dim(x)[n.dim])
-  ind <- collapse(rep(",", n.dim - 1))
-  for (i in seq_len(dim(x)[n.dim])) {
+  ndim <- length(dim(x))
+  l <- list(length = dim(x)[ndim])
+  ind <- collapse(rep(",", ndim - 1))
+  for (i in seq_len(dim(x)[ndim])) {
     l[[i]] <- eval(parse(text = paste0("x[", ind, i,"]"))) 
   }
-  names(l) <- dimnames(x)[[n.dim]]
+  names(l) <- dimnames(x)[[ndim]]
   l
 }
 
@@ -21,17 +21,18 @@ Nsamples <- function(x, subset = NULL) {
   #   x: a brmsfit object
   #   subset: a vector defining a subset of samples to be considered
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) {
-    return(0)
-  }
-  ntsamples <- (x$fit@sim$iter - x$fit@sim$warmup) /
-                 x$fit@sim$thin * x$fit@sim$chains
-  if (length(subset)) {
-    out <- length(subset)
-    if (out > ntsamples || max(subset) > ntsamples) {
-      stop("invalid 'subset' argument", call. = FALSE)
-    }
+    out <- 0
   } else {
-    out <- ntsamples
+    ntsamples <- (x$fit@sim$iter - x$fit@sim$warmup) /
+                  x$fit@sim$thin * x$fit@sim$chains
+    if (length(subset)) {
+      out <- length(subset)
+      if (out > ntsamples || max(subset) > ntsamples) {
+        stop("invalid 'subset' argument", call. = FALSE)
+      }
+    } else {
+      out <- ntsamples
+    }
   }
   out
 }
@@ -56,32 +57,41 @@ restructure <- function(x) {
   if (isTRUE(attr(x, "restructured"))) {
     return(x)  # already restructured
   }
-  # x$nonlinear deprecated as of brms > 0.9.1
-  # X$partial deprecated as of brms > 0.8.0
-  x$formula <- SW(update_formula(x$formula, partial = x$partial, 
-                                 nonlinear = x$nonlinear))
-  x$nonlinear <- x$partial <- NULL
-  if (is(x$autocor, "cor_fixed")) {
-    # deprecated as of brms 1.0.0
-    class(x$autocor) <- "cov_fixed"
-  }
-  if (is.null(x$version) || x$version <= "0.10.0.9000") {
-    attr(x$formula, "old_mv") <- is.old_mv(x)
-    ee <- extract_effects(formula(x), family = family(x))
-    x$ranef <- tidy_ranef(ee, model.frame(x))
-    if (length(ee$nonlinear)) {
-      # nlpar and group have changed positions
-      change <- change_old_ranef(x$ranef, pars = parnames(x),
-                                 dims = x$fit@sim$dims_oi)
-      for (i in seq_along(change)) {
-        x <- do_renaming(change = change[[i]], x = x)
-      }
+  if (isTRUE(x$version < utils::packageVersion("brms"))) {
+    # element 'nonlinear' deprecated as of brms > 0.9.1
+    # element 'partial' deprecated as of brms > 0.8.0
+    x$formula <- SW(update_formula(x$formula, partial = x$partial, 
+                                   nonlinear = x$nonlinear))
+    x$nonlinear <- x$partial <- NULL
+    if (is(x$autocor, "cor_fixed")) {
+      # deprecated as of brms 1.0.0
+      class(x$autocor) <- "cov_fixed"
     }
-  } else if (x$version < "1.0.0") {
-    # I added double underscores in group-level parameters
-    # right before the release of brms 1.0.0
-    change <- change_old_ranef2(x$ranef, pars = parnames(x),
-                                dims = x$fit@sim$dims_oi)
+    ee <- extract_effects(formula(x), family = family(x))
+    change <- list()
+    if (isTRUE(x$version <= "0.10.0.9000")) {
+      attr(x$formula, "old_mv") <- is.old_mv(x)
+      x$ranef <- tidy_ranef(ee, model.frame(x))
+      if (length(ee$nonlinear)) {
+        # nlpar and group have changed positions
+        change <- c(change,
+          change_old_ranef(x$ranef, pars = parnames(x),
+                           dims = x$fit@sim$dims_oi))
+      }
+    } else if (isTRUE(x$version < "1.0.0")) {
+      # I added double underscores in group-level parameters
+      # right before the release of brms 1.0.0
+      change <- c(change,
+        change_old_ranef2(x$ranef, pars = parnames(x),
+                          dims = x$fit@sim$dims_oi))
+    }
+    if (isTRUE(x$version <= "1.0.1")) {
+      # names of spline parameters had to be changed after
+      # allowing for multiple covariates in one spline term
+      change <- c(change,
+        change_old_splines(ee, pars = parnames(x),
+                           dims = x$fit@sim$dims_oi))
+    }
     for (i in seq_along(change)) {
       x <- do_renaming(change = change[[i]], x = x)
     }
@@ -228,7 +238,7 @@ get_summary <- function(samples, probs = c(0.025, 0.975),
     out <- do.call(cbind, lapply(coefs, get_estimate, samples = samples,
                                  probs = probs, na.rm = TRUE))
   } else if (length(dim(samples)) == 3L) {
-    out <- abind(lapply(1:dim(samples)[3], function(i)
+    out <- abind(lapply(seq_len(dim(samples)[3]), function(i)
       do.call(cbind, lapply(coefs, get_estimate, samples = samples[, , i],
                             probs = probs))), along = 3)
     dimnames(out) <- list(NULL, NULL, paste0("P(Y = ", 1:dim(out)[3], ")")) 
@@ -306,8 +316,8 @@ get_cov_matrix_ar1 <- function(ar, sigma, nrows, se2 = 0) {
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows AR1 covariance array (!)
-  mat <- aperm(array(diag(se2, nrows), dim = c(nrows, nrows, nrow(ar))),
-               perm = c(3, 1, 2))
+  mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
+  mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2_adjusted <- sigma^2 / (1 - ar^2)
   pow_ar <- as.list(rep(1, nrows + 1))
   for (i in seq_len(nrows)) {
@@ -330,8 +340,8 @@ get_cov_matrix_ma1 <- function(ma, sigma, nrows, se2 = 0) {
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows MA1 covariance array (!)
-  mat <- aperm(array(diag(se2, nrows), dim = c(nrows, nrows, nrow(ma))),
-               perm = c(3, 1, 2))
+  mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
+  mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2 <- sigma^2
   sigma2_adjusted <- sigma2 * (1 + ma^2)
   sigma2_times_ma <- sigma2 * ma
@@ -357,8 +367,8 @@ get_cov_matrix_arma1 <- function(ar, ma, sigma, nrows, se2 = 0) {
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows ARMA1 covariance array (!)
-  mat <- aperm(array(diag(se2, nrows), dim = c(nrows, nrows, nrow(ar))),
-               perm = c(3, 1, 2))
+  mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
+  mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2_adjusted <- sigma^2 / (1 - ar^2)
   gamma0 <- 1 + ma^2 + 2 * ar * ma
   gamma <- as.list(rep(NA, nrows))
@@ -376,15 +386,15 @@ get_cov_matrix_arma1 <- function(ar, ma, sigma, nrows, se2 = 0) {
 
 get_cov_matrix_ident <- function(sigma, nrows, se2 = 0) {
   # compute a variance matrix without including ARMA parameters
-  # only used for ARMA covariance models when incl_autor = FALSE
+  # only used for ARMA covariance models when incl_autocor = FALSE
   # Args:
-  #   sigma: standard deviation samples of the AR1 process
+  #   sigma: standard deviation samples
   #   se2: square of user defined standard errors (may be 0)
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows sigma array
-  mat <- aperm(array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma))),
-               perm = c(3, 1, 2))
+  mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
+  mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2 <- sigma^2
   for (i in seq_len(nrows)) {
     mat[, i, i] <- mat[, i, i] + sigma2
@@ -636,30 +646,33 @@ match_response <- function(models) {
   #   models: A list of brmsfit objects
   # Returns:
   #   TRUE if the response parts of all models match and FALSE else
-  if (length(models) <= 1) return(TRUE)
-  .match_fun <- function(x, y) {
-    # checks if all relevant parts of the response are the same 
-    # Args:
-    #   x, y: named lists as returned by standata
-    to_match <- c("Y", "se", "weights", "cens", "trunc", "disp")
-    all(ulapply(to_match, function(v) {
-      a <- if (is.null(attr(x, "old_order"))) as.vector(x[[v]])
-           else as.vector(x[[v]])[attr(x, "old_order")]
-      b <- if (is.null(attr(y, "old_order"))) as.vector(y[[v]])
-           else as.vector(y[[v]])[attr(y, "old_order")]
-      is_equal(a, b)
-    }))
-  } 
-  standatas <- lapply(models, standata, control = list(save_order = TRUE))
-  matches <- ulapply(standatas[-1], .match_fun, y = standatas[[1]]) 
-  if (all(matches)) {
-    out <- TRUE
+  if (length(models) <= 1L) {
+    out <- TRUE  
   } else {
-    out <- FALSE
-    warning(paste("model comparisons are invalid as the response parts", 
-                  "of at least two models do not match"), call. = FALSE)
+    .match_fun <- function(x, y) {
+      # checks if all relevant parts of the response are the same 
+      # Args:
+      #   x, y: named lists as returned by standata
+      to_match <- c("Y", "se", "weights", "cens", "trunc", "disp")
+      all(ulapply(to_match, function(v) {
+        a <- if (is.null(attr(x, "old_order"))) as.vector(x[[v]])
+             else as.vector(x[[v]])[attr(x, "old_order")]
+        b <- if (is.null(attr(y, "old_order"))) as.vector(y[[v]])
+             else as.vector(y[[v]])[attr(y, "old_order")]
+        is_equal(a, b)
+      }))
+    }
+    standatas <- lapply(models, standata, control = list(save_order = TRUE))
+    matches <- ulapply(standatas[-1], .match_fun, y = standatas[[1]]) 
+    if (all(matches)) {
+      out <- TRUE
+    } else {
+      out <- FALSE
+      warning("Model comparisons are most likely invalid as the response ", 
+              "parts of at least two models do not match.", call. = FALSE)
+    }
   }
-  out
+  invisible(out)
 }
 
 find_names <- function(x) {

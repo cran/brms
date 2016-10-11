@@ -206,22 +206,22 @@ fix_factor_contrasts <- function(data, optdata = NULL) {
 
 amend_newdata <- function(newdata, fit, re_formula = NULL, 
                           allow_new_levels = FALSE,
-                          return_standata = TRUE,
-                          check_response = FALSE) {
+                          check_response = FALSE,
+                          incl_autocor = TRUE,
+                          return_standata = TRUE) {
   # amend newdata passed to predict and fitted methods
   # Args:
   #   newdata: a data.frame containing new data for prediction 
   #   fit: an object of class brmsfit
   #   re_formula: a random effects formula
-  #   allow_new_levels: are new random effects levels allowed?
-  #   return_standata: logical; compute the data to be passed 
-  #                    to Stan, or just return the updated newdata?
+  #   allow_new_levels: Are new random effects levels allowed?
   #   check_response: Should response variables be checked
   #                   for existence and validity?
-  # Notes:
-  #   used in predict.brmsfit, fitted.brmsfit and linear_predictor.brmsfit
+  #   incl_autocor: Check data of autocorrelation terms?
+  #   return_standata: Compute the data to be passed to Stan
+  #                    or just return the updated newdata?
   # Returns:
-  #   updated data.frame being compatible with fit$formula
+  #   updated data.frame being compatible with formula(fit)
   if (is.null(newdata) || is(newdata, "list")) {
     # to shorten expressions in S3 methods such as predict.brmsfit
     if (return_standata && is.null(newdata)) {
@@ -234,9 +234,9 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
   }
   # standata will be based on an updated formula if re_formula is specified
   new_formula <- update_re_terms(formula(fit), re_formula = re_formula)
-  et <- extract_time(fit$autocor$formula)
-  ee <- extract_effects(new_formula, et$all, family = family(fit),
-                        resp_rhs_all = FALSE)
+  et <- if (incl_autocor) extract_time(fit$autocor$formula)
+  ee <- extract_effects(new_formula, family = family(fit),
+                        resp_rhs_all = FALSE, et$all)
   resp_only_vars <- setdiff(all.vars(ee$respform), all.vars(rhs(ee$all)))
   missing_resp <- setdiff(resp_only_vars, names(newdata))
   if (check_response && length(missing_resp)) {
@@ -248,10 +248,15 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
       newdata[[resp]] <- NA 
     }
   }
-  if (is.formula(ee$cens)) {
-    for (cens in setdiff(all.vars(ee$cens), names(newdata))) { 
-      newdata[[cens]] <- 0 # add irrelevant censor variables
-    }
+  cens_vars <- all.vars(ee$cens)
+  for (v in setdiff(cens_vars, names(newdata))) {
+    # censoring vars are unused in predict and related methods
+    newdata[[v]] <- 0
+  }
+  weights_vars <- all.vars(ee$weights)
+  for (v in setdiff(weights_vars, names(newdata))) {
+    # weighting vars are unused in predict and related methods
+    newdata[[v]] <- 1
   }
   new_ranef <- tidy_ranef(ee, data = model.frame(fit))
   if (nrow(fit$ranef)) {
@@ -270,8 +275,9 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     list_data <- lapply(as.list(fit$data), function(x)
       if (is.numeric(x)) x else as.factor(x))
     is_factor <- sapply(list_data, is.factor)
-    is_group <- names(list_data) %in% fit$ranef$group
-    factors <- list_data[is_factor & !is_group]
+    dont_check <- c(fit$ranef$group, cens_vars)
+    dont_check <- names(list_data) %in% dont_check
+    factors <- list_data[is_factor & !dont_check]
     if (length(factors)) {
       factor_names <- names(factors)
       factor_levels <- lapply(factors, levels) 
@@ -373,13 +379,13 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     }
     control$smooth <- make_smooth_list(ee, model.frame(fit))
     if (is(fit$autocor, "cov_fixed")) {
-      fit$autocor$V <- diag(median(diag(fit$autocor$V), na.rm = TRUE), 
-                            nrow(newdata))
+      median_V <- median(diag(fit$autocor$V), na.rm = TRUE)
+      fit$autocor$V <- diag(median_V, nrow(newdata))
     }
     knots <- attr(model.frame(fit), "knots")
-    newdata <- make_standata(new_formula, data = newdata, family = fit$family,
-                             autocor = fit$autocor, knots = knots, 
-                             control = control)
+    newdata <- make_standata(new_formula, data = newdata, 
+                             family = fit$family, autocor = fit$autocor,
+                             knots = knots, control = control)
   }
   newdata
 }
@@ -415,17 +421,16 @@ get_model_matrix <- function(formula, data = environment(formula),
   X   
 }
 
-prepare_mono_vars <- function(data, vars, check = TRUE) {
+prepare_mono_vars <- function(formula, data, check = TRUE) {
   # prepare monotonic variables for use in Stan
   # Args:
+  #   formula: formula containing mononotic effects terms
   #   data: a data.frame or named list
-  #   vars: names of monotonic variables
   #   check: check the number of levels? 
   # Returns:
   #   'data' with amended monotonic variables
-  stopifnot(is.list(data))
-  stopifnot(is.atomic(vars))
-  vars <- intersect(vars, names(data))
+  data <- model.frame(formula, data)
+  vars <- names(data)
   for (i in seq_along(vars)) {
     # validate predictors to be modeled as monotonic effects
     if (is.ordered(data[[vars[i]]])) {
@@ -448,7 +453,12 @@ prepare_mono_vars <- function(data, vars, check = TRUE) {
            call. = FALSE)
     }
   }
-  data
+  out <- get_model_matrix(formula, data, cols2remove = "Intercept")
+  if (any(grepl(":", colnames(out), fixed = TRUE))) {
+    stop("Modeling interactions as monotonic ", 
+         "is not meaningful.", call. = FALSE)
+  }
+  out
 }
 
 make_smooth_list <- function(effects, data) {
@@ -498,12 +508,11 @@ make_smooth_list <- function(effects, data) {
 }
 
 arr_design_matrix <- function(Y, r, group)  { 
-  # calculate design matrix for autoregressive effects of the response
-  #
+  # compute the design matrix for ARR effects
   # Args:
   #   Y: a vector containing the response variable
   #   r: ARR order
-  #   group: vector containing the grouping variable for each observation
+  #   group: vector containing the grouping variable
   # Notes: 
   #   expects Y to be sorted after group already
   # Returns:
@@ -514,16 +523,18 @@ arr_design_matrix <- function(Y, r, group)  {
     N_group <- length(U_group)
     out <- matrix(0, nrow = length(Y), ncol = r)
     ptsum <- rep(0, N_group + 1)
-    for (j in 1:N_group) {
+    for (j in seq_len(N_group)) {
       ptsum[j + 1] <- ptsum[j] + sum(group == U_group[j])
-      for (i in 1:r) {
+      for (i in seq_len(r)) {
         if (ptsum[j] + i + 1 <= ptsum[j + 1]) {
           out[(ptsum[j] + i + 1):ptsum[j + 1], i] <- 
             Y[(ptsum[j] + 1):(ptsum[j + 1] - i)]
         }
       }
     }
-  } else out <- NULL
+  } else {
+    out <- NULL
+  } 
   out
 }
 
@@ -552,8 +563,8 @@ data_effects <- function(effects, data, family = gaussian(),
                            autocor = autocor, nlpar = nlpar, 
                            knots = knots, not4stan = not4stan,
                            smooth = smooth)
-  data_monef <- data_monef(effects, data = data, prior = prior, 
-                           Jm = Jm, nlpar = nlpar)
+  data_monef <- data_monef(effects, data = data, ranef = ranef,
+                           prior = prior, Jm = Jm, nlpar = nlpar)
   data_ranef <- data_ranef(ranef, data = data, nlpar = nlpar, 
                            not4stan = not4stan)
   c(data_fixef, data_monef, data_ranef)
@@ -586,19 +597,16 @@ data_fixef <- function(effects, data, family = gaussian(),
         sm$X <- mgcv::PredictMat(sm, rm_attr(data, "terms"))
       }
       rasm <- mgcv::smooth2random(sm, names(data))
-      # mgcv:::gamm.setup loops over rasm$rand 
-      # although it should have only one element anyway
-      # if it has more elements the brms implementation will fail
-      stopifnot(length(rasm$rand) <= 1L)
       Xs[[i]] <- rasm$Xf
       if (ncol(Xs[[i]])) {
-        colnames(Xs[[i]]) <- paste0(sm$label, "_", 1:ncol(Xs[[i]]))
+        colnames(Xs[[i]]) <- paste0(sm$label, "_", seq_len(ncol(Xs[[i]])))
       }
-      Zs[[i]] <- attr(rasm$rand[[1]], "Xr")
+      Zs <- lapply(rasm$rand, attr, "Xr")
+      Zs <- setNames(Zs, paste0("Zs", p, "_", i, "_", seq_along(Zs)))
+      knots <- list(length(Zs), as.array(ulapply(Zs, ncol)))
+      knots <- setNames(knots, paste0(c("nb", "knots"), p, "_", i))
+      out <- c(out, knots, Zs)
     }
-    knots <- list(length(splines), as.array(ulapply(Zs, ncol)))
-    knots <- setNames(knots, paste0(c("ns", "knots"), p))
-    out <- c(out, knots, setNames(Zs, paste0("Zs", p, "_", seq_along(Zs))))
     X <- cbind(X, do.call(cbind, Xs))
     colnames(X) <- rename(colnames(X))
   }
@@ -606,17 +614,16 @@ data_fixef <- function(effects, data, family = gaussian(),
   c(out, setNames(list(ncol(X), X), paste0(c("K", "X"), p)))
 }
 
-data_monef <- function(effects, data, prior = prior_frame(), 
-                       nlpar = "", Jm = NULL) {
+data_monef <- function(effects, data, ranef = empty_ranef(),
+                       prior = prior_frame(), nlpar = "",
+                       Jm = NULL) {
   # prepare data for monotonic effects for use in Stan
   # Args: see data_effects
   stopifnot(length(nlpar) == 1L)
   p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
   out <- list()
   if (is.formula(effects[["mono"]])) {
-    mmf <- model.frame(effects$mono, data)
-    mmf <- prepare_mono_vars(mmf, names(mmf), check = is.null(Jm))
-    Xm <- get_model_matrix(effects$mono, mmf)
+    Xm <- prepare_mono_vars(effects$mono, data, check = is.null(Jm))
     avoid_auxpars(colnames(Xm), effects = effects)
     if (is.null(Jm)) {
       Jm <- as.array(apply(Xm, 2, max))
@@ -651,7 +658,7 @@ data_ranef <- function(ranef, data, nlpar = "", not4stan = FALSE) {
   # Args: see data_effects
   stopifnot(length(nlpar) == 1L)
   out <- list()
-  ranef <- ranef[ranef$nlpar == nlpar, ]
+  ranef <- ranef[ranef$nlpar == nlpar & ranef$type != "mono", ]
   if (nrow(ranef)) {
     Z <- lapply(ranef[!duplicated(ranef$gn), ]$form, 
                 get_model_matrix, data = data)
@@ -667,6 +674,14 @@ data_ranef <- function(ranef, data, nlpar = "", not4stan = FALSE) {
         Zname <- paste0("Z_", gn[i])
         out <- c(out, setNames(Z[i], Zname))
       } else {
+        if (r$type[1] == "cse") {
+          ncatM1 <- nrow(r) / ncol(Z[[i]])
+          Z_temp <- vector("list", ncol(Z[[i]]))
+          for (k in seq_along(Z_temp)) {
+            Z_temp[[k]] <- replicate(ncatM1, Z[[i]][, k])
+          }
+          Z[[i]] <- do.call(cbind, Z_temp)
+        }
         Zname <- paste0("Z_", idp, "_", r$cn)
         for (j in seq_len(ncol(Z[[i]]))) {
           out <- c(out, setNames(list(as.array(Z[[i]][, j])), Zname[j]))
@@ -740,10 +755,10 @@ data_csef <- function(effects, data) {
   #   effects: a list returned by extract_effects
   #   data: the data passed by the user
   out <- list()
-  if (is.formula(effects[["cse"]])) {
-    Xp <- get_model_matrix(effects$cse, data)
-    avoid_auxpars(colnames(Xp), effects = effects)
-    out <- c(out, list(Kp = ncol(Xp), Xp = Xp))
+  if (length(all_terms(effects[["cse"]]))) {
+    Xcs <- get_model_matrix(effects$cse, data)
+    avoid_auxpars(colnames(Xcs), effects = effects)
+    out <- c(out, list(Kcs = ncol(Xcs), Xcs = Xcs))
   }
   out
 }

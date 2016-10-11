@@ -104,22 +104,22 @@ test_that(paste("make_standata rejects incorrect response variables",
                 "depending on the family"), {
   expect_error(make_standata(y ~ 1, data = data.frame(y = factor(1:10)), 
                              family = "student"),
-               "family student expects numeric response variable")
+               "Family 'student' expects numeric response variable")
   expect_error(make_standata(y ~ 1, data = data.frame(y = -5:5), 
                              family = "geometric"),
-               "family geometric expects response variable of non-negative integers")
+               "Family 'geometric' expects response variable of non-negative integers")
   expect_error(make_standata(y ~ 1, data = data.frame(y = -1:1), 
                              family = "bernoulli"),
                "contain only two different values")
   expect_error(make_standata(y ~ 1, data = data.frame(y = factor(-1:1)), 
                              family = "cratio"),
-               "family cratio expects either integers or ordered factors")
+               "Family 'cratio' expects either integers or ordered factors")
   expect_error(make_standata(y ~ 1, data = data.frame(y = rep(0.5:7.5), 2), 
                              family = "sratio"),
-               "family sratio expects either integers or ordered factors")
+               "Family 'sratio' expects either integers or ordered factors")
   expect_error(make_standata(y ~ 1, data = data.frame(y = rep(-7.5:7.5), 2), 
                              family = "gamma"),
-               "family gamma requires response variable to be positive")
+               "Family 'gamma' requires response variable to be positive")
   expect_error(make_standata(y ~ 1, data = data.frame(y = c(0, 0.5, 1)),
                              family = Beta()),
                "requires responses between 0 and 1")
@@ -134,19 +134,20 @@ test_that(paste("make_standata rejects incorrect response variables",
 test_that("make_standata suggests using family bernoulli if appropriate", {
   expect_message(make_standata(y ~ 1, data = data.frame(y = rep(0:1,5)), 
                                family = "binomial"),
-                 paste("family bernoulli might be a more efficient choice."))
+                 paste("family 'bernoulli' might be a more efficient choice."))
   expect_message(make_standata(y ~ 1, data = data.frame(y = rep(0:1,5)), 
                                family = "acat"),
-                 paste("family bernoulli might be a more efficient choice."))
+                 paste("family 'bernoulli' might be a more efficient choice."))
   expect_error(make_standata(y ~ 1, data = data.frame(y = rep(0:1,5)), 
                              family = "categorical"),
-                 paste("At least 3 response categories are required"))
+               paste("At least 3 response categories are required"))
 })
 
 test_that("make_standata returns correct values for addition arguments", {
   temp_data <- data.frame(y = rnorm(9), s = 1:9, w = 1:9, c1 = rep(-1:1, 3), 
                           c2 = rep(c("left","none","right"), 3),
                           c3 = c(rep(c(TRUE, FALSE), 4), FALSE),
+                          c4 = c(sample(-1:1, 5, TRUE), rep(2, 4)),
                           t = 11:19)
   expect_equal(make_standata(y | se(s) ~ 1, data = temp_data)$se, 
                1:9)
@@ -160,6 +161,8 @@ test_that("make_standata returns correct values for addition arguments", {
                rep(-1:1, 3))
   expect_equal(make_standata(y | cens(c3) ~ 1, data = temp_data)$cens, 
                c(rep(1:0, 4), 0))
+  expect_equal(make_standata(y | cens(c4, y + 2) ~ 1, data = temp_data)$rcens, 
+               c(rep(0, 5), temp_data$y[6:9] + 2))
   expect_equal(make_standata(s ~ 1, data = temp_data, 
                              family = "binomial")$max_obs, 9)
   expect_equal(make_standata(s | trials(10) ~ 1, data = temp_data, 
@@ -236,13 +239,6 @@ test_that("make_standata allows to retrieve the initial data order", {
                as.numeric(sdata2$Y[attr(sdata2, "old_order"), ]))
 })
 
-test_that("make_standata rejects invalid input for cse effects", {
-  expect_error(make_standata(rating ~ 1 + cse(treat), data = inhaler,
-                             family = "gaussian"), "only meaningful")
-  expect_error(make_standata(rating ~ 1 + cse(1), data = inhaler,
-                             family = "acat"), "invalid input")
-})
-
 test_that("make_standata handles covariance matrices correctly", {
   A <- structure(diag(1, 4), dimnames = list(1:4, NULL))
   expect_equivalent(make_standata(count ~ Trt_c + (1|visit), data = epilepsy,
@@ -266,17 +262,6 @@ test_that("make_standata handles covariance matrices correctly", {
                "not symmetric")
 })
 
-test_that("make_standata computes data for inverse.gaussian models", {
-  temp_data <- data.frame(y = 1:10, x = rep(0,10), w = 1:10)
-  standata <- make_standata(y ~ x, data = temp_data, 
-                            family = inverse.gaussian)
-  expect_equal(standata$log_Y, sum(log(temp_data$y)))
-  expect_equal(as.numeric(standata$sqrt_Y), sqrt(temp_data$y))
-  standata <- make_standata(y | weights(w) ~ x, data = temp_data,
-                            family = inverse.gaussian)
-  expect_equal(as.numeric(standata$log_Y), log(temp_data$y))                         
-})
-
 test_that("brmdata is backwards compatible", {
   temp_data <- data.frame(y = 1:10, x = sample(1:5, 10, TRUE))
   expect_identical(SW(brmdata(y ~ x + (1|x), data = temp_data, 
@@ -291,7 +276,7 @@ test_that("brmdata is backwards compatible", {
 
 test_that("make_standata correctly prepares data for non-linear models", {
   nonlinear <- list(a ~ x + (1|1|g), b ~ mono(z) + (1|1|g))
-  data <- data.frame(y = rnorm(9), x = rnorm(9), z = sample(1:4, 9, TRUE), 
+  data <- data.frame(y = rnorm(9), x = rnorm(9), z = sample(1:9, 9), 
                      g = rep(1:3, 3))
   standata <- make_standata(y ~ a - b^z, data = data, nonlinear = nonlinear)
   expect_equal(names(standata), c("N", "Y", "KC", "C", "K_a", "X_a", "Z_1_a_1", 
@@ -349,21 +334,24 @@ test_that("make_standata returns data for bsts models", {
 test_that("make_standata returns data for GAMMs", {
   dat <- data.frame(y = rnorm(10), x1 = rnorm(10), x2 = rnorm(10),
                     z = rnorm(10), g = rep(1:2, 5))
-  standata <- make_standata(y ~ s(x1) + z + s(x2) + (1|g), data = dat)
-  expect_true(all(c("ns", "knots", "Zs_1", "Zs_2") %in% names(standata)))
-  expect_equal(standata$ns, 2)
-  expect_equal(as.vector(standata$knots), c(8, 8))
-  expect_equal(dim(standata$Zs_1), c(10, 8))
-  expect_equal(dim(standata$Zs_2), c(10, 8))
+  standata <- make_standata(y ~ s(x1) + z + s(x2), data = dat)
+  expect_equal(standata$nb_1, 1)
+  expect_equal(as.vector(standata$knots_2), 8)
+  expect_equal(dim(standata$Zs_1_1), c(10, 8))
+  expect_equal(dim(standata$Zs_2_1), c(10, 8))
   
-  standata <- make_standata(y ~ lp, nonlinear = lp ~ s(x1) + z + s(x2) + (1|g), 
-                            data = dat)
-  expect_true(all(c("ns_lp", "knots_lp", "Zs_lp_1", "Zs_lp_2") %in% 
-                    names(standata)))
-  expect_equal(standata$ns_lp, 2)
-  expect_equal(as.vector(standata$knots_lp), c(8, 8))
-  expect_equal(dim(standata$Zs_lp_1), c(10, 8))
-  expect_equal(dim(standata$Zs_lp_2), c(10, 8))
+  standata <- make_standata(y ~ lp, data = dat,
+                            nonlinear = lp ~ s(x1) + z + s(x2))
+  expect_equal(standata$nb_lp_1, 1)
+  expect_equal(as.vector(standata$knots_lp_2), 8)
+  expect_equal(dim(standata$Zs_lp_1_1), c(10, 8))
+  expect_equal(dim(standata$Zs_lp_2_1), c(10, 8))
+  
+  standata <- make_standata(y ~ t2(x1,x2), data = dat)
+  expect_equal(standata$nb_1, 3)
+  expect_equal(as.vector(standata$knots_1), c(9, 6, 6))
+  expect_equal(dim(standata$Zs_1_1), c(10, 9))
+  expect_equal(dim(standata$Zs_1_3), c(10, 6))
 })
 
 test_that("make_standata returns correct group ID data", {
@@ -386,8 +374,25 @@ test_that("make_standata does not center X in models without an intercept", {
   expect_equal(unname(sdata$X[, 1]), dat$x)
 })
 
-test_that("make_standata handles variable 'intercept' correclty", {
+test_that("make_standata handles variable 'intercept' correctly", {
   dat <- data.frame(y = rnorm(10), x = 1:10)
   sdata <- make_standata(y~0+intercept + x, data = dat)
   expect_equal(unname(sdata$X), cbind(1, dat$x))
+})
+
+test_that("make_standata handles category specific effects correctly", {
+  sdata <- make_standata(rating ~ period + carry + cse(treat), 
+                         data = inhaler, family = sratio())
+  expect_equivalent(sdata$Xcs, matrix(inhaler$treat))
+  sdata <- make_standata(rating ~ period + carry + cse(treat) + (cse(1)|subject), 
+                         data = inhaler, family = acat())
+  expect_equivalent(sdata$Z_1_3, as.array(rep(1, nrow(inhaler))))
+  sdata <- make_standata(rating ~ period + carry + (cse(treat)|subject), 
+                         data = inhaler, family = cratio())
+  expect_equivalent(sdata$Z_1_4, as.array(inhaler$treat))
+  expect_error(make_standata(rating ~ 1 + cse(treat), data = inhaler,
+                             family = "cumulative"), "only meaningful")
+  expect_error(make_standata(rating ~ 1 + (1 + cse(1)|subject), 
+                             data = inhaler, family = "cratio"), 
+               "category specific effects in separate group-level terms")
 })

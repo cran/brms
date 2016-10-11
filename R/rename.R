@@ -12,11 +12,11 @@ rename <- function(names, symbols = NULL, subs = NULL,
   symbols <- as.character(symbols)
   subs <- as.character(subs)
   if (!length(symbols)) {
-    symbols <- c(" ", "(", ")", "[", "]", ",", 
+    symbols <- c(" ", "(", ")", "[", "]", ",", "\"", "'", 
                  "+", "-", "*", "/", "^", "=", "!=")
   }
   if (!length(subs)) {
-    subs <- c(rep("", 6), "P", "M", "MU", "D", "E", "EQ", "NEQ")
+    subs <- c(rep("", 8), "P", "M", "MU", "D", "E", "EQ", "NEQ")
   }
   if (length(subs) == 1L) {
     subs <- rep(subs, length(symbols))
@@ -69,7 +69,7 @@ rename_pars <- function(x) {
   
   # order parameter samples after parameter class
   chains <- length(x$fit@sim$samples) 
-  all_classes <- c("b_Intercept", "b", "bm", "bp", "ar", "ma", "arr", "sd", 
+  all_classes <- c("b_Intercept", "b", "bm", "bcs", "ar", "ma", "arr", "sd", 
                    "cor", "sds", "sigma", "sigmaLL", "rescor", "nu", "shape",
                    "phi", "zi", "hu", "delta", "simplex", "r", "s", "loclev", 
                    "prior", "lp")
@@ -103,12 +103,12 @@ rename_pars <- function(x) {
   if (length(ee$nonlinear)) {
     nlpars <- names(ee$nonlinear)
     for (p in nlpars) {
+      splines <- get_spline_labels(ee$nonlinear[[p]], x$data, covars = TRUE)
       change_eff <- change_effects(
         pars = pars, dims = x$fit@sim$dims_oi,
         fixef = colnames(standata[[paste0("X_", p)]]),
         monef = colnames(standata[[paste0("Xm_", p)]]),
-        splines = get_spline_labels(ee$nonlinear[[p]]),
-        nlpar = p)
+        splines = splines, nlpar = p)
       change <- c(change, change_eff)
     }
   } else {
@@ -120,7 +120,8 @@ rename_pars <- function(x) {
         change_eff <- change_effects(
           pars = pars, dims = x$fit@sim$dims_oi, 
           fixef = fixef, monef = colnames(standata[[paste0("Xm_", r)]]),
-          splines = get_spline_labels(ee), nlpar = r)
+          splines = get_spline_labels(ee, x$data, covars = TRUE),
+          nlpar = r)
         change <- c(change, change_eff)
       }
     } else {
@@ -128,8 +129,8 @@ rename_pars <- function(x) {
       change_eff <- change_effects(
         pars = pars, dims = x$fit@sim$dims_oi, 
         fixef = fixef, monef = colnames(standata[["Xm"]]),
-        splines = get_spline_labels(ee))
-      change_csef <- change_csef(colnames(standata[["Xp"]]), 
+        splines = get_spline_labels(ee, x$data, covars = TRUE))
+      change_csef <- change_csef(colnames(standata[["Xcs"]]), 
                                  pars = pars, ncat = standata$ncat)
       change <- c(change, change_eff, change_csef)
     }
@@ -140,7 +141,7 @@ rename_pars <- function(x) {
       pars = pars, dims = x$fit@sim$dims_oi,
       fixef = colnames(standata[[paste0("X_", ap)]]),
       monef = colnames(standata[[paste0("Xm_", ap)]]),
-      splines = get_spline_labels(ee[[ap]]),
+      splines = get_spline_labels(ee[[ap]], x$data, covars = TRUE),
       nlpar = ap)
     change <- c(change, change_eff)
   }
@@ -214,7 +215,7 @@ change_monef <- function(monef, pars, nlpar = "") {
   if (length(monef)) {
     p <- usc(nlpar, "prefix")
     bm <- paste0("bm", p)
-    newnames <- paste0("b", p, "_", monef)
+    newnames <- paste0("bm", p, "_", monef)
     change <- lc(change, list(pos = grepl(paste0("^", bm, "\\["), pars), 
                               oldname = bm, pnames = newnames, 
                               fnames = newnames))
@@ -246,14 +247,13 @@ change_csef <- function(csef, pars, ncat) {
   if (length(csef)) {
     ncse <- length(csef)
     thres <- ncat - 1
-    csenames <- t(outer(csef, paste0("[",1:thres,"]"), FUN = paste0))
-    csenames <- paste0("b_", csenames)
-    sort_cse <- ulapply(1:ncse, seq, to = thres * ncse, by = ncse)
-    change <- lc(change, list(pos = grepl("^bp\\[", pars), oldname = "bp", 
-                              pnames = paste0("b_", csef), fnames = csenames,
+    csenames <- t(outer(csef, paste0("[", 1:thres, "]"), FUN = paste0))
+    csenames <- paste0("bcs_", csenames)
+    sort_cse <- ulapply(seq_len(ncse), seq, to = thres * ncse, by = ncse)
+    change <- lc(change, list(pos = grepl("^bcs\\[", pars), oldname = "bcs", 
+                              pnames = paste0("bcs_", csef), fnames = csenames,
                               sort = sort_cse, dim = thres))
-    change <- c(change, change_prior(class = "bp", pars = pars, 
-                                      names = csef))
+    change <- c(change, change_prior(class = "bcs", pars = pars, names = csef))
   }
   change
 }
@@ -268,6 +268,7 @@ change_splines <- function(splines, pars, nlpar = "") {
   #   a list whose elements can be interpreted by do_renaming
   change <- list()
   if (length(splines)) {
+    stopifnot(!is.null(attr(splines, "nbases")))
     p <- usc(nlpar, "prefix")
     splines <- rename(splines)
     sds <- paste0("sds", p)
@@ -275,19 +276,25 @@ change_splines <- function(splines, pars, nlpar = "") {
     s <- paste0("s", p)
     s_names <- paste0(s, "_", splines)
     for (i in seq_along(splines)) {
-      sds_pos <- grepl(paste0("^", sds, "_", i), pars)
-      change <- lc(change, 
-        list(pos = sds_pos, oldname = paste0(sds, "_", i), 
-             pnames = sds_names[i], fnames = sds_names[i]))
-      s_pos <- grepl(paste0("^", s, "_", i), pars)
-      s_fnames <- paste0(s_names[i], "[", 1:sum(s_pos), "]")
-      change <- lc(change, 
-        list(pos = s_pos, oldname = paste0(s, "_", i), 
-             pnames = s_names[i], fnames = s_fnames, 
-             dim = as.numeric(sum(s_pos))))
-      change <- c(change, 
-        change_prior(class = paste0(sds, "_", i), 
-                     pars = pars, names = splines[i])) 
+      nb <- attr(splines, "nbases")[[i]]
+      for (j in seq_len(nb)) {
+        ij <- paste0(i, "_", j)
+        sds_pos <- grepl(paste0("^", sds, "_", ij), pars)
+        change <- lc(change, 
+          list(pos = sds_pos, oldname = paste0(sds, "_", ij), 
+               pnames = paste0(sds_names[i], "_", j), 
+               fnames = paste0(sds_names[i], "_", j)))
+        s_pos <- grepl(paste0("^", s, "_", ij), pars)
+        s_fnames <- paste0(s_names[i], "_", j, "[", seq_len(sum(s_pos)), "]")
+        change <- lc(change, 
+          list(pos = s_pos, oldname = paste0(s, "_", ij), 
+               pnames = s_names[i], fnames = s_fnames, 
+               dim = as.numeric(sum(s_pos))))
+        new_prior_class <- paste0(sds, "_", splines[i], "_", j)
+        change <- c(change, 
+          change_prior(class = paste0(sds, "_", ij), pars = pars, 
+                       new_class = new_prior_class)) 
+      }
     }
   }
   change
@@ -403,11 +410,8 @@ change_prior <- function(class, pars, names = NULL, new_class = class,
           as.numeric(substr(d, 2, nchar(d))) 
         else 0
       })
-      if (sum(abs(digits)) > 0 && is.null(names)) {
-        stop("argument 'names' is missing")
-      }
-      for (i in 1:length(priors)) {
-        if (digits[i]) {
+      for (i in seq_along(priors)) {
+        if (digits[i] && !is.null(names)) {
           priors[i] <- gsub("[[:digit:]]+$", names[digits[i]], priors[i])
         }
         if (pars[pos_priors[i]] != priors[i]) {
@@ -508,9 +512,53 @@ change_old_ranef2 <- function(ranef, pars, dims) {
       index_names <- make_index_names(levels, sub_r$coef, dim = 2)
       new_r_names <- paste0(new_r_name, index_names)
       change <- lc(change, 
-                   change_simple(old_r_name, new_r_names, pars, dims, 
-                                 pnames = new_r_name))
+        change_simple(old_r_name, new_r_names, pars, dims, 
+                      pnames = new_r_name))
     }
+  }
+  change
+}
+
+change_old_splines <- function(effects, pars, dims) {
+  # change names of spline parameters fitted with brms <= 1.0.1
+  # this became necessary after allowing splines with multiple covariates
+  .change_old_splines <- function(e, nlpar = "") {
+    change <- list()
+    spline_labels <- get_spline_labels(e)
+    if (length(spline_labels)) {
+      p <- usc(nlpar, "suffix")
+      old_splines <- rename(paste0(p, spline_labels))
+      new_splines <- rename(paste0(p, get_spline_labels(e, covars = TRUE)))
+      old_sds_pars <- paste0("sds_", old_splines)
+      new_sds_pars <- paste0("sds_", new_splines, "_1")
+      old_s_pars <- paste0("s_", old_splines)
+      new_s_pars <- paste0("s_", new_splines, "_1")
+      for (i in seq_along(old_splines)) {
+        change <- lc(change,
+          change_simple(old_sds_pars[i], new_sds_pars[i], pars, dims))
+        indices <- seq_len(dims[[old_s_pars[i]]])
+        new_s_par_indices <- paste0(new_s_pars[i], "[", indices, "]")
+        change <- lc(change,
+          change_simple(old_s_pars[i], new_s_par_indices, pars, dims,
+                        pnames = new_s_pars[i]))
+      }
+    }
+    return(change)
+  }
+  
+  change <- list()
+  spec_effects <- rmNULL(c(effects[auxpars()], effects$nonlinear))
+  for (sp in names(spec_effects)) {
+    se <- spec_effects[[sp]]
+    change <- c(change, .change_old_splines(se, nlpar = sp))
+  }
+  resp <- effects$response
+  if (length(resp) > 1L) {
+    for (r in resp) {
+      change <- c(change, .change_old_splines(effects, nlpar = r))
+    }
+  } else {
+    change <- c(change, .change_old_splines(effects))
   }
   change
 }
@@ -532,7 +580,8 @@ change_simple <- function(oldname, fnames, pars, dims,
 rm_int_fixef <- function(fixef, stancode, nlpar = "") {
   # identifies if the intercept has to be removed from fixef
   # and returns adjusted fixef names
-  regex <- paste0("int Kc", usc(nlpar), ";")
+  p <- usc(nlpar, "suffix")
+  regex <- paste0("b_", p, "Intercept = temp_", p, "Intercept")
   if (grepl(regex, stancode, fixed = TRUE)) {
     fixef <- setdiff(fixef, "Intercept")
   } 

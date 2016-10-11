@@ -39,6 +39,19 @@ test_that("combine_duplicates works as expected", {
                list(a = c(2,2,4,2), b = c("a", "c")))
 })
 
+test_that("rm_int_fixef works as expected", {
+  dat <- data.frame(y = 1:3, x = rnorm(3))
+  code <- make_stancode(y ~ 1, data = dat)
+  expect_equal(rm_int_fixef("Intercept", code), character(0))
+  code <- make_stancode(cbind(y, y) ~ x, data = dat)
+  expect_equal(rm_int_fixef(c("Intercept", "x"), code, nlpar = "y"), "x")
+  code <- make_stancode(y ~ x, data = dat, family = sratio())
+  expect_equal(rm_int_fixef(c("Intercept", "x"), code), "x")
+  code <- make_stancode(y ~ 0 + intercept + x, data = dat)
+  expect_equal(rm_int_fixef(c("intercept", "x"), code), 
+               c("intercept", "x"))
+})
+
 test_that("change_prior returns expected lists", {
   pars <- c("b", "b_1", "bp", "bp_1", "prior_b", "prior_b_1", 
             "prior_b_3", "sd_x[1]", "prior_bp_1")
@@ -91,4 +104,36 @@ test_that("change_old_ranef and change_old_ranef2 return expected lists", {
   dims <- list("sd_g_a_Intercept" = numeric(0), "sd_g_a_x" = numeric(0),
                "cor_g_a_Intercept_a_x" = numeric(0), "r_g_a" = c(10, 2))
   expect_equal(brms:::change_old_ranef2(ranef, pars = pars, dims = dims), target)
+})
+
+test_that("change_old_splines return expected lists", {
+  target <- list(
+    list(pos = c(TRUE, rep(FALSE, 16)), 
+         oldname = "sds_sigma_t2x0",
+         pnames = "sds_sigma_t2x0_1",
+         fnames = "sds_sigma_t2x0_1", 
+         dims = numeric(0)),
+    list(pos = c(FALSE, FALSE, rep(TRUE, 6), rep(FALSE, 9)), 
+         oldname = "s_sigma_t2x0", 
+         pnames = "s_sigma_t2x0_1", 
+         fnames = paste0("s_sigma_t2x0_1[", 1:6, "]"), 
+         dims = 6),
+    list(pos = c(FALSE, TRUE, rep(FALSE, 15)), 
+         oldname = "sds_sx1kEQ9",
+         pnames = "sds_sx1_1", 
+         fnames = "sds_sx1_1", 
+         dims = numeric(0)),
+    list(pos = c(rep(FALSE, 8), rep(TRUE, 9)), 
+         oldname = "s_sx1kEQ9", 
+         pnames = "s_sx1_1", 
+         fnames = paste0("s_sx1_1[", 1:9, "]"), 
+         dims = 9)
+  )
+  pars <- c("sds_sigma_t2x0", "sds_sx1kEQ9", 
+            paste0("s_sigma_t2x0[", 1:6, "]"),
+            paste0("s_sx1kEQ9[", 1:9, "]"))
+  dims <- list(sds_sigma_t2x0 = numeric(0), sds_sx1kEQ9 = numeric(0),
+               s_sigma_t2x0 = 6, s_sx1kEQ9 = 9)
+  ee <- brms:::extract_effects(bf(y ~ s(x1, k = 9), sigma ~ t2(x0)))
+  expect_equal(brms:::change_old_splines(ee, pars, dims), target)
 })
