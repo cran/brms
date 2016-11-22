@@ -75,14 +75,14 @@ specified directly within \code{formula} using function \code{cse}.}
 consecutive thresholds to the same value.}
 
 \item{cov_ranef}{A list of matrices that are proportional to the 
-(within) covariance structure of the random effects. 
+(within) covariance structure of the group-level effects. 
 The names of the matrices should correspond to columns 
 in \code{data} that are used as grouping factors. 
 All levels of the grouping factor should appear as rownames 
 of the corresponding matrix. This argument can be used,
 among others, to model pedigrees and phylogenetic effects.}
 
-\item{ranef}{A flag to indicate if random effects 
+\item{ranef}{A flag to indicate if group-level effects 
 for each level of the grouping factor(s) 
 should be saved (default is \code{TRUE}). 
 Set to \code{FALSE} to save memory. 
@@ -225,7 +225,14 @@ Fit a generalized (non-)linear multilevel model,
   Its documentation contains detailed information 
   on how to correctly specify priors. To find out on 
   which parameters or parameter classes priors can be defined, 
-  use \code{\link[brms:get_prior]{get_prior}}. \cr
+  use \code{\link[brms:get_prior]{get_prior}}.
+  Default priors are chosen to be non or very weakly informative 
+  so that their influence on the results will be negligable and
+  you don't have to worry about them.
+  However, after getting more familiar with Bayesian statistics, 
+  I recommend you to start thinking about reasonable informative
+  priors for your model parameters: Nearly always, there is at least some
+  prior information available that can be used to improve your inference.
   
   \bold{Adjusting the sampling behavior of \pkg{Stan}}
   
@@ -263,8 +270,8 @@ Fit a generalized (non-)linear multilevel model,
 fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c  
               + (1|patient) + (1|obs), 
             data = epilepsy, family = poisson(), 
-            prior = c(set_prior("student_t(5,0,10)", class = "b"),
-                      set_prior("cauchy(0,2)", class = "sd")))
+            prior = c(prior(student_t(5,0,10), class = b),
+                      prior(cauchy(0,2), class = sd)))
 ## generate a summary of the results
 summary(fit1)
 ## plot the MCMC chains as well as the posterior distributions
@@ -306,8 +313,8 @@ summary(fit4)
 x <- rnorm(100)
 y <- rnorm(100, mean = 2 - 1.5^x, sd = 1)
 fit5 <- brm(y ~ a1 - a2^x, nonlinear = a1 + a2 ~ 1,
-            prior = c(set_prior("normal(0, 2)", nlpar = "a1"),
-                      set_prior("normal(0, 2)", nlpar = "a2")))
+            prior = c(prior(normal(0, 2), nlpar = a1),
+                      prior(normal(0, 2), nlpar = a2)))
 summary(fit5)
 plot(marginal_effects(fit5), ask = FALSE)
 

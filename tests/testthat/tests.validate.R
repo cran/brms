@@ -89,13 +89,14 @@ test_that("extract_effects accepts calls to the poly function", {
 
 test_that("extract_effects also saves untransformed variables", {
   ee <- extract_effects(y ~ as.numeric(x) + (as.factor(z) | g))
-  expect_equivalent(ee$all, y ~ y + as.numeric(x) + x + as.factor(z) + z + g)
+  expect_equivalent(ee$allvars, 
+                    y ~ y + as.numeric(x) + x + as.factor(z) + z + g)
 })
 
 test_that("extract_effects finds all variables in non-linear models", {
   nonlinear <- list(a ~ z1 + (1|g1), b ~ z2 + (z3|g2))
   ee <- extract_effects(y ~ a - b^x, nonlinear = nonlinear)
-  expect_equal(ee$all, y ~ y + x + z1 + g1 + z2 + z3 + g2)
+  expect_equal(ee$allvars, y ~ y + x + z1 + g1 + z2 + z3 + g2)
 })
 
 test_that("extract_effects parses reseverd variable 'intercept'", {
@@ -125,9 +126,9 @@ test_that("extract_effects returns expected error messages", {
                "Addition arguments 'se' and 'disp' cannot be used")
   expect_error(extract_effects(cbind(y1, y2) | se(z) ~ x, 
                                family = gaussian()),
-               "Multivariate models currently allow only weights")
+               "allow only addition argument 'weights'")
   expect_error(extract_effects(bf(y ~ x, shape ~ x), family = gaussian()),
-               "Prediction of the parameter(s) 'shape' is not allowed",
+               "Prediction of parameter(s) 'shape' is not allowed",
                fixed = TRUE)
 })
 
@@ -171,34 +172,34 @@ test_that("extract_effects handles very long RE terms", {
 
 test_that("extract_nonlinear finds missing parameters", {
   expect_error(extract_nonlinear(list(a = a ~ 1, b = b ~ 1), model = y ~ a^x),
-               "missing in formula: b")
+               "missing in formula: 'b'")
 })
 
 test_that("extract_nonlinear accepts valid non-linear models", {
   nle <- extract_nonlinear(list(a = a ~ 1 + (1+x|origin), b = b ~ 1 + z), 
                            model = y ~ b - a^x)
   expect_equal(names(nle), c("a", "b"))
-  expect_equal(nle[["a"]]$all, ~x + origin)
-  expect_equal(nle[["b"]]$all, ~z)
+  expect_equal(nle[["a"]]$allvars, ~x + origin)
+  expect_equal(nle[["b"]]$allvars, ~z)
   expect_equal(nle[["a"]]$random$form[[1]], ~1+x)
 })
 
 test_that("extract_time returns all desired variables", {
   expect_equal(extract_time(~1), 
-               list(time = "", group = "", all = ~1))
+               list(time = "", group = "", allvars = ~1))
   expect_equal(extract_time(~tt), 
-               list(time = "tt", group = "", all = ~1 + tt)) 
+               list(time = "tt", group = "", allvars = ~1 + tt)) 
   expect_equal(extract_time(~1|trait), 
-               list(time = "", group = "trait", all = ~1+trait)) 
+               list(time = "", group = "trait", allvars = ~1+trait)) 
   expect_equal(extract_time(~time|trait), 
-               list(time = "time", group = "trait", all = ~1+time+trait)) 
+               list(time = "time", group = "trait", allvars = ~1+time+trait)) 
   expect_equal(extract_time(~time|Site:trait),
                list(time = "time", group = "Site:trait", 
-                    all = ~1+time+Site+trait))
+                    allvars = ~1+time+Site+trait))
   expect_error(extract_time(~t1+t2|g1), 
                "Autocorrelation structures may only contain 1 time variable")
   expect_error(extract_time(x~t1|g1), 
-               "autocorrelation formula must be one-sided")
+               "Autocorrelation formula must be one-sided")
   expect_error(extract_time(~1|g1/g2), 
                paste("Illegal grouping term: g1/g2"))
 })
@@ -297,7 +298,7 @@ test_that("tidy_ranef works correctly", {
 
 test_that("check_brm_input returns correct warnings and errors", {
   expect_error(check_brm_input(list(chains = 3, cluster = 2)), 
-               "chains must be a multiple of cluster", fixed = TRUE)
+               "'chains' must be a multiple of 'cluster'", fixed = TRUE)
   x <- list(family = inverse.gaussian(), chains = 1, cluster = 1,
             algorithm = "sampling")
   expect_warning(check_brm_input(x))

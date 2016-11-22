@@ -1,6 +1,6 @@
 stan_effects <- function(effects, data, family = gaussian(),
                          center_X = TRUE, ranef = empty_ranef(), 
-                         prior = prior_frame(), autocor = cor_arma(), 
+                         prior = brmsprior(), autocor = cor_arma(), 
                          threshold = "flexible", sparse = FALSE, 
                          nlpar = "", eta = "eta") {
   # combine effects for the predictors of a single (non-linear) parameter
@@ -32,7 +32,7 @@ stan_effects <- function(effects, data, family = gaussian(),
   csef <- colnames(get_model_matrix(effects$cse, data))
   text_csef <- stan_csef(csef = csef, ranef = ranef, prior = prior)
   # include monotonic effects
-  monef <- colnames(data_monef(effects, data)$Xm)
+  monef <- all_terms(effects$mono)
   text_monef <- stan_monef(monef, prior = prior, nlpar = nlpar)
   out <- collapse_lists(list(out, text_fixef, text_csef, 
                              text_monef, text_splines))
@@ -82,7 +82,7 @@ stan_effects <- function(effects, data, family = gaussian(),
 }
 
 stan_effects_mv <- function(effects, data, family = gaussian(), 
-                            ranef = empty_ranef(), prior = prior_frame(), 
+                            ranef = empty_ranef(), prior = brmsprior(), 
                             autocor = cor_arma(), sparse = FALSE) {
   if (sparse) {
     stop("Sparse design matrices are not yet implemented ", 
@@ -115,14 +115,14 @@ stan_effects_mv <- function(effects, data, family = gaussian(),
 }
 
 stan_nonlinear <- function(effects, data, family = gaussian(), 
-                           ranef = empty_ranef(), prior = prior_frame()) {
+                           ranef = empty_ranef(), prior = brmsprior()) {
   # prepare Stan code for non-linear models
   # Args:
   #   effects: a list returned by extract_effects()
   #   data: data.frame supplied by the user
   #   family: the model family
   #   cov_ranef: a list of user-defined covariance matrices
-  #   prior: a prior_frame object
+  #   prior: a brmsprior object
   out <- list()
   if (length(effects$nonlinear)) {
     for (i in seq_along(effects$nonlinear)) {
@@ -163,7 +163,7 @@ stan_nonlinear <- function(effects, data, family = gaussian(),
 }
 
 stan_auxpars <- function(effects, data, family = gaussian(),
-                         ranef = empty_ranef(), prior = prior_frame(), 
+                         ranef = empty_ranef(), prior = brmsprior(), 
                          autocor = cor_arma()) {
   # Stan code for auxiliary parameters
   # Args:
@@ -178,19 +178,19 @@ stan_auxpars <- function(effects, data, family = gaussian(),
     kappa = "  real<lower=0> kappa;  // precision parameter \n",
     zi = "  real<lower=0,upper=1> zi;  // zero-inflation probability \n", 
     hu = "  real<lower=0,upper=1> hu;  // hurdle probability \n")
-  ilinks <- c(sigma = "exp", shape = "exp", nu = "exp", 
-              phi = "exp", kappa = "exp", zi = "", hu = "") 
   valid_auxpars <- valid_auxpars(family, effects, autocor = autocor)
   # don't supply the family argument to avoid applying link functions
   args <- nlist(data, ranef, center_X = FALSE, eta = "")
   for (ap in valid_auxpars) {
     if (!is.null(effects[[ap]])) {
+      ap_ilink <- ilink_auxpars(ap, stan = TRUE)
       ap_prior <- prior[prior$nlpar == ap, ]
       ap_args <- list(effects = effects[[ap]], nlpar = ap, prior = ap_prior)
-      if (nzchar(ilinks[ap])) {
-        ap_ilink <- paste0("    ", ap, "[n] = ", 
-                           ilinks[ap], "(", ap, "[n]); \n")
-      } else ap_ilink <- ""
+      if (nzchar(ap_ilink)) {
+        ap_ilink <- paste0("    ", ap, "[n] = ", ap_ilink, "(", ap, "[n]); \n")
+      } else {
+        ap_ilink <- ""
+      }
       out[[ap]] <- do.call(stan_effects, c(ap_args, args))
       out[[ap]]$modelC3 <- paste0(out[[ap]]$modelC3, ap_ilink)
     } else {
@@ -202,7 +202,7 @@ stan_auxpars <- function(effects, data, family = gaussian(),
 } 
 
 stan_fixef <- function(fixef, center_X = TRUE, family = gaussian(),
-                       prior = prior_frame(), nlpar = "", sparse = FALSE, 
+                       prior = brmsprior(), nlpar = "", sparse = FALSE, 
                        threshold = "flexible") {
   # Stan code for fixed effects
   # Args:
@@ -226,8 +226,7 @@ stan_fixef <- function(fixef, center_X = TRUE, family = gaussian(),
     if (sparse) {
       stopifnot(!center_X)
       if (nchar(nlpar)) {
-         stop("Sparse matrices are not yet implemented for this model.",
-              call. = FALSE)
+         stop2("Sparse matrices are not yet implemented for this model.")
       }
       out$tdataD <- "  #include tdataD_sparse_X.stan \n"
       out$tdataC <- "  #include tdataC_sparse_X.stan \n"
@@ -279,14 +278,16 @@ stan_fixef <- function(fixef, center_X = TRUE, family = gaussian(),
         "  b", p, "_Intercept = temp", p, "_Intercept", sub_X_means, "; \n")
     }
     # for equidistant thresholds only temp_Intercept1 is a parameter
-    suffix <- ifelse(threshold == "equidistant", "1", "")
-    int_prior <- stan_prior("temp_Intercept", prior = prior, suffix = suffix)
+    suffix <- paste0(p, "_Intercept")
+    suffix <- paste0(suffix, ifelse(threshold == "equidistant", "1", ""))
+    int_prior <- stan_prior("temp", prior = prior, coef = "Intercept",
+                            suffix = suffix, nlpar = nlpar)
     out$prior <- paste0(out$prior, int_prior)
   }
   out
 }
 
-stan_ranef <- function(id, ranef, prior = prior_frame(), 
+stan_ranef <- function(id, ranef, prior = brmsprior(), 
                        cov_ranef = NULL) {
   # group-level effects in Stan 
   # Args:
@@ -298,12 +299,11 @@ stan_ranef <- function(id, ranef, prior = prior_frame(),
   # Returns:
   #   A list of strings containing Stan code
   r <- ranef[ranef$id == id, ]
-  cor <- r$cor[1]
   ccov <- r$group[1] %in% names(cov_ranef)
   idp <- paste0(r$id, usc(r$nlpar, "prefix"))
   out <- list()
   out$data <- paste0(
-    "  // data for group-specific effects of ID ", id, " \n",
+    "  // data for group-level effects of ID ", id, " \n",
     "  int<lower=1> J_", id, "[N]; \n",
     "  int<lower=1> N_", id, "; \n",
     "  int<lower=1> M_", id, "; \n",
@@ -313,90 +313,75 @@ stan_ranef <- function(id, ranef, prior = prior_frame(),
   out$prior <- stan_prior(class = "sd", group = r$group[1], 
                           coef = r$coef, nlpar = r$nlpar, 
                           suffix = paste0("_", id), prior = prior)
-  if (nrow(r) == 1L) {  # only one group-level effect
-    if (r$type != "mono") {
-      out$data <- paste0(out$data, "  vector[N] Z_", idp, "_1; \n")
-    }
-    out$par <- paste0(
-      "  real<lower=0> sd_", id, ";",
-      "  // group-specific standard deviation \n",
-      "  vector[N_", id, "] z_", id, ";",
-      "  // unscaled group-specific effects \n")
-    out$prior <- paste0(out$prior,"  z_", id, " ~ normal(0, 1); \n")
+  J <- seq_len(nrow(r))
+  if (any(r$type != "mono")) {
+    out$data <- paste0(out$data, 
+      collapse("  vector[N] Z_", idp[r$type != "mono"], 
+               "_", r$cn[r$type != "mono"], "; \n")) 
+  }
+  out$par <- paste0(
+    "  vector<lower=0>[M_", id, "] sd_", id, ";",
+    "  // group-level standard deviations \n")
+  if (nrow(r) > 1L && r$cor[1]) {
+    # multiple correlated group-level effects
+    out$data <- paste0(out$data, "  int<lower=1> NC_", id, "; \n")
+    out$par <- paste0(out$par,
+      "  matrix[M_", id, ", N_", id, "] z_", id, ";",
+      "  // unscaled group-level effects \n",    
+      "  // cholesky factor of correlation matrix \n",
+      "  cholesky_factor_corr[M_", id, "] L_", id, "; \n")
+    out$prior <- paste0(out$prior, 
+      stan_prior(class = "L", group = r$group[1],
+                 suffix = paste0("_", id), prior = prior),
+      "  to_vector(z_", id, ") ~ normal(0, 1); \n")
     out$transD <- paste0(
-      "  // group-specific effects \n",
-      "  vector[N_", id, "] r_", idp, "_1; \n")
-    out$transC1 <- paste0("  r_", idp, "_1 = sd_", id, " * (", 
-      if (ccov) paste0("Lcov_", id, " * "), "z_", id, ");\n")
-  } else if (nrow(r) > 1L) {
-    J <- 1:nrow(r)
-    if (any(r$type != "mono")) {
-      out$data <- paste0(out$data, 
-        collapse("  vector[N] Z_", idp[r$type != "mono"], 
-                 "_", r$cn[r$type != "mono"], ";  \n")) 
+      "  // group-level effects \n",
+      "  matrix[N_", id, ", M_", id, "] r_", id, "; \n",
+      collapse("  vector[N_", id, "] r_", idp, "_", r$cn, "; \n"))
+    if (ccov) {  # customized covariance matrix supplied
+      out$transC1 <- paste0(
+        "  r_", id," = as_matrix(kronecker(Lcov_", id, ",", 
+        " diag_pre_multiply(sd_", id,", L_", id,")) *",
+        " to_vector(z_", id, "), N_", id, ", M_", id, "); \n")
+    } else { 
+      out$transC1 <- paste0("  r_", id, " = ", 
+        "(diag_pre_multiply(sd_", id, ", L_", id,") * z_", id, ")'; \n")
     }
-    out$par <- paste0(
-      "  vector<lower=0>[M_", id, "] sd_", id, ";",
-      "  // group-specific standard deviations \n")
-    if (cor) {  # multiple correlated group-level effects
-      out$data <- paste0(out$data, "  int<lower=1> NC_", id, "; \n")
-      out$par <- paste0(out$par,
-        "  matrix[M_", id, ", N_", id, "] z_", id, ";",
-        "  // unscaled group-specific effects \n",    
-        "  // cholesky factor of correlation matrix \n",
-        "  cholesky_factor_corr[M_", id, "] L_", id, "; \n")
-      out$prior <- paste0(out$prior, 
-        stan_prior(class = "L", group = r$group[1],
-                   suffix = paste0("_", id), prior = prior),
-        "  to_vector(z_", id, ") ~ normal(0, 1); \n")
-      out$transD <- paste0(
-        "  // group-specific effects \n",
-        "  matrix[N_", id, ", M_", id, "] r_", id, "; \n",
-        collapse("  vector[N_", id, "] r_", idp, "_", r$cn, "; \n"))
-      if (ccov) {  # customized covariance matrix supplied
-        out$transC1 <- paste0(
-          "  r_", id," = as_matrix(kronecker(Lcov_", id, ",", 
-          " diag_pre_multiply(sd_", id,", L_", id,")) *",
-          " to_vector(z_", id, "), N_", id, ", M_", id, "); \n")
-      } else { 
-        out$transC1 <- paste0("  r_", id, " = ", 
-          "(diag_pre_multiply(sd_", id, ", L_", id,") * z_", id, ")'; \n")
-      }
-      out$transC1 <- paste0(out$transC1, 
-        collapse("  r_", idp, "_", r$cn, " = r_", id, "[, ", J, "];  \n"))
-      # return correlations above the diagonal only
-      cors_genC <- ulapply(2:nrow(r), function(k) 
-        lapply(1:(k - 1), function(j) paste0(
-          "  cor_", id, "[", (k - 1) * (k - 2) / 2 + j, 
-          "] = Cor_", id, "[", j, ",", k, "]; \n")))
-      out$genD <- paste0(
-        "  corr_matrix[M_", id, "] Cor_", id, "; \n",
-        "  vector<lower=-1,upper=1>[NC_", id, "] cor_", id, "; \n")
-      out$genC <- paste0(
-        "  // take only relevant parts of correlation matrix \n",
-        "  Cor_", id, " = multiply_lower_tri_self_transpose(L_", id, "); \n",
-        collapse(cors_genC)) 
-    } else {  # multiple uncorrelated group-level effects
-      out$par <- paste0(out$par,
-                        "  vector[N_", id, "] z_", id, "[M_", id, "];",
-                        "  // unscaled group-specific effects \n")
-      out$prior <- paste0(out$prior, collapse(
-        "  z_", id, "[", 1:nrow(r), "] ~ normal(0, 1); \n"))
-      out$transD <- paste0("  // group-specific effects \n", 
-        collapse("  vector[N_", id, "] r_", idp, "_", r$cn, "; \n"))
-      out$transC1 <- collapse(
-        "  r_", idp, "_", r$cn, " = sd_", id, "[", J, "] * (", 
-        if (ccov) paste0("Lcov_", id, " * "), "z_", id, "[", J, "]); \n")
-    }
+    out$transC1 <- paste0(out$transC1, 
+      collapse("  r_", idp, "_", r$cn, " = r_", id, "[, ", J, "];  \n"))
+    # return correlations above the diagonal only
+    cors_genC <- ulapply(2:nrow(r), function(k) 
+      lapply(1:(k - 1), function(j) paste0(
+        "  cor_", id, "[", (k - 1) * (k - 2) / 2 + j, 
+        "] = Cor_", id, "[", j, ",", k, "]; \n")))
+    out$genD <- paste0(
+      "  corr_matrix[M_", id, "] Cor_", id, "; \n",
+      "  vector<lower=-1,upper=1>[NC_", id, "] cor_", id, "; \n")
+    out$genC <- paste0(
+      "  // take only relevant parts of correlation matrix \n",
+      "  Cor_", id, " = multiply_lower_tri_self_transpose(L_", id, "); \n",
+      collapse(cors_genC)) 
+  } else {
+    # single or uncorrelated group-level effects
+    out$par <- paste0(out$par,
+      "  vector[N_", id, "] z_", id, "[M_", id, "];",
+      "  // unscaled group-level effects \n")
+    out$prior <- paste0(out$prior, collapse(
+      "  z_", id, "[", 1:nrow(r), "] ~ normal(0, 1); \n"))
+    out$transD <- paste0("  // group-level effects \n", 
+      collapse("  vector[N_", id, "] r_", idp, "_", r$cn, "; \n"))
+    out$transC1 <- collapse(
+      "  r_", idp, "_", r$cn, " = sd_", id, "[", J, "] * (", 
+      if (ccov) paste0("Lcov_", id, " * "), "z_", id, "[", J, "]); \n")
   }
   out
 }
 
-stan_splines <- function(splines, prior = prior_frame(), nlpar = "") {
+stan_splines <- function(splines, prior = brmsprior(), nlpar = "") {
   # Stan code of spline terms for GAMMs
   # Args:
   #   splines: names of the spline terms
-  #   prior: object of class prior_frame
+  #   prior: object of class brmsprior
   #   nlpar: optional name of a non-linear parameter
   # Returns:
   #   A list of strings containing Stan code
@@ -434,7 +419,7 @@ stan_splines <- function(splines, prior = prior_frame(), nlpar = "") {
   out
 }
 
-stan_monef <- function(monef, prior = prior_frame(), nlpar = "") {
+stan_monef <- function(monef, prior = brmsprior(), nlpar = "") {
   # Stan code for monotonic effects
   # Args:
   #   monef: names of the monotonic effects
@@ -466,7 +451,7 @@ stan_monef <- function(monef, prior = prior_frame(), nlpar = "") {
 }
 
 stan_csef <- function(csef, ranef = empty_ranef(), 
-                      prior = prior_frame(), nlpar = "") {
+                      prior = brmsprior(), nlpar = "") {
   # Stan code for category specific effects
   # Args:
   #   csef: names of the category specific effects
@@ -567,8 +552,8 @@ stan_eta_monef <- function(monef, ranef = empty_ranef(), nlpar = "") {
   ranef <- ranef[ranef$nlpar == nlpar & ranef$type == "mono", ]
   invalid_coef <- setdiff(ranef$coef, monef)
   if (length(invalid_coef)) {
-    stop("Monotonic group-level terms require corresponding ",
-         "population-level terms.", call. = FALSE)
+    stop2("Monotonic group-level terms require ", 
+          "corresponding population-level terms.")
   }
   for (i in seq_along(monef)) {
     r <- ranef[ranef$coef == monef[i], ]

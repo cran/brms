@@ -1,4 +1,4 @@
-update_data <- function(data, family, effects, ..., 
+update_data <- function(data, family, effects,
                         na.action = na.omit,
                         drop.unused.levels = TRUE,
                         terms_attr = NULL, knots = NULL) {
@@ -7,8 +7,6 @@ update_data <- function(data, family, effects, ...,
   #   data: the original data.frame
   #   family: the model family
   #   effects: output of extract_effects (see validate.R)
-  #   ...: More formulae passed to combine_groups
-  #        Currently only used for autocorrelation structures
   #   na.action: function defining how to treat NAs
   #   drop.unused.levels: indicates if unused factor levels
   #                       should be removed
@@ -26,27 +24,27 @@ update_data <- function(data, family, effects, ...,
     data <- as.data.frame(data)
   }
   if (!(isTRUE(attr(data, "brmsframe")) || "brms.frame" %in% class(data))) {
-    effects$all <- terms(effects$all)
-    attributes(effects$all)[names(terms_attr)] <- terms_attr
+    effects$allvars <- terms(effects$allvars)
+    attributes(effects$allvars)[names(terms_attr)] <- terms_attr
     if (isTRUE(attr(effects$formula, "old_mv"))) {
       data <- melt_data(data, family = family, effects = effects)
     } else {
       check_data_old_mv(data, family = family, effects = effects)
     }
     data <- data_rsv_intercept(data, effects = effects)
-    data <- model.frame(effects$all, data = data, na.action = na.pass,
+    data <- model.frame(effects$allvars, data = data, na.action = na.pass,
                         drop.unused.levels = drop.unused.levels)
     nrow_with_NA <- nrow(data)
     data <- na.action(data)
     if (nrow(data) != nrow_with_NA) {
-      warning("Rows containing NAs were excluded from the model",
-              call. = FALSE)
+      warning2("Rows containing NAs were excluded from the model")
     }
     if (any(grepl("__|_$", colnames(data)))) {
-      stop("Variable names may not contain double underscores ",
-           "or underscores at the end.", call. = FALSE)
+      stop2("Variable names may not contain double underscores ",
+            "or underscores at the end.")
     }
-    data <- combine_groups(data, get_random(effects)$group, ...)
+    data <- combine_groups(data, get_random(effects)$group, 
+                           effects$time$group)
     data <- fix_factor_contrasts(data)
     attr(data, "knots") <- knots
     attr(data, "brmsframe") <- TRUE
@@ -66,17 +64,16 @@ melt_data <- function(data, family, effects) {
   nresp <- length(response)
   if (is.mv(family, response = response)) {
     if (!is(data, "data.frame")) {
-      stop("Argument 'data' must be a data.frame for this model", 
-           call. = FALSE)
+      stop2("Argument 'data' must be a data.frame for this model.")
     }
     # only keep variables that are relevant for the model
-    rel_vars <- c(all.vars(attr(terms(effects$all), "variables")), 
+    rel_vars <- c(all.vars(attr(terms(effects$allvars), "variables")), 
                   all.vars(effects$respform))
     data <- data[, which(names(data) %in% rel_vars), drop = FALSE]
     rsv_vars <- intersect(c("trait", "response"), names(data))
     if (length(rsv_vars)) {
       rsv_vars <- paste0("'", rsv_vars, "'", collapse = ", ")
-      stop(paste(rsv_vars, "is a reserved variable name"), call. = FALSE)
+      stop2(paste(rsv_vars, "is a reserved variable name."))
     }
     if (is.categorical(family)) {
       # no parameters are modeled for the reference category
@@ -102,7 +99,7 @@ melt_data <- function(data, family, effects) {
       rsv_vars <- intersect(c(response[2], "main", "spec"), names(data))
       if (length(rsv_vars)) {
         rsv_vars <- paste0("'", rsv_vars, "'", collapse = ", ")
-        stop(paste(rsv_vars, "is a reserved variable name"), call. = FALSE)
+        stop2(paste(rsv_vars, "is a reserved variable name."))
       }
       one <- rep(1, nobs)
       zero <- rep(0, nobs)
@@ -127,11 +124,11 @@ check_data_old_mv <- function(data, family, effects) {
   rsv_vars <- rsv_vars(family, nresp = length(effects$response),
                        old_mv = TRUE)
   rsv_vars <- setdiff(rsv_vars, names(data))
-  used_rsv_vars <- intersect(rsv_vars, all.vars(effects$all))
+  used_rsv_vars <- intersect(rsv_vars, all.vars(effects$allvars))
   if (length(used_rsv_vars)) {
-    stop("It is no longer possible (and necessary) to specify models ", 
-         "using the multivariate 'trait' syntax. See help(brmsformula) ",
-         "for details on the new syntax.", call. = FALSE)
+    stop2("It is no longer possible (and necessary) to specify models ", 
+          "using the multivariate 'trait' syntax. See help(brmsformula) ",
+          "for details on the new syntax.")
   }
   invisible(NULL)
 }
@@ -144,13 +141,13 @@ data_rsv_intercept <- function(data, effects) {
   if (isTRUE(attr(effects$fixed, "rsv_intercept"))) {
     if (is.list(data) && length(data)) {
       if ("intercept" %in% names(data)) {
-        stop("'intercept' is a reserved variable name in models ",
-             "without a fixed effects intercept", call. = FALSE)
+        stop2("Variable name 'intercept' is resevered in models ",
+              "without a population-level intercept.")
       }
       data$intercept <- rep(1, length(data[[1]]))
     } else {
-      stop("Argument 'data' must be a non empty data.frame ", 
-           "or list for this model.", call. = FALSE)
+      stop2("Argument 'data' must be a non empty data.frame ", 
+            "or list for this model.")
     }
   }
   data
@@ -195,7 +192,8 @@ fix_factor_contrasts <- function(data, optdata = NULL) {
       if (!is.null(attr(optdata[[names(data)[i]]], "contrasts"))) {
         # take contrasts from optdata
         contrasts(data[[i]]) <- attr(optdata[[names(data)[i]]], "contrasts")
-      } else {
+      } else if (length(unique(data[[i]])) > 1L) {
+        # avoid error when supplying only a single level
         # hard code current global "contrasts" option
         contrasts(data[[i]]) <- contrasts(data[[i]])
       }
@@ -230,18 +228,18 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     }
     return(newdata)
   } else if (!"data.frame" %in% class(newdata)) {
-    stop("newdata must be a data.frame", call. = FALSE)
+    newdata <- as.data.frame(newdata)
   }
   # standata will be based on an updated formula if re_formula is specified
   new_formula <- update_re_terms(formula(fit), re_formula = re_formula)
-  et <- if (incl_autocor) extract_time(fit$autocor$formula)
   ee <- extract_effects(new_formula, family = family(fit),
-                        resp_rhs_all = FALSE, et$all)
-  resp_only_vars <- setdiff(all.vars(ee$respform), all.vars(rhs(ee$all)))
+                        autocor = if (incl_autocor) fit$autocor,
+                        resp_rhs_all = FALSE)
+  resp_only_vars <- setdiff(all.vars(ee$respform), 
+                            all.vars(rhs(ee$allvars)))
   missing_resp <- setdiff(resp_only_vars, names(newdata))
   if (check_response && length(missing_resp)) {
-    stop("Response variables must be specified in newdata for this model.",
-         call. = FALSE)
+    stop2("Response variables must be specified in 'newdata' for this model.")
   } else {
     for (resp in missing_resp) {
       # add irrelevant response variables but make sure they pass all checks
@@ -300,10 +298,9 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
             old_contrasts <- rbind(old_contrasts, .ZERO = 0)
           }
           if (any(!new_levels %in% old_levels)) {
-            stop(paste("New factor levels are not allowed. \n",
-                 "Levels found:", paste(new_levels, collapse = ", ") , "\n",
-                 "Levels allowed:", paste(old_levels, collapse = ", ")),
-                 call. = FALSE)
+            stop2("New factor levels are not allowed.",
+                  "\nLevels found:", paste(new_levels, collapse = ", ") ,
+                  "\nLevels allowed:", paste(old_levels, collapse = ", "))
           }
           newdata[[factor_names[i]]] <- factor(new_factor, old_levels)
           # don't use contrasts(.) here to avoid dimension checks
@@ -324,9 +321,8 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
                    new_values > max(list_data[[v]]) |
                    !is.wholenumber(new_values)
         if (sum(invalid)) {
-          stop(paste0("Invalid values in variable '", v, "': ",
-                      paste(new_values[invalid], collapse = ",")),
-               call. = FALSE)
+          stop2("Invalid values in variable '", v, "': ",
+                paste(new_values[invalid], collapse = ","))
         }
         attr(newdata[[v]], "min") <- min_value
       }
@@ -336,15 +332,14 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     rsv_vars <- rsv_vars(family(fit), nresp = length(ee$response),
                          rsv_intercept = has_rsv_intercept(ee$formula),
                          old_mv = attr(ee$formula, "old_mv"))
-    used_vars <- unique(c(names(newdata), all.vars(ee$all), rsv_vars))
+    used_vars <- unique(c(names(newdata), all.vars(ee$allvars), rsv_vars))
     unused_vars <- setdiff(names(model.frame(fit)), used_vars)
     if (length(unused_vars)) {
       newdata[, unused_vars] <- NA
     }
   } else {
-    warning(paste("Validity of factors cannot be checked for", 
-                  "fitted model objects created with brms <= 0.5.0"),
-            call. = FALSE)
+    warning2("Validity of factors cannot be checked for ", 
+             "fitted model objects created with brms <= 0.5.0.")
   }
   # validate grouping factors
   gnames <- unique(new_ranef$group)
@@ -354,9 +349,10 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     old_levels[[i]] <- attr(new_ranef, "levels")[[gnames[i]]]
     unknown_levels <- setdiff(new_levels, old_levels[[i]])
     if (!allow_new_levels && length(unknown_levels)) {
-      stop(paste("levels", paste0(unknown_levels, collapse = ", "), 
-                 "of grouping factor", gnames[i], 
-                 "not found in the fitted model"), call. = FALSE)
+      unknown_levels <- paste0("'", unknown_levels, "'", collapse = ", ")
+      stop2("Levels ", unknown_levels, " of grouping factor '", 
+            gnames[i], "' cannot be not found in the fitted model. ",
+            "Consider setting argument 'allow_new_levels' to TRUE.")
     }
   }
   if (return_standata) {
@@ -443,20 +439,18 @@ prepare_mono_vars <- function(formula, data, check = TRUE) {
       }
       data[[vars[i]]] <- data[[vars[i]]] - min_value
     } else {
-      stop(paste("monotonic predictors must be either integers or",
-                 "ordered factors. Error occured for variable", vars[i]), 
-           call. = FALSE)
+      stop2("Monotonic predictors must be either integers or ",
+            "ordered factors. Error occured for variable '", 
+            vars[i], "'.")
     }
     if (check && max(data[[vars[i]]]) < 2L) {
-      stop(paste("monotonic predictors must have at least 3 different", 
-                 "values. Error occured for variable", vars[i]),
-           call. = FALSE)
+      stop2("Monotonic predictors must have at least 3 different ", 
+            "values. Error occured for variable '", vars[i], "'.")
     }
   }
   out <- get_model_matrix(formula, data, cols2remove = "Intercept")
   if (any(grepl(":", colnames(out), fixed = TRUE))) {
-    stop("Modeling interactions as monotonic ", 
-         "is not meaningful.", call. = FALSE)
+    stop2("Modeling interactions as monotonic is not meaningful.")
   }
   out
 }
@@ -539,7 +533,7 @@ arr_design_matrix <- function(Y, r, group)  {
 }
 
 data_effects <- function(effects, data, family = gaussian(),
-                         ranef = empty_ranef(), prior = prior_frame(), 
+                         ranef = empty_ranef(), prior = brmsprior(), 
                          autocor = cor_arma(), knots = NULL, nlpar = "", 
                          not4stan = FALSE, smooth = NULL, Jm = NULL) {
   # combine data for all types of effects
@@ -547,7 +541,7 @@ data_effects <- function(effects, data, family = gaussian(),
   #   effects: a list returned by extract_effects
   #   data: the data passed by the user
   #   family: the model family
-  #   prior: an object of class prior_frame
+  #   prior: an object of class brmsprior
   #   autocor: object of class 'cor_brms'
   #   cov_ranef: name list of user-defined covariance matrices
   #   knots: optional knot values for smoothing terms
@@ -608,6 +602,8 @@ data_fixef <- function(effects, data, family = gaussian(),
       out <- c(out, knots, Zs)
     }
     X <- cbind(X, do.call(cbind, Xs))
+    attr(X, "smooth_cols") <- 
+      lapply(Xs, function(x) which(colnames(X) %in% colnames(x)))
     colnames(X) <- rename(colnames(X))
   }
   avoid_auxpars(colnames(X), effects = effects)
@@ -615,7 +611,7 @@ data_fixef <- function(effects, data, family = gaussian(),
 }
 
 data_monef <- function(effects, data, ranef = empty_ranef(),
-                       prior = prior_frame(), nlpar = "",
+                       prior = brmsprior(), nlpar = "",
                        Jm = NULL) {
   # prepare data for monotonic effects for use in Stan
   # Args: see data_effects
@@ -635,14 +631,13 @@ data_monef <- function(effects, data, ranef = empty_ranef(),
     for (i in seq_along(monef)) {
       take <- prior$class == "simplex" & prior$coef == monef[i] & 
               prior$nlpar == nlpar  
-      sprior <- paste0(".", prior$prior[take])
-      if (nchar(sprior) > 1L) {
-        sprior <- as.numeric(eval(parse(text = sprior)))
+      sprior <- prior$prior[take]
+      if (isTRUE(nchar(sprior) > 0L)) {
+        sprior <- eval2(sprior)
         if (length(sprior) != Jm[i]) {
-          stop(paste0("Invalid dirichlet prior for the simplex of ", 
-                      monef[i], ". Expected input of length ", Jm[i], 
-                      " but found ", paste(sprior, collapse = ",")),
-               call. = FALSE)
+          stop2("Invalid dirichlet prior for the simplex of '", 
+                monef[i], "'. Expected input of length ", Jm[i], 
+                " but found ", paste(sprior, collapse = ","))
         }
         out[[paste0("con_simplex", p, "_", i)]] <- sprior
       } else {
@@ -706,7 +701,7 @@ data_group <- function(ranef, data, cov_ranef = NULL, old_levels = NULL) {
                      nranef * (nranef - 1) / 2)  # number of cors
   if (length(old_levels)) {
     # for newdata numeration has to depend on the original levels
-    expr[1] <- expression(ulapply(get(g, data), match, old_levels[[g]]))
+    expr[1] <- expression(match(get(g, data), old_levels[[g]]))
   }
   out <- list()
   ids <- unique(ranef$id)
@@ -721,27 +716,25 @@ data_group <- function(ranef, data, cov_ranef = NULL, old_levels = NULL) {
     if (g %in% names(cov_ranef)) {
       cov_mat <- as.matrix(cov_ranef[[g]])
       if (!isSymmetric(unname(cov_mat))) {
-        stop(paste("covariance matrix of grouping factor", g, 
-                   "is not symmetric"), call. = FALSE)
+        stop2("Covariance matrix of grouping factor '", g,
+              "' is not symmetric.")
       }
       found_level_names <- rownames(cov_mat)
       if (is.null(found_level_names)) {
-        stop(paste("rownames are required for covariance matrix of", g),
-             call. = FALSE)
+        stop2("Row names are required for covariance matrix of '", g, "'.")
       }
       colnames(cov_mat) <- found_level_names
       true_level_names <- levels(factor(get(g, data)))
       found <- true_level_names %in% found_level_names
       if (any(!found)) {
-        stop(paste("rownames of covariance matrix of", g, 
-                   "do not match names of the grouping levels"),
-             call. = FALSE)
+        stop2("Row names of covariance matrix of '", g, 
+              "' do not match names of the grouping levels.")
       }
       cov_mat <- cov_mat[true_level_names, true_level_names, drop = FALSE]
       evs <- eigen(cov_mat, symmetric = TRUE, only.values = TRUE)$values
       if (min(evs) <= 0) {
-        stop("Covariance matrix of grouping factor '", g, 
-             "' is not positive definite.", call. = FALSE)
+        stop2("Covariance matrix of grouping factor '", g, 
+              "' is not positive definite.")
       }
       out <- c(out, setNames(list(t(chol(cov_mat))), paste0("Lcov_", id)))
     }

@@ -31,12 +31,12 @@ stan_llh <- function(family, effects = list(), data = NULL,
   } else if (use_cov(autocor)) {
     # ARMA effects in covariance matrix formulation
     if (ll_adj) {
-      stop("Invalid addition arguments", call. = FALSE)
+      stop2("Invalid addition arguments for this model.")
     }
     family <- paste0(family, "_cov")
   } else if (is(autocor, "cov_fixed")) {
     if (has_se || ll_adj) {
-      stop("Invalid addition arguments", call. = FALSE)
+      stop2("Invalid addition arguments for this model.")
     }
     family <- paste0(family, "_fixed")
   }
@@ -113,7 +113,9 @@ stan_llh <- function(family, effects = list(), data = NULL,
       hurdle_negbinomial = c(paste0("hurdle_neg_binomial", .logit), 
                              paste0(eta, ", ", hu, ", ", shape)),
       hurdle_gamma = c(paste0("hurdle_gamma", .logit), 
-                       paste0("shape, ", eta, ", ", hu)),
+                       paste0(shape, ", ", eta, ", ", hu)),
+      hurdle_lognormal = c(paste0("hurdle_lognormal", .logit), 
+                           paste0(eta, ", ", hu, ", ", sigma)),
       zero_inflated_poisson = c(paste0("zero_inflated_poisson", .logit), 
                                 paste0(eta, ", ", zi)),
       zero_inflated_negbinomial = 
@@ -195,7 +197,7 @@ stan_llh_weights <- function(llh_pre, family = gaussian()) {
 }
 
 stan_autocor <- function(autocor, effects = list(), family = gaussian(),
-                         prior = prior_frame()) {
+                         prior = brmsprior()) {
   # Stan code related to autocorrelation structures
   # Args:
   #   autocor: autocorrelation structure; object of class cor_brms
@@ -214,8 +216,8 @@ stan_autocor <- function(autocor, effects = list(), family = gaussian(),
   out <- list()
   if (Kar || Kma) {
     if (!is_linear) {
-      stop(paste("ARMA effects for family", family$family, 
-                 "are not yet implemented"), call. = FALSE)
+      stop2("The ARMA correlation structure is not yet implemented ", 
+            "for family '", family$family, "'.") 
     }
     out$data <- paste0(out$data, "  #include 'data_arma.stan' \n")
     # restrict ARMA effects to be in [-1,1] when using covariance
@@ -238,13 +240,13 @@ stan_autocor <- function(autocor, effects = list(), family = gaussian(),
       # a covariance matrix for residuals
       err_msg <- "ARMA covariance matrices are not yet working"
       if (is_mv) {
-        stop(err_msg, " in multivariate models", call. = FALSE)
+        stop2(err_msg, " in multivariate models.")
       }
       if (is.formula(effects$disp)) {
-        stop(err_msg, " when specifying 'disp'", call. = FALSE)
+        stop2(err_msg, " when specifying 'disp'.")
       }
       if ("sigma" %in% names(effects)) {
-        stop(err_msg, " when predicting 'sigma'")
+        stop2(err_msg, " when predicting 'sigma'.")
       }
       out$data <- paste0(out$data, "  #include 'data_arma_cov.stan' \n")
       out$transD <- "  matrix[max(nobs_tg), max(nobs_tg)] res_cov_matrix; \n"
@@ -277,10 +279,10 @@ stan_autocor <- function(autocor, effects = list(), family = gaussian(),
     } else {
       err_msg <- "Please set cov = TRUE in cor_arma / cor_ar / cor_ma"
       if (is.formula(effects$se)) {
-        stop(err_msg, " when specifying 'se'", call. = FALSE)
+        stop2(err_msg, " when specifying 'se'.")
       }
       if (length(effects$nonlinear)) {
-        stop(err_msg, " for non-linear models", call. = FALSE)
+        stop2(err_msg, " for non-linear models.")
       }
       if (is_mv) {
         rs <- usc(resp, "prefix")
@@ -318,9 +320,8 @@ stan_autocor <- function(autocor, effects = list(), family = gaussian(),
   }
   if (is(autocor, "cov_fixed")) {
     if (!is_linear) {
-      stop(paste("Fixed residual covariance matrices for family", 
-                 family$family, "are not yet implemented"), 
-           call. = FALSE)
+      stop2("Fixed residual covariance matrices are not yet ", 
+            "implemented for family '", family$family, "'.") 
     }
     out$data <- "  matrix[N, N] V;  // known residual covariance matrix \n"
     if (family$family %in% "gaussian") {
@@ -330,12 +331,10 @@ stan_autocor <- function(autocor, effects = list(), family = gaussian(),
   }
   if (is(autocor, "cor_bsts")) {
     if (is_mv || family$family %in% c("bernoulli", "categorical")) {
-      stop("The bsts structure is not yet implemented for this family.",
-           call. = FALSE)
+      stop2("The bsts structure is not yet implemented for this family.")
     }
     if (length(effects$nonlinear)) {
-      stop("The bsts structure is not yet implemented for non-linear models",
-           call. = FALSE)
+      stop2("The bsts structure is not yet implemented for non-linear models.")
     }
     out$data <- "  vector[N] tg;  // indicates independent groups \n"
     out$par <- paste0("  vector[N] loclev;  // local level terms \n",
@@ -360,7 +359,7 @@ stan_autocor <- function(autocor, effects = list(), family = gaussian(),
   out
 }
 
-stan_mv <- function(family, response, prior = prior_frame()) {
+stan_mv <- function(family, response, prior = brmsprior()) {
   # some Stan code for multivariate models
   # Args:
   #   family: model family
@@ -403,13 +402,14 @@ stan_mv <- function(family, response, prior = prior_frame()) {
         collapse(ulapply(2:nresp, function(i) lapply(1:(i-1), function(j)
           paste0("  rescor[",(i-1)*(i-2)/2+j,"] = Rescor[",j,", ",i,"]; \n")))))
     } else if (!is.forked(family) && !is.categorical(family)) {
-      stop("invalid multivariate model", call. = FALSE)
+      stop2("Multivariate models are not yet implemented ", 
+            "for family '", family$family, "'.")
     }
   }
   out
 }
 
-stan_ordinal <- function(family, prior = prior_frame(), 
+stan_ordinal <- function(family, prior = brmsprior(), 
                          cse = FALSE, threshold = "flexible") {
   # Ordinal effects in Stan
   # Args:
@@ -572,6 +572,9 @@ stan_forked <- function(family) {
     } else if (family$family == "hurdle_gamma") {
       out$fun <- paste0(out$fun, 
         "  #include 'fun_hurdle_gamma.stan' \n")
+    } else if (family$family == "hurdle_lognormal") {
+      out$fun <- paste0(out$fun, 
+        "  #include 'fun_hurdle_lognormal.stan' \n")
     } 
   }
   out
@@ -632,8 +635,7 @@ stan_disp <- function(effects, family = gaussian()) {
            else if (has_shape(family)) "shape"
            else stop("invalid family for addition argument 'disp'")
     if (!is.null(effects[[par]])) {
-      stop("Specifying 'disp' is not allowed when predicting '", 
-           par, "'", call. = FALSE)
+      stop2("Specifying 'disp' is not allowed when predicting '", par, "'.")
     }
     out$data <- "  vector<lower=0>[N] disp;  // dispersion factors \n"
     out$modelD <- paste0("  vector[N] disp_", par, "; \n")
@@ -671,7 +673,7 @@ stan_misc_functions <- function(family = gaussian(), kronecker = FALSE) {
 }
 
 stan_prior <- function(class, coef = "", group = "", nlpar = "", suffix = "", 
-                       prior = prior_frame(), wsp = 2, matrix = FALSE) {
+                       prior = brmsprior(), wsp = 2, matrix = FALSE) {
   # Define priors for parameters in Stan language
   # Args:
   #   class: the parameter class
@@ -764,15 +766,14 @@ stan_prior <- function(class, coef = "", group = "", nlpar = "", suffix = "",
     # add horseshoe shrinkage priors
     hs_shrinkage_priors <- paste0(
       "  hs_local ~ student_t(", attr(prior, "hs_df"), ", 0, 1); \n",
-      "  hs_global ~ cauchy(0, 1); \n")
+      "  hs_global ~ cauchy(0, ", attr(prior, "hs_scale_global"), "); \n")
     out <- c(hs_shrinkage_priors, out)
   }
   out <- collapse(out)
   if (prior_only && nchar(class) && !nchar(out)) {
-    stop(paste0("Sampling from priors is not possible because ", 
-                "not all parameters have proper priors. \n",
-                "Error occured for class '", class, "'."), 
-         call. = FALSE)
+    stop2("Sampling from priors is not possible because ", 
+          "not all parameters have proper priors. \n",
+          "Error occured for class '", class, "'.")
   }
   out
 }
@@ -821,7 +822,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
   if (sample_prior) {
     prior <- gsub(" ", "", paste0("\n", prior))
     pars <- gsub("\\\n|to_vector\\(|\\)", "", get_matches("\\\n[^~]+", prior))
-    take <- !grepl("^(z|zs|temp)_|^increment_log_prob\\(", pars)
+    take <- !grepl("^(z|zs)_|^increment_log_prob\\(", pars)
     pars <- rename(pars[take], symbols = c("^L_", "^Lrescor"), 
                    subs = c("cor_", "rescor"), fixed = FALSE)
     dis <- gsub("~", "", regmatches(prior, gregexpr("~[^\\(]+", prior))[[1]])[take]
@@ -838,7 +839,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
     
     # special treatment of lkj_corr_cholesky priors
     args <- ifelse(grepl("corr_cholesky$", dis), 
-                   paste0("(2,", substr(args, 2, nchar(args)-1), "[1,2];"), 
+                   paste0("(2,", substr(args, 2, nchar(args)-1), "[1, 2];"), 
                    args)
     dis <- sub("corr_cholesky$", "corr", dis)
     
@@ -879,13 +880,28 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
       # unbounded parameters can be sampled in the generatated quantities block
       if (!is.null(hs_df)) {
         args[grepl("^b(m|p|_|$)", pars)] <- "(0, prior_hs_local * prior_hs_global);" 
-      } 
+      }
       out$genD <- collapse(
         "  ", types[no_bounds], " prior_", pars[no_bounds], "; \n")
       out$genC <- paste0(
         "  // additionally draw samples from priors \n",
         collapse("  prior_", pars[no_bounds], " = ",
                  dis[no_bounds], "_rng", args[no_bounds], " \n"))
+    }
+    # compute priors for the actual population-level intercepts
+    is_temp_intercept <- grepl("^temp.*_Intercept", pars)
+    if (any(is_temp_intercept)) {
+      temp_intercepts <- pars[is_temp_intercept]
+      p <- gsub("^temp|_Intercept$", "", temp_intercepts)
+      intercepts <- paste0("b", p, "_Intercept")
+      use_plus <- family$family %in% c("cumulative", "sratio")
+      sub_X_means <- paste0(ifelse(use_plus, " + ", " - "), 
+                            "dot_product(means_X", p, ", b", p, ")")
+      out$genD <- paste0(out$genD, 
+        collapse("  real prior_", intercepts, "; \n"))
+      out$genC <- paste0(out$genC, 
+        collapse("  prior_", intercepts, " = ",
+                 "prior_", temp_intercepts, sub_X_means, "; \n"))
     }
   }
   out

@@ -4,12 +4,14 @@ array2list <- function(x) {
   #   x: an arrary of dimension d
   # Returns: 
   #   A list of arrays of dimension d-1
-  if (is.null(dim(x))) stop("Argument x has no dimension")
+  if (is.null(dim(x))) {
+    stop("Argument 'x' has no dimension.")
+  }
   ndim <- length(dim(x))
   l <- list(length = dim(x)[ndim])
   ind <- collapse(rep(",", ndim - 1))
   for (i in seq_len(dim(x)[ndim])) {
-    l[[i]] <- eval(parse(text = paste0("x[", ind, i,"]"))) 
+    l[[i]] <- eval(parse(text = paste0("x[", ind, i, "]"))) 
   }
   names(l) <- dimnames(x)[[ndim]]
   l
@@ -23,12 +25,12 @@ Nsamples <- function(x, subset = NULL) {
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) {
     out <- 0
   } else {
-    ntsamples <- (x$fit@sim$iter - x$fit@sim$warmup) /
-                  x$fit@sim$thin * x$fit@sim$chains
+    ntsamples <- ceiling((x$fit@sim$iter - x$fit@sim$warmup) /
+                          x$fit@sim$thin * x$fit@sim$chains)
     if (length(subset)) {
       out <- length(subset)
       if (out > ntsamples || max(subset) > ntsamples) {
-        stop("invalid 'subset' argument", call. = FALSE)
+        stop2("Argument 'subset' is invalid.")
       }
     } else {
       out <- ntsamples
@@ -39,8 +41,7 @@ Nsamples <- function(x, subset = NULL) {
 
 contains_samples <- function(x) {
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) {
-    stop("The model does not contain posterior samples",
-         call. = FALSE)
+    stop2("The model does not contain posterior samples.")
   }
   invisible(TRUE)
 }
@@ -51,8 +52,11 @@ algorithm <- function(x) {
   else x$algorithm
 }
 
-restructure <- function(x) {
+restructure <- function(x, rstr_summary = FALSE) {
   # restructure old brmsfit objects to work with the latest brms version
+  # Args:
+  #   x: a brmsfit object
+  #   rstr_summary: restructure cached summary?
   stopifnot(is(x, "brmsfit"))
   if (isTRUE(attr(x, "restructured"))) {
     return(x)  # already restructured
@@ -63,6 +67,9 @@ restructure <- function(x) {
     x$formula <- SW(update_formula(x$formula, partial = x$partial, 
                                    nonlinear = x$nonlinear))
     x$nonlinear <- x$partial <- NULL
+    if ("prior_frame" %in% class(x$prior)) {
+      class(x$prior) <- c("brmsprior", "data.frame") 
+    }
     if (is(x$autocor, "cor_fixed")) {
       # deprecated as of brms 1.0.0
       class(x$autocor) <- "cov_fixed"
@@ -95,6 +102,20 @@ restructure <- function(x) {
     for (i in seq_along(change)) {
       x <- do_renaming(change = change[[i]], x = x)
     }
+    stan_env <- attributes(x$fit)$.MISC
+    if (rstr_summary && exists("summary", stan_env)) {
+      # rename parameters in cached summary
+      stan_summary <- get("summary", stan_env)
+      old_parnames <- rownames(stan_summary$msd)
+      if (!identical(old_parnames, parnames(x))) {
+        V <- c("msd", "c_msd", "quan", "c_quan")
+        V <- intersect(V, names(stan_summary))
+        for (v in V) {
+          rownames(stan_summary[[v]]) <- parnames(x)
+        }
+        assign("summary", stan_summary, stan_env)
+      }
+    }
   }
   structure(x, "restructured" = TRUE)
 }
@@ -118,18 +139,11 @@ link <- function(x, link) {
   #   link: a character string defining the link
   # Returns:
   #   an array of dimension dim(x) on which the link function was applied
-  if (link == "identity") x
-  else if (link == "log") log(x)
-  else if (link == "inverse") 1/x
-  else if (link == "sqrt") sqrt(x)
-  else if (link == "1/mu^2") 1 / x^2
-  else if (link == "tan_half") tan(x / 2)
-  else if (link == "logit") logit(x)
-  else if (link == "probit") qnorm(x)
-  else if (link == "probit_approx") qnorm(x)
-  else if (link == "cloglog") cloglog(x)
-  else if (link == "cauchit") qcauchy(x)
-  else stop(paste("Link", link, "not supported"))
+  switch(link, "identity" = x, "log" = log(x), "inverse" = 1 / x,
+         "sqrt" = sqrt(x), "1/mu^2" = 1 / x^2, "tan_half" = tan(x / 2),
+         "logit" = logit(x), "probit" = qnorm(x), "cauchit" = qcauchy(x),
+         "cloglog" = cloglog(x), "probit_approx" = qnorm(x),
+         stop2("Link '", link, "' not supported."))
 }
 
 ilink <- function(x, link) {
@@ -139,18 +153,78 @@ ilink <- function(x, link) {
   #   link: a character string defining the link
   # Returns:
   #   an array of dimension dim(x) on which the inverse link function was applied
-  if (link == "identity") x
-  else if (link == "log") exp(x)
-  else if (link == "inverse") 1/x
-  else if (link == "sqrt") x^2
-  else if (link == "1/mu^2") 1 / sqrt(x)
-  else if (link == "tan_half") 2 * atan(x)
-  else if (link == "logit") inv_logit(x)
-  else if (link == "probit") pnorm(x)
-  else if (link == "probit_approx") inv_logit(0.07056*x^3 + 1.5976*x)
-  else if (link == "cloglog") inv_cloglog(x)
-  else if (link == "cauchit") pcauchy(x)
-  else stop(paste("Link", link, "not supported"))
+  switch(link, "identity" = x, "log" = exp(x), "inverse" = 1 / x,
+         "sqrt" = x^2, "1/mu^2" = 1 / sqrt(x), "tan_half" = 2 * atan(x),
+         "logit" = inv_logit(x), "probit" = pnorm(x), "cauchit" = pcauchy(x),
+         "cloglog" = inv_cloglog(x), "probit_approx" = pnorm(x),
+         stop2("Link '", link, "' not supported."))
+}
+
+prepare_conditions <- function(x, conditions = NULL, effects = NULL, 
+                               re_formula = NA) {
+  # prepare marginal conditions
+  # Args:
+  #   x: an object of class 'brmsfit'
+  #   conditions: optional data.frame containing user defined conditions
+  #   re_formula: see marginal_effects
+  # Returns:
+  #   A data.frame with (possibly updated) conditions
+  mf <- model.frame(x)
+  new_formula <- update_re_terms(formula(x), re_formula = re_formula)
+  ee <- extract_effects(new_formula, family = family(x))
+  int_effects <- c(get_effect(ee, "mono"), rmNULL(ee[c("trials", "cat")]))
+  int_vars <- unique(ulapply(int_effects, all.vars))
+  if (is.null(conditions)) {
+    if (!is.null(ee$trials)) {
+      message("Using the median number of trials by default")
+    }
+    # list all required variables
+    req_vars <- c(lapply(get_effect(ee), rhs), 
+                  get_random(ee)$form,
+                  lapply(get_effect(ee, "mono"), rhs), 
+                  lapply(get_effect(ee, "gam"), rhs), 
+                  ee[c("cse", "se", "disp", "trials", "cat")])
+    req_vars <- unique(ulapply(req_vars, all.vars))
+    req_vars <- setdiff(req_vars, c(rsv_vars, names(ee$nonlinear)))
+    conditions <- as.data.frame(as.list(rep(NA, length(req_vars))))
+    names(conditions) <- req_vars
+    for (v in req_vars) {
+      if (is.numeric(mf[[v]])) {
+        if (v %in% int_vars) {
+          conditions[[v]] <- round(median(mf[[v]]))
+        } else {
+          conditions[[v]] <- mean(mf[[v]])
+        }
+      } else {
+        # use reference category
+        lev <- attr(as.factor(mf[[v]]), "levels")
+        conditions[[v]] <- factor(lev[1], levels = lev, 
+                                  ordered = is.ordered(mf[[v]]))
+      }
+    }
+  } else {
+    conditions <- as.data.frame(conditions)
+    if (!nrow(conditions)) {
+      stop2("Argument 'conditions' must have a least one row.")
+    }
+    if (any(duplicated(rownames(conditions)))) {
+      stop2("Row names of 'conditions' should be unique.")
+    }
+    conditions <- unique(conditions)
+    eff_vars <- lapply(effects, function(e) all.vars(parse(text = e)))
+    uni_eff_vars <- unique(unlist(eff_vars))
+    is_everywhere <- ulapply(uni_eff_vars, function(uv)
+      all(ulapply(eff_vars, function(vs) uv %in% vs)))
+    # variables that are present in every effect term
+    # do not need to be defined in conditions
+    missing_vars <- setdiff(uni_eff_vars[is_everywhere], names(conditions))
+    for (v in missing_vars) {
+      conditions[, v] <- mf[[v]][1]
+    }
+  }
+  amend_newdata(conditions, fit = x, re_formula = re_formula,
+                allow_new_levels = TRUE, incl_autocor = FALSE, 
+                return_standata = FALSE)
 }
 
 get_cornames <- function(names, type = "cor", brackets = TRUE,
@@ -243,7 +317,7 @@ get_summary <- function(samples, probs = c(0.025, 0.975),
                             probs = probs))), along = 3)
     dimnames(out) <- list(NULL, NULL, paste0("P(Y = ", 1:dim(out)[3], ")")) 
   } else { 
-    stop("dimension of 'samples' must be either 2 or 3") 
+    stop("Dimension of 'samples' must be either 2 or 3.") 
   }
   rownames(out) <- seq_len(nrow(out))
   colnames(out) <- c("Estimate", "Est.Error", paste0(probs * 100, "%ile"))
@@ -316,6 +390,7 @@ get_cov_matrix_ar1 <- function(ar, sigma, nrows, se2 = 0) {
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows AR1 covariance array (!)
+  sigma <- as.matrix(sigma)
   mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
   mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2_adjusted <- sigma^2 / (1 - ar^2)
@@ -340,6 +415,7 @@ get_cov_matrix_ma1 <- function(ma, sigma, nrows, se2 = 0) {
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows MA1 covariance array (!)
+  sigma <- as.matrix(sigma)
   mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
   mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2 <- sigma^2
@@ -367,6 +443,7 @@ get_cov_matrix_arma1 <- function(ar, ma, sigma, nrows, se2 = 0) {
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows ARMA1 covariance array (!)
+  sigma <- as.matrix(sigma)
   mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
   mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2_adjusted <- sigma^2 / (1 - ar^2)
@@ -393,6 +470,7 @@ get_cov_matrix_ident <- function(sigma, nrows, se2 = 0) {
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows sigma array
+  sigma <- as.matrix(sigma)
   mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
   mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2 <- sigma^2
@@ -408,7 +486,7 @@ get_auxpar <- function(x, i = NULL) {
   #   x: object to extract postarior samples from
   #   data: data initially passed to Stan
   #   i: the current observation number
-  #      (used in predict and logLik)
+  #      (used in predict and log_lik)
   if (is.list(x)) {
     # compute auxpar in distributional regression models
     ilink <- get(x[["ilink"]], mode = "function")
@@ -467,16 +545,18 @@ get_theta <- function(draws, i = NULL, par = c("zi", "hu")) {
 get_se <- function(data, i = NULL, dim = NULL) {
   # extract user-defined standard errors
   # Args: see get_auxpar
-  se <- data$se
+  se <- data[["se"]]
   if (is.null(se)) {
     # for backwards compatibility with brms <= 0.5.0
-    se <- data$sigma
+    se <- data[["sigma"]]
   }
-  if (!is.null(i)) {
-    se <- se[i]
-  } else {
-    stopifnot(!is.null(dim))
-    se <- matrix(se, nrow = dim[1], ncol = dim[2], byrow = TRUE)
+  if (!is.null(se)) {
+    if (!is.null(i)) {
+      se <- se[i]
+    } else {
+      stopifnot(!is.null(dim))
+      se <- matrix(se, nrow = dim[1], ncol = dim[2], byrow = TRUE)
+    }
   }
   se
 }
@@ -502,7 +582,7 @@ mult_disp <- function(x, data, i = NULL, dim = NULL) {
 }
 
 prepare_family <- function(x) {
-  # prepare for calling family specific loglik / predict functions
+  # prepare for calling family specific log_lik / predict functions
   family <- family(x)
   nresp <- length(extract_effects(x$formula, family = family,
                                   nonlinear = x$nonlinear)$response)
@@ -518,6 +598,13 @@ prepare_family <- function(x) {
   family
 }
 
+default_plot_pars <- function() {
+  # list all parameter classes to be included in plots by default
+  c("^b(|cs|m)_", "^sd_", "^cor_", "^sigma", "^rescor", 
+    "^nu$", "^shape$", "^delta$", "^phi$", "^kappa$", 
+    "^zi$", "^hu$", "^ar", "^ma", "^arr", "^simplex_", "^sds_")
+}
+
 extract_pars <- function(pars, all_pars, exact_match = FALSE,
                          na_value = all_pars, ...) {
   # extract all valid parameter names that match pars
@@ -530,7 +617,7 @@ extract_pars <- function(pars, all_pars, exact_match = FALSE,
   # Returns:
   #   A character vector of parameter names
   if (!(anyNA(pars) || is.character(pars))) {
-    stop("Argument pars must be NA or a character vector")
+    stop2("Argument 'pars' must be NA or a character vector.")
   }
   if (!anyNA(pars)) {
     if (exact_match) {
@@ -549,13 +636,13 @@ compute_ic <- function(x, ic = c("waic", "loo"), ll_args = list(), ...) {
   # Args:
   #   x: an object of class brmsfit
   #   ic: the information criterion to be computed
-  #   ll_args: a list of additional arguments passed to logLik
+  #   ll_args: a list of additional arguments passed to log_lik
   #   ...: passed to the loo package
   # Returns:
   #   output of the loo package with amended class attribute
   ic <- match.arg(ic)
   contains_samples(x)
-  args <- list(x = do.call(logLik, c(list(x), ll_args)))
+  args <- list(x = do.call(log_lik, c(list(x), ll_args)))
   if (ll_args$pointwise) {
     args$args$draws <- attr(args$x, "draws")
     args$args$data <- data.frame()
@@ -616,7 +703,7 @@ compare_ic <- function(x, ic = c("waic", "loo")) {
   nlist(ic_diffs, weights)
 }
 
-set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+07) {
+set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+08) {
   # set the pointwise argument based on the model size
   # Args:
   #   x: a brmsfit object
@@ -633,9 +720,9 @@ set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+07) {
   }
   pointwise <- nsamples * nobs > thres
   if (pointwise) {
-    message(paste0("Switching to pointwise evaluation to reduce ",  
-                   "RAM requirements.\nThis will likely increase ",
-                   "computation time."))
+    message("Switching to pointwise evaluation to reduce ",  
+            "RAM requirements.\nThis will likely increase ",
+            "computation time.")
   }
   pointwise
 }
@@ -668,8 +755,8 @@ match_response <- function(models) {
       out <- TRUE
     } else {
       out <- FALSE
-      warning("Model comparisons are most likely invalid as the response ", 
-              "parts of at least two models do not match.", call. = FALSE)
+      warning2("Model comparisons are most likely invalid as the response ", 
+               "parts of at least two models do not match.")
     }
   }
   invisible(out)
@@ -685,8 +772,9 @@ find_names <- function(x) {
   #   currently only used in hypothesis.brmsfit
   # Returns:
   #   all valid variable names within the string
-  if (!is.character(x) || length(x) > 1) 
-    stop("x must be a character string of length 1")
+  if (!is.character(x) || length(x) > 1) {
+    stop2("Argument 'x' must be a character string of length one.")
+  }
   x <- gsub(" ", "", x)
   reg_all <- paste0("([^([:digit:]|[:punct:])]|\\.)[[:alnum:]_\\.]*", 
                     "(\\[[^],]+(,[^],]+)*\\])?")
@@ -706,7 +794,7 @@ evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"),
   #   cut: the cut point between the two hypotheses
   #   wsign: direction of the hypothesis
   #   prior_samples: optional prior samples for undirected hypothesis
-  #   pow influence: the accuracy of the density
+  #   pow: influences the accuracy of the density
   #   ...: optional arguments passed to density.default
   # Returns:
   #   the evidence ratio of the two hypothesis
@@ -717,15 +805,20 @@ evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"),
     } else {
       dots <- list(...)
       dots <- dots[names(dots) %in% names(formals("density.default"))]
-      # compute prior and posterior densities
-      prior_density <- do.call(density, c(list(x = prior_samples, n = 2^pow), dots))
-      posterior_density <- do.call(density, c(list(x = x, n = 2^pow), dots))
-      # evaluate densities at the cut point
-      at_cut_prior <- match(min(abs(prior_density$x - cut)), 
-                            abs(prior_density$x - cut))
-      at_cut_posterior <- match(min(abs(posterior_density$x - cut)), 
-                                abs(posterior_density$x - cut))
-      out <- posterior_density$y[at_cut_posterior] / prior_density$y[at_cut_prior] 
+      args <- c(list(n = 2^pow), dots)
+      eval_dens <- function(x) {
+        # evaluate density of x at cut
+        from <- min(x)
+        to <- max(x)
+        if (from > cut) {
+          from <- cut - sd(x) / 4
+        } else if (to < cut) {
+          to <- cut + sd(x) / 4
+        }
+        dens <- do.call(density, c(nlist(x, from, to), args))
+        spline(dens$x, dens$y, xout = cut)$y
+      }
+      out <- eval_dens(x) / eval_dens(prior_samples)
     }
   } else if (wsign == "less") {
     out <- length(which(x < cut))

@@ -19,13 +19,18 @@ print.brmssummary <- function(x, digits = 2, ...) {
       args <- c("iter", "warmup", "thin", "chains")
       x[args] <- x[paste0("n.", args)]
     }
-    final_samples <- (x$iter - x$warmup) / x$thin * x$chains
+    final_samples <- ceiling((x$iter - x$warmup) / x$thin * x$chains)
     waic <- ifelse(is.numeric(x$WAIC), round(x$WAIC, digits = digits), x$WAIC)
     cat(paste0("Samples: ", x$chains, " chains, each with iter = ", x$iter, 
                "; warmup = ", x$warmup, "; thin = ", x$thin, "; \n",
                "         total post-warmup samples = ", final_samples, "\n"))
     cat(paste0("   WAIC: ", waic, "\n \n"))
     
+    if (nrow(x$prior)) {
+      cat("Priors: \n")
+      print(x$prior, show_df = FALSE)
+      cat("\n")
+    }
     if (length(x$splines)) {
       cat("Spline Effects: \n")
       if (x$algorithm == "sampling") {

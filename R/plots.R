@@ -1,35 +1,3 @@
-trace_density_plot <- function(x, theme = ggplot2::theme()) {
-  # trace and density plots for one parameter
-  #
-  # Args:
-  #   x: a data.frame containing the samples
-  #   theme: a ggplot2 theme object
-  #
-  # Returns:
-  #   a list containing trace and density plots 
-  if (!is.data.frame(x))
-    stop("x must be a data.frame")
-  out <- list()
-  out$trace <- ggplot(x, aes_string(x = "iter", y = "values", 
-                                    colour = "chain")) +
-    geom_line(alpha = 0.7) +
-    facet_wrap("ind", ncol = 1, scales = "free") +
-    xlab("") + ylab("") + ggtitle(paste("Trace")) + theme + 
-    theme(legend.position = "none",
-          plot.title = element_text(size = 16),
-          strip.text.x = element_text(size = 15),
-          plot.margin = grid::unit(c(0.2, 0.2, -0.5, -0.5), "lines"))
-  
-  out$density <- ggplot(x, aes_string(x = "values")) + 
-    geom_density(aes_string(fill = "chain"), alpha = 0.5) +
-    facet_wrap("ind", ncol = 1, scales = "free") + 
-    xlab("") + ylab("") + ggtitle(paste("Density")) + theme +
-    theme(plot.title = element_text(size = 16),
-          strip.text.x = element_text(size = 15),
-          plot.margin = grid::unit(c(0.2, 0, -0.5, -0.5), "lines"))
-  out
-}
-
 #' @rdname marginal_effects
 #' @method plot brmsMarginalEffects
 #' @export 
@@ -59,6 +27,10 @@ plot.brmsMarginalEffects <- function(x, ncol = NULL, points = FALSE,
     if (points) {
       # show the data as points in the plot
       # add points first so that they appear behind the regression lines
+      if (isTRUE(attr(x, "smooths_only"))) {
+        stop2("Argument 'points' is invalid for objects ", 
+              "returned by 'marginal_smooths'.")
+      }
       aes_points <- aes_string(x = effects[1], y = ".RESP")
       if (is.factor(attr(x[[i]], "points")[, gvar])) {
         aes_points$colour <- parse(text = gvar)[[1]]

@@ -1,12 +1,15 @@
 test_that("make_stancode handles horseshoe priors correctly", {
-  prior <- prior_frame(prior = "normal(0, hs_local * hs_global)", class = "b")
-  attr(prior, "hs_df") <- 7
   temp_stancode <- make_stancode(rating ~ treat*period*carry, data = inhaler,
-                                 prior = prior)
+                                 prior = prior(horseshoe(7)))
   expect_match(temp_stancode, fixed = TRUE,
                "  vector<lower=0>[Kc] hs_local; \n  real<lower=0> hs_global; \n")
   expect_match(temp_stancode, fixed = TRUE,
                "  hs_local ~ student_t(7, 0, 1); \n  hs_global ~ cauchy(0, 1); \n")
+  
+  temp_stancode <- make_stancode(rating ~ treat*period*carry, data = inhaler,
+                                 prior = prior(horseshoe(7, scale_global = 2)))
+  expect_match(temp_stancode, fixed = TRUE,
+               "  hs_local ~ student_t(7, 0, 1); \n  hs_global ~ cauchy(0, 2); \n")
 })
 
 test_that("make_stancode accepts supported links", {
@@ -31,7 +34,7 @@ test_that(paste("make_stancode returns correct strings",
                 "for customized covariances"), {
   expect_match(make_stancode(rating ~ treat + period + carry + (1|subject), 
                              data = inhaler, cov_ranef = list(subject = 1)), 
-               "r_1_1 = sd_1 * (Lcov_1 * z_1)", fixed = TRUE)
+               "r_1_1 = sd_1[1] * (Lcov_1 * z_1[1])", fixed = TRUE)
   expect_match(make_stancode(rating ~ treat + period + carry + (1+carry|subject), 
                              data = inhaler, cov_ranef = list(subject = 1)),
                "kronecker(Lcov_1, diag_pre_multiply(sd_1, L_1)) * to_vector(z_1)",
@@ -62,12 +65,12 @@ test_that("make_stancode correctly combines strings of multiple grouping factors
   expect_match(make_stancode(count ~ (1|patient) + (1 + Trt_c | visit), 
                              data = epilepsy, family = "poisson"), 
                paste0("  vector[N] Z_1_1; \n",
-                      "  // data for group-specific effects of ID 2 \n"), 
+                      "  // data for group-level effects of ID 2 \n"), 
                fixed = TRUE)
   expect_match(make_stancode(count ~ (1|visit) + (1+Trt_c|patient), 
                              data = epilepsy, family = "poisson"), 
                paste0("  int<lower=1> NC_1; \n",
-                      "  // data for group-specific effects of ID 2 \n"), 
+                      "  // data for group-level effects of ID 2 \n"), 
                fixed = TRUE)
 })
 
@@ -130,6 +133,9 @@ test_that("make_stancode returns correct self-defined functions", {
   expect_match(make_stancode(count ~ Trt_c, data = epilepsy, 
                              family = hurdle_gamma("log")),
                "real hurdle_gamma_lpdf(real y", fixed = TRUE)
+  expect_match(make_stancode(count ~ Trt_c, data = epilepsy, 
+                             family = hurdle_lognormal("identity")),
+               "real hurdle_lognormal_lpdf(real y", fixed = TRUE)
   # linear models with special covariance structures
   expect_match(make_stancode(rating ~ treat, data = inhaler, 
                              autocor = cor_ma(cov = TRUE)),
@@ -167,7 +173,7 @@ test_that("make_stancode detects invalid combinations of modeling options", {
                "Please set cov = TRUE", fixed = TRUE)
   expect_error(make_stancode(y1 | trunc(lb = -50) | weights(wi) ~ y2,
                              data = data),
-               "truncation is not yet possible")
+               "Truncation is not yet possible")
 })
 
 test_that("make_stancode is silent for multivariate models", {
@@ -226,7 +232,7 @@ test_that("make_stancode generates correct code for monotonic effects", {
                fixed = TRUE)
   # check that Z_1_1 is (correctly) undefined
   expect_match(scode, paste0("  int<lower=1> M_1; \n",
-    "  // data for group-specific effects of ID 2"), fixed = TRUE)
+    "  // data for group-level effects of ID 2"), fixed = TRUE)
   expect_error(make_stancode(y ~ mono(x1) + (mono(x1+x2)|x2), data = data),
                "Monotonic group-level terms require", fixed = TRUE)
 })
@@ -429,4 +435,21 @@ test_that("make_stancode handles censored responses correctly", {
   expect_match(make_stancode(y | cens(x) + weights(x) ~ 1, dat, weibull()),
                paste("target += weights[n] * weibull_lccdf(Y[n] |", 
                      "shape, eta[n]); \n"), fixed = TRUE)
+})
+
+test_that("make_stancode handles priors on intercepts correctly", {
+  sc <- make_stancode(count ~ log_Age_c + log_Base4_c * Trt_c,
+                      data = epilepsy, family = gaussian(), 
+                      prior = c(prior(student_t(5,0,10), class = b),
+                                prior(normal(0,5), class = Intercept)),
+                      sample_prior = TRUE)
+  expect_match(sc, paste0("prior_b_Intercept = prior_temp_Intercept ", 
+                          "- dot_product(means_X, b);"), fixed = TRUE)
+  sc <- make_stancode(cbind(count, count) ~ log_Age_c + log_Base4_c * Trt_c,
+                      data = epilepsy, family = gaussian(), 
+                      prior = c(prior(student_t(5,0,10), class = b),
+                                prior(normal(0,5), class = Intercept)),
+                      sample_prior = TRUE)
+  expect_match(sc, paste0("prior_b_count_Intercept = prior_temp_count_Intercept ", 
+                          "- dot_product(means_X_count, b_count);"), fixed = TRUE)
 })

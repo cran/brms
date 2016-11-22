@@ -2,8 +2,77 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.2.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Add the new family \code{hurdle_lognormal}
+      specifically suited for zero-inflated continuous responses.
+      \item Introduce the \code{pp_check} method to perform 
+      various posterior predictive checks
+      using the \pkg{bayesplot} package.
+      \item Introduce the \code{marginal_smooths} method to
+      better visualize smooth terms.
+      \item Allow varying the scale of global shrinkage 
+      parameter of the \code{horseshoe} prior.
+      \item Add functions \code{prior} and \code{prior_string}
+      as aliases of \code{set_prior}, the former 
+      allowing to pass arguments without quotes \code{""}
+      using non-standard evaluation.
+      \item Introduce four new vignettes explaining how to fit
+      non-linear models, distributional models, phylogenetic models, 
+      and monotonic effects respectively.
+      \item Extend the \code{coef} method to better 
+      handle category specific group-level effects.
+      \item Introduce the \code{prior_summary} method
+      for \code{brmsfit} objects to obtain a summary
+      of prior distributions applied.
+      \item Sample from the prior of the original population-level 
+      intercept when \code{sample_prior = TRUE} even in models
+      with an internal temporary intercept used to improve
+      sampling efficiency.
+      \item Introduce methods \code{posterior_predict}, 
+      \code{predictive_error} and \code{log_lik} as
+      (partial) aliases of \code{predict}, \code{residuals},
+      and \code{logLik} respectively.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Improve computation of Bayes factors
+      in the \code{hypothesis} method to be less 
+      influenced by MCMC error.
+      \item Improve documentation of default priors.
+      \item Refactor internal structure of some 
+      formula and prior evaluating functions. 
+      This should not have any user visible effects.
+      \item Use the \pkg{bayesplot} package as the
+      new backend of \code{plot.brmsfit}.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{ 
+      \item Better mimic \pkg{mgcv} when parsing smooth terms
+      to make sure all arguments are correctly handled.
+      \item Avoid an error occuring during the prediction 
+      of new data when grouping factors with only a single 
+      factor level were supplied thanks to Tom Wallis.
+      \item Fix \code{marginal_effects} to consistently 
+      produce plots for all covariates in non-linear models 
+      thanks to David Auty.
+      \item Improve the \code{update} method to better recognize
+      situations where recompliation of the \pkg{Stan} code
+      is necessary thanks to Raphael P.H.
+      \item Allow to correctly \code{update} the \code{sample_prior}
+      argument to value \code{"only"}.
+      \item Fix an unexpected error occuring in many S3 methods
+      when the thinning rate is not a divisor of the total
+      number of posterior samples thanks to Paul Zerr.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.1.0}{
-   \subsection{NEW FEATURES}{
+  \subsection{NEW FEATURES}{
     \itemize{
       \item Estimate monotonic group-level effects.
       \item Estimate category specific group-level effects.

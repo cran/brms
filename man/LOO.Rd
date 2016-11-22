@@ -3,14 +3,16 @@
 \name{LOO.brmsfit}
 \alias{LOO}
 \alias{LOO.brmsfit}
-\title{Compute LOO}
+\alias{loo}
+\alias{loo.brmsfit}
+\title{Compute the LOO information criterion}
 \usage{
 \method{LOO}{brmsfit}(x, ..., compare = TRUE, newdata = NULL,
   re_formula = NULL, allow_new_levels = FALSE, subset = NULL,
   nsamples = NULL, pointwise = NULL, cores = 1, wcp = 0.2,
   wtrunc = 3/4)
 
-LOO(x, ..., compare = TRUE)
+LOO(x, ...)
 }
 \arguments{
 \item{x}{A fitted model object typically of class \code{brmsfit}.}
@@ -61,28 +63,29 @@ If just one object is provided, an object of class \code{ic}.
  If multiple objects are provided, an object of class \code{iclist}.
 }
 \description{
-Compute Leave-one-out cross-validation based on the posterior likelihood
-by using the \pkg{loo} package
+Perform Leave-one-out cross-validation based on the posterior likelihood
+using the \pkg{loo} package.
 }
 \details{
 When comparing models fitted to the same data, 
  the smaller the LOO, the better the fit.
+ For \code{brmsfit} objects, \code{loo} is an alias of \code{LOO}.
 }
 \section{Methods (by class)}{
 \itemize{
-\item \code{brmsfit}: method for class \code{brmsfit}
+\item \code{brmsfit}: \code{LOO} method for \code{brmsfit} objects
 }}
 \examples{
 \dontrun{
-#model with fixed effects only
+# model with fixed effects only
 fit1 <- brm(rating ~ treat + period + carry,
             data = inhaler, family = "gaussian")
 LOO(fit1)
 
-#model with an additional random intercept for subjects
+# model with an additional random intercept for subjects
 fit2 <- brm(rating ~ treat + period + carry + (1|subject),
             data = inhaler, family = "gaussian")
-#compare both models
+# compare both models
 LOO(fit1, fit2)                          
 }
 

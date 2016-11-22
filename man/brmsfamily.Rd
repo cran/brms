@@ -11,6 +11,7 @@
 \alias{exponential}
 \alias{geometric}
 \alias{hurdle_gamma}
+\alias{hurdle_lognormal}
 \alias{hurdle_negbinomial}
 \alias{hurdle_poisson}
 \alias{lognormal}
@@ -51,6 +52,8 @@ hurdle_negbinomial(link = "log")
 
 hurdle_gamma(link = "log")
 
+hurdle_lognormal(link = "identity")
+
 zero_inflated_beta(link = "logit")
 
 zero_inflated_poisson(link = "log")
@@ -79,8 +82,9 @@ Currently, the following families are supported:
 \code{exponential}, \code{weibull}, \code{Beta}, \code{von_mises},
 \code{categorical}, \code{cumulative}, \code{cratio}, \code{sratio}, 
 \code{acat}, \code{hurdle_poisson}, \code{hurdle_negbinomial}, 
-\code{hurdle_gamma}, \code{zero_inflated_binomial},
-\code{zero_inflated_beta}, \code{zero_inflated_negbinomial}, 
+\code{hurdle_gamma}, \code{hurdle_lognormal}, 
+\code{zero_inflated_binomial}, \cr \code{zero_inflated_beta},
+\code{zero_inflated_negbinomial}, 
 and \code{zero_inflated_poisson}.}
 
 \item{link}{A specification for the model link function. 
@@ -111,14 +115,14 @@ Family \code{gaussian} with \code{identity} link leads to linear regression.
   \code{exponential}, \code{lognormal}, and \code{inverse.gaussian} can be used 
   (among others) for survival regression.
   Families \code{hurdle_poisson}, \code{hurdle_negbinomial}, \code{hurdle_gamma}, 
-  \code{zero_inflated_poisson}, and \cr
-  \code{zero_inflated_negbinomial} combined with the 
-  \code{log} link, and  \code{zero_inflated_binomial} with the \code{logit} link, 
-  allow to estimate zero-inflated and hurdle models. These models 
-  can be very helpful when there are many zeros in the data that cannot be explained 
-  by the primary distribution of the response. Family \code{hurdle_gamma} is 
-  especially useful, as a traditional \code{Gamma} model cannot be reasonably 
-  fitted for data containing zeros in the response. 
+  \code{hurdle_lognormal}, \code{zero_inflated_poisson},
+  \code{zero_inflated_negbinomial}, \code{zero_inflated_binomial}, and
+  \code{zero_inflated_beta} allow to estimate zero-inflated and hurdle models. 
+  These models can be very helpful when there are many zeros in the data 
+  that cannot be explained by the primary distribution of the response. 
+  Families \code{hurdle_lognormal} and \code{hurdle_gamma} are 
+  especially useful, as traditional \code{lognormal} or \code{Gamma}
+  models cannot be reasonably fitted for data containing zeros in the response.
   
   In the following, we list all possible links for each family.
   The families \code{gaussian}, and \code{student},
@@ -137,7 +141,8 @@ Family \code{gaussian} with \code{identity} link leads to linear regression.
   \code{inverse}, \code{identity} and \code{log}; 
   families \code{hurdle_poisson}, \code{hurdle_negbinomial},
   \code{hurdle_gamma}, \code{zero_inflated_poisson}, and
-  \code{zero_inflated_negbinomial} the link \code{log}. 
+  \code{zero_inflated_negbinomial} the link \code{log};
+  family \code{hurdle_lognormal} the link \code{identity}.
   The first link mentioned for each family is the default.     
   
   Please note that when calling the \code{\link[stats:family]{Gamma}} 

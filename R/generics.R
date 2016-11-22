@@ -1,6 +1,6 @@
 brmsfit <- function(formula = NULL, family = "", link = "", data.name = "", 
                     data = data.frame(), model = "", exclude = NULL,
-                    prior = prior_frame(), ranef = TRUE, autocor = NULL,
+                    prior = brmsprior(), ranef = TRUE, autocor = NULL,
                     threshold = "", cov_ranef = NULL, fit = NA, 
                     algorithm = "sampling") {
   # brmsfit class
@@ -17,12 +17,12 @@ brmssummary <- function(formula = NULL, family = "", link = "",
                         warmup = 500, thin = 1, sampler = "", 
                         autocor = NULL, fixed = NULL, random = list(), 
                         cor_pars = NULL, spec_pars = NULL, 
-                        mult_pars = NULL, WAIC = "Not computed",
-                        algorithm = "sampling") {
+                        mult_pars = NULL, prior = empty_brmsprior(),
+                        WAIC = "Not computed", algorithm = "sampling") {
   # brmssummary class
   x <- nlist(formula, family, link, data.name, group, nobs, ngrps, chains, 
              iter,  warmup, thin, sampler, autocor, fixed, random, cor_pars, 
-             spec_pars, mult_pars, WAIC, algorithm)
+             spec_pars, mult_pars, prior, WAIC, algorithm)
   class(x) <- "brmssummary"
   x
 }
@@ -45,7 +45,10 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' @param group Name of a grouping factor to evaluate only 
 #'  group-level effects parameters related to this grouping factor.
 #'  Ignored if \code{class} is not \code{"sd"} or \code{"cor"}.
-#' @param alpha The alpha-level of the tests (default is 0.05).
+#' @param alpha The alpha-level of the tests (default is 0.05;
+#'  see 'Details' for more information).
+#' @param seed A single numeric value passed to \code{set.seed} 
+#'  to make results reproducible.
 #' @param ignore_prior A flag indicating if prior distributions 
 #'  should also be plotted. Only used if priors were specified on
 #'  the relevant parameters.
@@ -61,8 +64,18 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #'  evidence ratio (\code{Evid.Ratio}) for each hypothesis. 
 #'  For a directed hypothesis, this is just the posterior probability 
 #'  under the hypothesis against its alternative.
-#'  For an undirected (i.e. point) hypothesis the evidence ratio 
-#'  is a Bayes factor between the hypothesis and its alternative.
+#'  That is, when the hypothesis if of the form \code{a > b}, 
+#'  the evidence ratio is the ratio of the posterior probability 
+#'  of \code{a > b} and the posterior probability of \code{a < b}.
+#'  In this example, values greater than one indicate that the evidence in
+#'  favour of \code{a > b} is larger than evidence in favour of \code{a < b}.
+#'  For an undirected (point) hypothesis, the evidence ratio 
+#'  is a Bayes factor between the hypothesis and its alternative
+#'  computed via the Savage-Dickey density ratio method.
+#'  That is the posterior density at the point of interest divided
+#'  by the prior density at that point.
+#'  Values greater than one indicate that evidence in favour of the point
+#'  hypothesis has increased after seeing the data.
 #'  In order to calculate this Bayes factor, all parameters related 
 #'  to the hypothesis must have proper priors
 #'  and argument \code{sample_prior} of function \code{brm} 
@@ -71,6 +84,16 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #'  that your priors are reasonable and carefully chosen,
 #'  as the result will depend heavily on the priors. 
 #'  It particular, avoid using default priors.
+#'  
+#'  The argument \code{alpha} specifies the size of the credible interval
+#'  (i.e., Bayesian confidence interval).
+#'  For instance, if \code{alpha = 0.05} (5\%), the credible interval
+#'  will contain \code{1 - alpha = 0.95} (95\%) of the posterior values.
+#'  Hence, \code{alpha * 100}\% of the posterior values will lie
+#'  outside of the credible interval. Although this allows testing of
+#'  hypotheses in a similar manner as in the frequentist null-hypothesis
+#'  testing framework, we strongly argue against using arbitrary cutoffs 
+#'  (e.g., \code{p < .05}) to determine the 'existence' of an effect.
 #' 
 #' @return Summary statistics of the posterior distributions 
 #'  related to the hypotheses. 
@@ -160,12 +183,12 @@ hypothesis <- function(x, hypothesis, ...) {
 #' fit <- brm(rating ~ treat + period + carry + (1|subject), 
 #'            data = inhaler, family = "cumulative")
 #' 
-#' #extract posterior samples of fixed effects 
+#' # extract posterior samples of population-level effects 
 #' samples1 <- posterior_samples(fit, "^b")
 #' head(samples1)
 #' 
-#' #extract posterior samples of standard deviations of random effects
-#' samples2 <- posterior_samples(fit, "^sd")
+#' # extract posterior samples of group-level standard deviations
+#' samples2 <- posterior_samples(fit, "^sd_")
 #' head(samples2)
 #' }
 #' 
@@ -212,11 +235,11 @@ posterior.samples <- function(x, pars = NA, ...) {
 #'            prior = set_prior("normal(0,2)", class = "b"), 
 #'            sample_prior = TRUE)
 #' 
-#' #extract all prior samples
+#' # extract all prior samples
 #' samples1 <- prior_samples(fit)
 #' head(samples1)
 #' 
-#' #extract prior samples for the fixed effect of \code{treat}.
+#' # extract prior samples for the population-level effects of 'treat'
 #' samples2 <- posterior_samples(fit, "b_treat")
 #' head(samples2)
 #' }
@@ -249,9 +272,9 @@ parnames <- function(x, ...) {
 #' Compute the WAIC
 #' 
 #' Compute the Watanabe-Akaike Information Criterion 
-#' based on the posterior likelihood by using the \pkg{loo} package
+#' based on the posterior likelihood using the \pkg{loo} package.
 #' 
-#' @aliases WAIC.brmsfit
+#' @aliases WAIC.brmsfit waic.brmsfit waic
 #' 
 #' @param x A fitted model object typically of class \code{brmsfit}. 
 #' @param ... Optionally more fitted model objects.
@@ -268,6 +291,7 @@ parnames <- function(x, ...) {
 #' 
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the WAIC, the better the fit.
+#'  For \code{brmsfit} objects, \code{waic} is an alias of \code{WAIC}.
 #' @return If just one object is provided, an object of class \code{ic}. 
 #'  If multiple objects are provided, an object of class \code{iclist}.
 #' 
@@ -275,15 +299,15 @@ parnames <- function(x, ...) {
 #' 
 #' @examples
 #' \dontrun{
-#' #model with fixed effects only
+#' # model with fixed effects only
 #' fit1 <- brm(rating ~ treat + period + carry,
 #'             data = inhaler, family = "gaussian")
 #' WAIC(fit1)
 #' 
-#' #model with an additional random intercept for subjects
+#' # model with an additional random intercept for subjects
 #' fit2 <- brm(rating ~ treat + period + carry + (1|subject),
 #'             data = inhaler, family = "gaussian")
-#' #compare both models
+#' # compare both models
 #' WAIC(fit1, fit2)                          
 #' }
 #' 
@@ -301,16 +325,16 @@ parnames <- function(x, ...) {
 #' The Journal of Machine Learning Research, 11, 3571-3594.
 #' 
 #' @export
-WAIC <- function(x, ..., compare = TRUE) {
+WAIC <- function(x, ...) {
   UseMethod("WAIC")
 }
 
-#' Compute LOO
+#' Compute the LOO information criterion
 #' 
-#' Compute Leave-one-out cross-validation based on the posterior likelihood
-#' by using the \pkg{loo} package
+#' Perform Leave-one-out cross-validation based on the posterior likelihood
+#' using the \pkg{loo} package.
 #' 
-#' @aliases LOO.brmsfit
+#' @aliases LOO.brmsfit loo.brmsfit loo
 #' 
 #' @inheritParams WAIC
 #' @param cores The number of cores to use for parallelization. 
@@ -321,6 +345,7 @@ WAIC <- function(x, ..., compare = TRUE) {
 #' 
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the LOO, the better the fit.
+#'  For \code{brmsfit} objects, \code{loo} is an alias of \code{LOO}.
 #' @return If just one object is provided, an object of class \code{ic}. 
 #'  If multiple objects are provided, an object of class \code{iclist}.
 #' 
@@ -328,15 +353,15 @@ WAIC <- function(x, ..., compare = TRUE) {
 #' 
 #' @examples
 #' \dontrun{
-#' #model with fixed effects only
+#' # model with fixed effects only
 #' fit1 <- brm(rating ~ treat + period + carry,
 #'             data = inhaler, family = "gaussian")
 #' LOO(fit1)
 #' 
-#' #model with an additional random intercept for subjects
+#' # model with an additional random intercept for subjects
 #' fit2 <- brm(rating ~ treat + period + carry + (1|subject),
 #'             data = inhaler, family = "gaussian")
-#' #compare both models
+#' # compare both models
 #' LOO(fit1, fit2)                          
 #' }
 #' 
@@ -354,7 +379,7 @@ WAIC <- function(x, ..., compare = TRUE) {
 #' The Journal of Machine Learning Research, 11, 3571-3594.
 #' 
 #' @export
-LOO <- function(x, ..., compare = TRUE) {
+LOO <- function(x, ...) {
   UseMethod("LOO")
 }
 
@@ -538,22 +563,67 @@ stanplot <- function(object, pars, ...) {
 #' \dontrun{
 #' fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient),
 #'            data = epilepsy, family = poisson()) 
+#'            
 #' ## plot all marginal effects
 #' plot(marginal_effects(fit), ask = FALSE)
+#' 
 #' ## only plot the marginal interaction effect of 'log_Base4_c:Trt_c'
 #' ## for different values for 'log_Age_c'
-#' mdata <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
+#' conditions <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
 #' plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
-#'                       data = mdata))
+#'                       conditions = conditions))
+#'                       
 #' ## also incorporate random effects variance over patients
-#' ## and add a rug representation of predictor values
+#' ## also add data points and a rug representation of predictor values
 #' plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
-#'                       data = mdata, re_formula = NULL), rug = TRUE)
+#'                       conditions = conditions, re_formula = NULL), 
+#'      points = TRUE, rug = TRUE)
+#'      
+#' ## fit a model to illustrate how to plot 3-way interactions
+#' fit3way <- brm(count ~ log_Age_c * log_Base4_c * Trt_c, data = epilepsy)
+#' conditions <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
+#' rownames(conditions) <- paste("log_Age_c =", conditions$log_Age_c)
+#' plot(marginal_effects(fit3way, "log_Base4_c:Trt_c",
+#'                       conditions = conditions))
 #' }
 #' 
 #' @export
 marginal_effects <- function(x, ...) {
   UseMethod("marginal_effects")
+}
+
+#' Display Smooth Terms
+#' 
+#' Display smooth \code{s} and \code{t2} terms of models
+#' fitted with \pkg{brms}.
+#' 
+#' @inheritParams marginal_effects
+#' @param smooths Optional character vector of smooth terms
+#'   to display. If \code{NULL} (the default) all smooth terms
+#'   are shown.
+#'   
+#' @return For the \code{brmsfit} method, 
+#' an object of class \code{brmsMarginalEffects}. See
+#' \code{\link[brms:marginal_effects]{marginal_effects}} for 
+#' more details and documentation of the related plotting function.
+#' 
+#' @details Smooth terms of more than one covariate cannot be
+#' plotted yet, but this will follow in future version of \pkg{brms}.
+#'   
+#' @examples 
+#' \dontrun{
+#' set.seed(0) 
+#' dat <- mgcv::gamSim(1, n = 200,scale = 2)
+#' fit <- brm(y ~ s(x0) + s(x1) + s(x2) + s(x3), data = dat)
+#' # show all smooth terms
+#' plot(marginal_smooths(fit), rug = TRUE, ask = FALSE)
+#' # show only the smooth term s(x2)
+#' plot(marginal_smooths(fit, smooths = "s(x2)"), ask = FALSE)
+#' }
+#' 
+#' @export
+marginal_smooths <- function(x, ...) {
+  UseMethod("marginal_smooths")
 }
 
 #' Expose user-defined \pkg{Stan} functions
@@ -563,24 +633,10 @@ marginal_effects <- function(x, ...) {
 #' For more details see 
 #' \code{\link[rstan:expose_stan_functions]{expose_stan_functions}}.
 #' 
-#' @param x An \code{R} object
+#' @param x An \R object
 #' @param ... Further arguments
 #' 
 #' @export
 expose_functions <- function(x, ...) {
   UseMethod("expose_functions")
-}
-
-#' Temporary pp_check generic function
-#' 
-#' @param object an \code{R} object
-#' @param ... further arguments
-#' 
-#' @details 
-#' See \code{\link[brms:pp_check.brmsfit]{pp_check.brmsfit}} for details.
-#' 
-#' @export
-pp_check <- function(object, ...) {
-  # NOTE: remove as soon as the bayesplot package is on CRAN
-  UseMethod("pp_check")
 }

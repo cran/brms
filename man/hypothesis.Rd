@@ -8,7 +8,7 @@
 \title{Non-linear hypothesis testing}
 \usage{
 \method{hypothesis}{brmsfit}(x, hypothesis, class = "b", group = "",
-  alpha = 0.05, ...)
+  alpha = 0.05, seed = 1234, ...)
 
 hypothesis(x, hypothesis, ...)
 
@@ -34,7 +34,11 @@ against each other, but have to be specified with their full name
 group-level effects parameters related to this grouping factor.
 Ignored if \code{class} is not \code{"sd"} or \code{"cor"}.}
 
-\item{alpha}{The alpha-level of the tests (default is 0.05).}
+\item{alpha}{The alpha-level of the tests (default is 0.05;
+see 'Details' for more information).}
+
+\item{seed}{A single numeric value passed to \code{set.seed} 
+to make results reproducible.}
 
 \item{...}{Currently ignored.}
 
@@ -53,7 +57,8 @@ the relevant parameters.}
 
 \item{theme}{A \code{\link[ggplot2:theme]{theme}} object 
 modifying the appearance of the plots. 
-For some basic themes see \code{\link[ggplot2:ggtheme]{ggtheme}}. 
+For some basic themes see \code{\link[ggplot2:ggtheme]{ggtheme}}
+and \code{\link[bayesplot:theme_default]{theme_default}}.
 Can be defined globally for the current session, via
 \code{\link[ggplot2:theme_update]{theme_set}}.}
 
@@ -77,8 +82,18 @@ Among others, \code{hypothesis} computes an
  evidence ratio (\code{Evid.Ratio}) for each hypothesis. 
  For a directed hypothesis, this is just the posterior probability 
  under the hypothesis against its alternative.
- For an undirected (i.e. point) hypothesis the evidence ratio 
- is a Bayes factor between the hypothesis and its alternative.
+ That is, when the hypothesis if of the form \code{a > b}, 
+ the evidence ratio is the ratio of the posterior probability 
+ of \code{a > b} and the posterior probability of \code{a < b}.
+ In this example, values greater than one indicate that the evidence in
+ favour of \code{a > b} is larger than evidence in favour of \code{a < b}.
+ For an undirected (point) hypothesis, the evidence ratio 
+ is a Bayes factor between the hypothesis and its alternative
+ computed via the Savage-Dickey density ratio method.
+ That is the posterior density at the point of interest divided
+ by the prior density at that point.
+ Values greater than one indicate that evidence in favour of the point
+ hypothesis has increased after seeing the data.
  In order to calculate this Bayes factor, all parameters related 
  to the hypothesis must have proper priors
  and argument \code{sample_prior} of function \code{brm} 
@@ -87,6 +102,16 @@ Among others, \code{hypothesis} computes an
  that your priors are reasonable and carefully chosen,
  as the result will depend heavily on the priors. 
  It particular, avoid using default priors.
+ 
+ The argument \code{alpha} specifies the size of the credible interval
+ (i.e., Bayesian confidence interval).
+ For instance, if \code{alpha = 0.05} (5\%), the credible interval
+ will contain \code{1 - alpha = 0.95} (95\%) of the posterior values.
+ Hence, \code{alpha * 100}\% of the posterior values will lie
+ outside of the credible interval. Although this allows testing of
+ hypotheses in a similar manner as in the frequentist null-hypothesis
+ testing framework, we strongly argue against using arbitrary cutoffs 
+ (e.g., \code{p < .05}) to determine the 'existence' of an effect.
 }
 \examples{
 \dontrun{

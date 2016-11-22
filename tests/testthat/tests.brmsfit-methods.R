@@ -64,7 +64,7 @@ test_that("all S3 methods have reasonable ouputs", {
   # hypothesis
   h1 <- hypothesis(fit1, "Intercept > Trt")
   expect_equal(dim(h1$hypothesis), c(1, 6))
-  expect_output(print(h1), "Intercept-(Trt) > 0", fixed = TRUE)
+  expect_output(print(h1), "(Intercept)-(Trt) > 0", fixed = TRUE)
   expect_silent(p <- plot(h1, plot = FALSE))
   
   h2 <- hypothesis(fit1, "Intercept = 0", class = "sd", group = "visit")
@@ -72,15 +72,18 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_output(print(h2), "class sd_visit:", fixed = TRUE)
   expect_silent(p <- plot(h2, ignore_prior = TRUE, plot = FALSE))
   expect_error(hypothesis(fit1, "Intercept > x"), fixed = TRUE,
-               "cannot be found in the model: b_x")
+               "cannot be found in the model: \nb_x")
   # omit launch_shiny
-  # logLik
-  expect_equal(dim(logLik(fit1)), c(Nsamples(fit1), nobs(fit1)))
+  # log_lik
+  expect_equal(dim(log_lik(fit1)), c(Nsamples(fit1), nobs(fit1)))
+  expect_equal(dim(log_lik(fit2)), c(Nsamples(fit2), nobs(fit2)))
+  expect_equal(log_lik(fit1), logLik(fit1))
   # LOO
   loo1 <- SW(LOO(fit1, cores = 1))
   expect_true(is.numeric(loo1[["looic"]]))
   expect_true(loo1[["se_looic"]] > 0)
   expect_output(print(loo1), "LOOIC")
+  expect_equal(loo1, SW(loo(fit1, cores = 1)))
   
   loo_compare1 <- SW(LOO(fit1, fit1, cores = 1))
   expect_equal(length(loo_compare1), 2)
@@ -111,10 +114,19 @@ test_that("all S3 methods have reasonable ouputs", {
                "All specified effects are invalid for this model")
   expect_warning(marginal_effects(fit1, effects = c("Trtc", "Trt")), 
                  "Some specified effects are invalid for this model")
-  
+  expect_error(marginal_effects(fit1, effects = "Trtc:a:b"), 
+               "please use the 'conditions' argument")
   expect_equal(nrow(marginal_effects(fit2)[[2]]), 100)
   expect_equal(nrow(marginal_effects(fit2, conditions = mdata)[[1]]),
                exp_nrow)
+  # marginal_smooths
+  ms1 <- marginal_smooths(fit1)
+  expect_equal(nrow(ms1[[1]]), 100)
+  expect_true(is(ms1, "brmsMarginalEffects"))
+  expect_error(marginal_smooths(fit1, smooths = "s3"),
+               "No valid smooth terms found in the model")
+  expect_error(marginal_smooths(fit2),
+               "No valid smooth terms found in the model")
   # model.frame
   expect_equal(model.frame(fit1), fit1$data)
   # ngrps
@@ -140,18 +152,21 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(names(posterior_samples(fit1, pars = "^b_")),
                c("b_Intercept", "b_Trt", "b_Age", "b_Trt:Age", 
                  "b_sAge_1", "b_sigma_Intercept", "b_sigma_Trt"))
+  # posterior_predict
+  expect_equal(dim(posterior_predict(fit1)), 
+               c(Nsamples(fit1), nobs(fit1)))
   # pp_check
-  # commented out as long a bayesplot is not on CRAN
-  # expect_true(is(pp_check(fit1), "ggplot"))
-  # expect_true(is(pp_check(fit1, "stat", nsamples = 5), "ggplot"))
-  # expect_true(is(pp_check(fit1, "resid_binned"), "ggplot"))
-  # ts_plot <- pp_check(fit1, "ts_grouped", group = "patient", time = "visit")
-  # expect_true(is(ts_plot, "ggplot"))
-  # expect_true(is(pp_check(fit2, "vs_x", x = "Trt"), "ggplot"))
-  # expect_error(pp_check(fit1, "wrong_type"))
-  # expect_error(pp_check(fit2, "violin_grouped"), "group")
-  # expect_error(pp_check(fit1, "stat_grouped", group = "g"),
-  #              "not a valid grouping factor")
+  expect_true(is(pp_check(fit1), "ggplot"))
+  expect_true(is(pp_check(fit1, newdata = fit1$data[1:100, ]), "ggplot"))
+  expect_true(is(pp_check(fit1, "stat", nsamples = 5), "ggplot"))
+  expect_true(is(pp_check(fit1, "error_binned"), "ggplot"))
+  ribbon_plot <- pp_check(fit1, "ribbon_grouped", group = "visit", x = "Age")
+  expect_true(is(ribbon_plot, "ggplot"))
+  expect_true(is(pp_check(fit2, "ribbon", x = "Trt"), "ggplot"))
+  expect_error(pp_check(fit1, "wrong_type"))
+  expect_error(pp_check(fit2, "violin_grouped"), "group")
+  expect_error(pp_check(fit1, "stat_grouped", group = "g"),
+               "not a valid grouping factor")
   # predict
   pred <- predict(fit1)
   expect_equal(dim(pred), c(nobs(fit1), 4))
@@ -177,6 +192,13 @@ test_that("all S3 methods have reasonable ouputs", {
   pred <- predict(fit2, newdata = newdata, 
                   allow_new_levels = TRUE)
   expect_equal(dim(pred), c(2, 4))
+  # check if grouping factors with a single level are accepted
+  newdata$patient <- factor(2)
+  pred <- predict(fit2, newdata = newdata)
+  expect_equal(dim(pred), c(2, 4))
+  # predictive error
+  expect_equal(dim(predictive_error(fit1)), 
+               c(Nsamples(fit1), nobs(fit1)))
   # print
   expect_output(SW(print(fit1)), "Group-Level Effects:")
   # prior_samples
@@ -189,6 +211,8 @@ test_that("all S3 methods have reasonable ouputs", {
   prs2 <- prior_samples(fit1, pars = "b_Trt")
   expect_equal(dimnames(prs2), list(as.character(1:Nsamples(fit1)), "b_Trt"))
   expect_equal(sort(prs1$b), sort(prs2$b_Trt))
+  # prior_summary
+  expect_true(is(prior_summary(fit1), "brmsprior"))
   # ranef
   ranef1 <- ranef(fit1, estimate = "median", var = TRUE)
   expect_equal(dim(ranef1$visit), c(4, 2))
@@ -226,7 +250,7 @@ test_that("all S3 methods have reasonable ouputs", {
                  "NC_1", "disp", "prior_only"))
   # stanplot tested in tests.plots.R
   # summary
-  summary1 <- SW(summary(fit1, waic = TRUE))
+  summary1 <- SW(summary(fit1, waic = TRUE, priors = TRUE))
   expect_true(is.numeric(summary1$fixed))
   expect_equal(rownames(summary1$fixed), 
                c("Intercept", "Trt", "Age", "Trt:Age", "sAge_1", 
@@ -238,6 +262,7 @@ test_that("all S3 methods have reasonable ouputs", {
                c("sd(Intercept)", "sd(Trt)", "cor(Intercept,Trt)"))
   expect_true(is.numeric(summary1$WAIC))
   expect_output(print(summary1), "Population-Level Effects:")
+  expect_output(print(summary1), "Priors:")
   
   summary2 <- SW(summary(fit1, waic = TRUE))
   # update
@@ -291,6 +316,8 @@ test_that("all S3 methods have reasonable ouputs", {
   waic1 <- WAIC(fit1)
   expect_true(is.numeric(waic1[["waic"]]))
   expect_true(is.numeric(waic1[["se_waic"]]))
+  expect_equal(waic1, waic(fit1))
+  
   waic_compare <- WAIC(fit1, fit1)
   expect_equal(length(waic_compare), 2)
   expect_equal(dim(attr(waic_compare, "compare")), c(1,2))
