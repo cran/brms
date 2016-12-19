@@ -4,9 +4,9 @@
 \alias{get_prior}
 \title{Overview on Priors for \pkg{brms} Models}
 \usage{
-get_prior(formula, data = NULL, family = gaussian(), autocor = NULL,
-  nonlinear = NULL, partial = NULL, threshold = c("flexible",
-  "equidistant"), internal = FALSE)
+get_prior(formula, data, family = gaussian(), autocor = NULL,
+  nonlinear = NULL, threshold = c("flexible", "equidistant"),
+  internal = FALSE)
 }
 \arguments{
 \item{formula}{An object of class 
@@ -16,11 +16,9 @@ a symbolic description of the model to be fitted.
 The details of model specification are explained in 
 \code{\link[brms:brmsformula]{brmsformula}}.}
 
-\item{data}{An optional data frame, list or environment  (or object coercible by 
-\code{as.data.frame} to a data frame) containing the variables in the model. 
-If not found in data, the variables are taken from \code{environment(formula)}, 
-typically the environment from which \code{brm} is called. 
-Although it is optional, we strongly recommend to supply a data.frame.}
+\item{data}{An object of class \code{data.frame} 
+(or one that can be coerced to that class) 
+containing data of all variables used in the model.}
 
 \item{family}{A description of the response distribution and link function 
 to be used in the model. This can be a family function, 
@@ -38,7 +36,7 @@ See the documentation of \code{\link{cor_brms}} for a description
 of the available correlation structures. Defaults to NULL, 
 corresponding to no correlations.}
 
-\item{nonlinear}{An optional list of formuluas, specifying 
+\item{nonlinear}{An optional list of formulas, specifying 
 linear models for non-linear parameters. If \code{NULL} (the default)
 \code{formula} is treated as an ordinary formula. 
 If not \code{NULL}, \code{formula} is treated as a non-linear model
@@ -49,13 +47,6 @@ Alternatively, it can be a single formula with all non-linear
 parameters on the left hand side (separated by a \code{+}) and a
 common linear predictor on the right hand side.
 More information is given under 'Details'.}
-
-\item{partial}{(Deprecated) A one sided formula of the form 
-\code{~expression} allowing to specify predictors with 
-category specific effects in non-cumulative ordinal models 
-(i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).
-As of \pkg{brms} > 0.8.0 category specific effects should be 
-specified directly within \code{formula} using function \code{cse}.}
 
 \item{threshold}{A character string indicating the type of thresholds 
 (i.e. intercepts) used in an ordinal model. 

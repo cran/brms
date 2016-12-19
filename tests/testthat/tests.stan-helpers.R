@@ -251,12 +251,6 @@ test_that("stan_rngprior returns correct sampling statements for priors", {
                                             "  real<lower=0> prior_sd_1_2; \n")), 
                     model = paste0(c2, paste0("  prior_sd_1_1 ~ normal(0,5); \n",
                                               "  prior_sd_1_2 ~ cauchy(0,2); \n"))))
-  
-  prior_code <- "b ~ normal(0, hs_local * hs_global); \n"
-  expect_match(stan_rngprior(TRUE, prior = prior_code, hs_df = 3)$genC,
-               "prior_b = normal_rng(0, prior_hs_local * prior_hs_global);",
-               fixed = TRUE)
-  
 })
 
 test_that("stan_mv returns correct Stan code (or errors)", {
@@ -266,7 +260,6 @@ test_that("stan_mv returns correct Stan code (or errors)", {
                fixed = TRUE)
   expect_equal(stan_mv(student(), c("y1", "y2"))$transD, 
                "  cov_matrix[nresp] Sigma; \n")
-  expect_equal(stan_mv(hurdle_gamma(), c("y", "huy")), list())
   expect_error(stan_mv(poisson(), c("y1", "y2")),
                "not yet implemented for family 'poisson'", fixed = TRUE)
 })

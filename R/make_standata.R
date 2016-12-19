@@ -24,17 +24,16 @@
 #' names(data2)
 #'          
 #' @export
-make_standata <- function(formula, data = NULL, family = "gaussian", 
+make_standata <- function(formula, data, family = "gaussian", 
                           prior = NULL, autocor = NULL, nonlinear = NULL, 
-                          partial = NULL, cov_ranef = NULL, 
-                          sample_prior = FALSE, knots = NULL, 
-                          control = list(), ...) {
+                          cov_ranef = NULL, sample_prior = FALSE, 
+                          knots = NULL, control = list(), ...) {
   # internal control arguments:
   #   is_newdata: is make_standata is called with new data?
   #   not4stan: is make_standata called for use in S3 methods?
   #   save_order: should the initial order of the data be saved?
   #   omit_response: omit checking of the response?
-  #   ntrials, ncat, Jm: standata based on the original data
+  #   ntrials, ncat, Jmo: standata based on the original data
   dots <- list(...)
   not4stan <- isTRUE(control$not4stan)
   is_newdata <- isTRUE(control$is_newdata)
@@ -43,7 +42,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
   # some input checks
   family <- check_family(family)
   formula <- update_formula(formula, data = data, family = family,
-                            partial = partial, nonlinear = nonlinear)
+                            nonlinear = nonlinear)
   old_mv <- isTRUE(attr(formula, "old_mv"))
   autocor <- check_autocor(autocor)
   is_linear <- is.linear(family)
@@ -125,7 +124,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
       if (length(unique(standata$Y)) < 2L) {
         stop2("At least two response categories are required.")
       }
-    } else if (is.skewed(family) || is.lognormal(family)) {
+    } else if (is.skewed(family) || is.lognormal(family) || is.wiener(family)) {
       if (min(standata$Y) <= 0) {
         stop2("Family '", family$family, "' requires response variable ", 
               "to be positive.")
@@ -140,7 +139,8 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
   }
   
   # data for various kinds of effects
-  ranef <- tidy_ranef(ee, data, ncat = control$ncat)
+  ranef <- tidy_ranef(ee, data, ncat = control$ncat, 
+                      old_levels = control$old_levels)
   args_eff <- nlist(data, family, ranef, prior, knots, not4stan)
   if (length(ee$nonlinear)) {
     nlpars <- names(ee$nonlinear)
@@ -155,7 +155,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
     for (nlp in nlpars) {
       args_eff_spec <- list(effects = ee$nonlinear[[nlp]], nlpar = nlp,
                             smooth = control$smooth[[nlp]],
-                            Jm = control$Jm[[nlp]])
+                            Jmo = control$Jmo[[nlp]])
       data_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
       standata <- c(standata, data_eff)
     }
@@ -163,7 +163,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
     resp <- ee$response
     if (length(resp) > 1L && !old_mv) {
       args_eff_spec <- list(effects = ee, autocor = autocor,
-                            Jm = control$Jm[["mu"]],
+                            Jmo = control$Jmo[["mu"]],
                             smooth = control$smooth[["mu"]])
       for (r in resp) {
         data_eff <- do.call(data_effects, 
@@ -178,7 +178,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
     } else {
       # pass autocor here to not affect non-linear and auxiliary pars
       args_eff_spec <- list(effects = ee, autocor = autocor, 
-                            Jm = control$Jm[["mu"]],
+                            Jmo = control$Jmo[["mu"]],
                             smooth = control$smooth[["mu"]])
       data_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
       standata <- c(standata, data_eff, data_csef(ee, data = data))
@@ -189,13 +189,12 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
   for (ap in intersect(auxpars(), names(ee))) {
     args_eff_spec <- list(effects = ee[[ap]], nlpar = ap,
                           smooth = control$smooth[[ap]],
-                          Jm = control$Jm[[ap]])
+                          Jmo = control$Jmo[[ap]])
     data_aux_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
     standata <- c(standata, data_aux_eff)
   }
   # data for grouping factors separated after group-ID
-  data_group <- data_group(ranef, data, cov_ranef = cov_ranef,
-                           old_levels = control$old_levels)
+  data_group <- data_group(ranef, data, cov_ranef = cov_ranef)
   standata <- c(standata, data_group)
   
   # data for specific families
@@ -209,7 +208,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
     } else if (is.wholenumber(ee$trials)) {
       standata$trials <- ee$trials
     } else if (is.formula(ee$trials)) {
-      standata$trials <- .addition(formula = ee$trials, data = data)
+      standata$trials <- eval_rhs(formula = ee$trials, data = data)
     } else {
       stop2("Argument 'trials' is misspecified.")
     }
@@ -274,19 +273,22 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
   
   # data for addition arguments
   if (is.formula(ee$se)) {
-    standata[["se"]] <- .addition(formula = ee$se, data = data)
+    standata[["se"]] <- eval_rhs(formula = ee$se, data = data)
   }
   if (is.formula(ee$weights)) {
-    standata[["weights"]] <- .addition(ee$weights, data = data)
+    standata[["weights"]] <- eval_rhs(ee$weights, data = data)
     if (old_mv) {
       standata$weights <- standata$weights[1:standata$N_trait]
     }
   }
   if (is.formula(ee$disp)) {
-    standata[["disp"]] <- .addition(ee$disp, data = data)
+    standata[["disp"]] <- eval_rhs(ee$disp, data = data)
+  }
+  if (is.formula(ee$dec)) {
+    standata[["dec"]] <- eval_rhs(ee$dec, data = data)
   }
   if (is.formula(ee$cens) && check_response) {
-    cens <- .addition(ee$cens, data = data)
+    cens <- eval_rhs(ee$cens, data = data)
     standata$cens <- rm_attr(cens, "y2")
     y2 <- attr(cens, "y2")
     if (!is.null(y2)) {
@@ -303,7 +305,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
     }
   }
   if (is.formula(ee$trunc)) {
-    standata <- c(standata, .addition(ee$trunc, data = data))
+    standata <- c(standata, eval_rhs(ee$trunc, data = data))
     if (length(standata$lb) == 1L) {
       standata$lb <- rep(standata$lb, standata$N)
     }
@@ -344,11 +346,6 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
         standata$nobs_tg <- as.array(with(standata, 
           c(if (N_tg > 1L) begin_tg[2:N_tg], N + 1) - begin_tg))
         standata$end_tg <- with(standata, begin_tg + nobs_tg - 1)
-        if (!is.null(standata$se)) {
-          standata$se2 <- standata$se^2
-        } else {
-          standata$se2 <- rep(0, standata$N)
-        }
       } 
     }
     if (Karr) {
@@ -389,7 +386,7 @@ make_standata <- function(formula, data = NULL, family = "gaussian",
   if (isTRUE(control$save_order)) {
     attr(standata, "old_order") <- attr(data, "old_order")
   }
-  standata
+  structure(standata, class = "standata")
 }  
 
 #' @export

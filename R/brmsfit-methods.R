@@ -37,13 +37,13 @@ parnames.brmsfit <- function(x, ...) {
 fixef.brmsfit <-  function(object, estimate = "mean", ...) {
   contains_samples(object)
   pars <- parnames(object)
-  fpars <- pars[grepl("^b(|cs|m)_", pars)]
+  fpars <- pars[grepl(fixef_pars(), pars)]
   if (!length(fpars)) {
     stop2("The model does not contain population-level effects.")
   }
   out <- posterior_samples(object, pars = fpars, exact_match = TRUE)
   out <- do.call(cbind, lapply(estimate, get_estimate, samples = out, ...))
-  rownames(out) <- gsub("^b(|cs|m)_", "", fpars)
+  rownames(out) <- gsub(fixef_pars(), "", fpars)
   out
 }
 
@@ -67,12 +67,12 @@ fixef.brmsfit <-  function(object, estimate = "mean", ...) {
 vcov.brmsfit <- function(object, correlation = FALSE, ...) {
   contains_samples(object)
   pars <- parnames(object)
-  fpars <- pars[grepl("^b(|cs|m)_", pars)]
+  fpars <- pars[grepl(fixef_pars(), pars)]
   if (!length(fpars)) {
     stop2("The model does not contain population-level effects.")
   }
   samples <- posterior_samples(object, pars = fpars, exact_match = TRUE)
-  names(samples) <- sub("^b(|cs|m)_", "", names(samples))
+  names(samples) <- sub(fixef_pars(), "", names(samples))
   if (correlation) {
     cor(samples) 
   } else {
@@ -502,31 +502,46 @@ as.matrix.brmsfit <- function(x, ...) {
 #' 
 #' @inheritParams posterior_samples
 #' @param ... currently unused
+#' @param combine_chains Indicates whether chains should be combined.
 #' @param inc_warmup Indicates if the warmup samples should be included.
 #'   Default is \code{FALSE}. Warmup samples are used to tune the 
 #'   parameters of the sampling algorithm and should not be analyzed.
 #'   
-#' @return A \code{list} of \code{mcmc} objects (not an \code{mcmc} object itself).
+#' @return If \code{combine_chains = TRUE} an \code{mcmc} object is returned.
+#'   If \code{combine_chains = FALSE} an \code{mcmc.list} object is returned.
 #' 
 #' @method as.mcmc brmsfit
 #' @export
 #' @export as.mcmc
 #' @importFrom coda as.mcmc
 as.mcmc.brmsfit <- function(x, pars = NA, exact_match = FALSE,
-                                 inc_warmup = FALSE, ...) {
+                            combine_chains = FALSE, inc_warmup = FALSE,
+                            ...) {
   contains_samples(x)
   pars <- extract_pars(pars, all_pars = parnames(x),
                        exact_match = exact_match, ...)
-  ps <- extract(x$fit, pars = pars, permuted = FALSE, 
-                inc_warmup = inc_warmup)
-  first <- if (inc_warmup) 1 else x$fit@sim$warmup + 1
-  out <- vector("list", length = dim(ps)[2])
-  for (i in seq_along(out)) {
-    out[[i]] <- ps[, i, ]
-    attr(out[[i]], "mcpar") <- c(first, x$fit@sim$iter, x$fit@sim$thin)
-    class(out[[i]]) <- "mcmc" 
+  if (combine_chains) {
+    if (inc_warmup) {
+      stop2("Cannot include warmup samples when 'combine_chains' is TRUE.")
+    }
+    out <- as.matrix(x$fit, pars)
+    mcpar <- c(x$fit@sim$warmup * x$fit@sim$chain + 1, 
+               x$fit@sim$iter * x$fit@sim$chain, x$fit@sim$thin)
+    attr(out, "mcpar") <- mcpar
+    class(out) <- "mcmc"
+  } else {
+    ps <- extract(x$fit, pars, permuted = FALSE, 
+                  inc_warmup = inc_warmup)
+    mcpar <- c(if (inc_warmup) 1 else x$fit@sim$warmup + 1, 
+               x$fit@sim$iter, x$fit@sim$thin)
+    out <- vector("list", length = dim(ps)[2])
+    for (i in seq_along(out)) {
+      out[[i]] <- ps[, i, ]
+      attr(out[[i]], "mcpar") <- mcpar
+      class(out[[i]]) <- "mcmc" 
+    }
+    class(out) <- "mcmc.list"
   }
-  class(out) <- "mcmc.list"
   out
 }
 
@@ -706,9 +721,9 @@ summary.brmsfit <- function(object, waic = FALSE, priors = FALSE,
     }
     
     # fixed effects summary
-    fix_pars <- pars[grepl("^b(|cs|m)_", pars)]
+    fix_pars <- pars[grepl(fixef_pars(), pars)]
     out$fixed <- fit_summary[fix_pars, , drop = FALSE]
-    rownames(out$fixed) <- gsub("^b(|cs|m)_", "", fix_pars)
+    rownames(out$fixed) <- gsub(fixef_pars(), "", fix_pars)
     
     # summary of family specific parameters
     is_mv_par <- apply(sapply(c("^sigma_", "^rescor_"), grepl, pars), 1, any)
@@ -842,8 +857,8 @@ launch_shiny.brmsfit <- function(x, rstudio = getOption("shinystan.rstudio"),
 #' 
 #' @param x An object of class \code{brmsfit}.
 #' @param pars Names of the parameters to plot, as given by a character vector 
-#'   or a regular expression. By default, all parameters except for random effects 
-#'   are plotted. 
+#'   or a regular expression. By default, all parameters except 
+#'   for group-level and smooth effects are plotted. 
 #' @param parameters A deprecated alias of \code{pars}
 #' @param combo A character vector with at least two elements. 
 #'   Each element of \code{combo} corresponds to a column in the resulting 
@@ -857,6 +872,9 @@ launch_shiny.brmsfit <- function(x, rstudio = getOption("shinystan.rstudio"),
 #'   and \code{\link[bayesplot:theme_default]{theme_default}}.
 #'   Can be defined globally for the current session, via
 #'   \code{\link[ggplot2:theme_update]{theme_set}}.
+#' @param exact_match Indicates whether parameter names 
+#'   should be matched exactly or treated as regular expression. 
+#'   Default is \code{FALSE}.
 #' @param plot logical; indicates if plots should be
 #'   plotted directly in the active graphic device.
 #'   Defaults to \code{TRUE}.
@@ -891,7 +909,8 @@ launch_shiny.brmsfit <- function(x, rstudio = getOption("shinystan.rstudio"),
 #' @export
 plot.brmsfit <- function(x, pars = NA, parameters = NA, 
                          combo = c("dens", "trace"), N = 5, 
-                         theme = NULL, plot = TRUE, ask = TRUE, 
+                         exact_match = FALSE, theme = NULL, 
+                         plot = TRUE, ask = TRUE, 
                          newpage = TRUE, ...) {
   dots <- list(...)
   pars <- use_alias(pars, parameters, default = NA)
@@ -902,8 +921,10 @@ plot.brmsfit <- function(x, pars = NA, parameters = NA,
   }
   if (!is.character(pars)) {
     pars <- default_plot_pars()
+    exact_match <- FALSE
   }
-  samples <- posterior_samples(x, pars = pars, add_chain = TRUE)
+  samples <- posterior_samples(x, pars = pars, add_chain = TRUE,
+                               exact_match = exact_match)
   pars <- names(samples)[!names(samples) %in% c("chain", "iter")] 
   if (!length(pars)) {
     stop2("No valid parameters selected.")
@@ -933,45 +954,62 @@ plot.brmsfit <- function(x, pars = NA, parameters = NA,
 
 #' @rdname stanplot
 #' @export
-stanplot.brmsfit <- function(object, pars = NA, type = "plot", 
-                             exact_match = FALSE, quiet = FALSE, ...) {
-  
-  # check validity of type first
-  basic_types <- c("plot", "trace", "scat", "hist", "dens", "ac")
-  diag_types <- c("diag", "par", "rhat", "ess", "mcse")
-  if (!type %in% c(basic_types, diag_types)) {
-    stop2("Invalid plot type. Valid plot types are: \n",
-          paste(c(basic_types, diag_types), collapse = ", "))
-  }
-  dots <- list(...)
-  args <- c(object = object$fit, dots)
-  plot_fun <- get(paste0("stan_", type), pos = asNamespace("rstan"))
-  
-  # ensure that only desired parameters are plotted
+stanplot.brmsfit <- function(object, pars = NA, type = "intervals", 
+                             exact_match = FALSE, quiet = TRUE, ...) {
   contains_samples(object)
-  pars <- extract_pars(pars, all_pars = parnames(object),
-                       exact_match = exact_match, 
-                       na_value = NA)
-  
-  if (type %in% basic_types) {
-    if (!anyNA(pars)) {
-      args <- c(args, list(pars = pars))
-    }
-  } else if (type %in% diag_types) {
-    if (type %in% c("rhat", "ess", "msce") && !anyNA(pars)) {
-      args <- c(args, list(pars = pars))
-    } else if (type == "par") {
-      if (length(pars) > 1L) {
-        stop2("Function 'stan_par' expects a single parameter name.")
+  object <- restructure(object)
+  if (length(type) != 1L) {
+    stop2("Argument 'type' must be of length 1.")
+  }
+  if (!is.character(pars)) {
+    pars <- default_plot_pars()
+    exact_match <- FALSE
+  }
+  nuts_types <- c("acceptance", "divergence", "stepsize",
+                  "treedepth", "energy")
+  valid_types <- c("hist", "dens", "hist_by_chain", "dens_overlay", 
+                   "violin", "intervals", "areas", "acf", "acf_bar",
+                   "trace", "trace_highlight", "scatter",
+                   "rhat", "rhat_hist", "neff", "neff_hist",
+                   paste0("nuts_", nuts_types))
+  if (!type %in% valid_types) {
+    stop2("Invalid plot type. Valid plot types are: \n",
+          paste(valid_types, collapse = ", "))
+  }
+  mcmc_fun <- get(paste0("mcmc_", type), pos = asNamespace("bayesplot"))
+  mcmc_arg_names <- names(formals(mcmc_fun))
+  mcmc_args <- list(...)
+  if ("x" %in% mcmc_arg_names) {
+    if (grepl("^nuts_", type)) {
+      # x refers to a molten data.frame of NUTS parameters
+      mcmc_args[["x"]] <- nuts_params(object)
+    } else {
+      # x refers to a data.frame of samples
+      samples <- posterior_samples(object, pars, add_chain = TRUE,
+                                   exact_match = exact_match)
+      samples$iter <- NULL
+      sel_pars <- names(samples)[!names(samples) %in% "chain"]
+      if (type == "scatter" && length(sel_pars) != 2L) {
+        stop2("For type 'scatter' exactly 2 parameters must be selected.",
+              "\nParameters selected: ", paste(sel_pars, collapse = ", "))
       }
-      args <- c(args, list(par = pars))
+      mcmc_args[["x"]] <- samples
     }
+  }
+  if ("lp" %in% mcmc_arg_names) {
+    mcmc_args[["lp"]] <- log_posterior(object)
+  }
+  if ("rhat" %in% mcmc_arg_names && !type %in% c("intervals", "areas")) {
+    mcmc_args[["rhat"]] <- rhat(object)
+  }
+  if ("ratio" %in% mcmc_arg_names) {
+    mcmc_args[["ratio"]] <- neff_ratio(object)
   }
   # make the plot
   if (quiet) {
-    rstan::quietgg(do.call(plot_fun, args))
+    rstan::quietgg(do.call(mcmc_fun, mcmc_args))
   } else {
-    do.call(plot_fun, args)
+    do.call(mcmc_fun, mcmc_args)
   }
 }
 
@@ -1009,6 +1047,9 @@ stanplot.brmsfit <- function(object, pars = NA, type = "plot",
 #' @param x Optional name of a variable in the model. 
 #'  Only used for ppc types having an \code{x} argument 
 #'  and ignored otherwise.
+#' @param quiet A flag indicating whether messages 
+#'   produced by \pkg{ggplot2} during the plotting process 
+#'   should be silenced. Default is \code{TRUE}.
 #' @param ... Further arguments passed to the ppc functions
 #'   of the \pkg{\link[bayesplot:bayesplot]{bayesplot}} package.
 #' @inheritParams predict.brmsfit
@@ -1032,6 +1073,7 @@ stanplot.brmsfit <- function(object, pars = NA, type = "plot",
 #' pp_check(fit, type = "scatter_avg", nsamples = 100)
 #' pp_check(fit, type = "stat_2d")
 #' }
+#' 
 #' @importFrom bayesplot pp_check
 #' @export pp_check
 #' @export
@@ -1039,7 +1081,7 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
                              x = NULL, newdata = NULL, 
                              re_formula = NULL, allow_new_levels = FALSE,
                              incl_autocor = TRUE, subset = NULL, 
-                             ntrys = 5, ...) {
+                             ntrys = 5, quiet = TRUE, ...) {
   if (missing(type)) {
     type <- "dens_overlay"
   }
@@ -1148,7 +1190,11 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
     }
     ppc_args$x <- x_var
   }
-  rstan::quietgg(do.call(ppc_fun, ppc_args))
+  if (quiet) {
+    rstan::quietgg(do.call(ppc_fun, ppc_args))
+  } else {
+    do.call(ppc_fun, ppc_args)
+  }
 }
 
 #' Create a matrix of output plots from a \code{brmsfit} object
@@ -1190,7 +1236,8 @@ pairs.brmsfit <- function(x, pars = NA, exact_match = FALSE, ...) {
 marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL, 
                                      re_formula = NA, robust = TRUE, 
                                      probs = c(0.025, 0.975),
-                                     method = c("fitted", "predict"), ...) {
+                                     method = c("fitted", "predict"), 
+                                     contour = FALSE, resolution = 100, ...) {
   method <- match.arg(method)
   dots <- list(...)
   conditions <- use_alias(conditions, dots$data)
@@ -1245,60 +1292,15 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
   }
   
   conditions <- prepare_conditions(x, conditions, effects, re_formula)
-  int_effects <- c(get_effect(ee, "mono"), rmNULL(ee[c("trials", "cat")]))
+  int_effects <- c(get_effect(ee, "mo"), rmNULL(ee[c("trials", "cat")]))
   int_vars <- unique(ulapply(int_effects, all.vars))
   mf <- model.frame(x)
   results <- list()
   for (i in seq_along(effects)) {
     marg_data <- mf[, effects[[i]], drop = FALSE]
-    pred_types <- ifelse(ulapply(marg_data, is.numeric), "numeric", "factor")
-    # numeric effects should come first
-    new_order <- order(pred_types, decreasing = TRUE)
-    effects[[i]] <- effects[[i]][new_order]
-    pred_types <- pred_types[new_order]
-    is_mono <- effects[[i]] %in% int_vars
-    if (pred_types[1] == "numeric") {
-      min1 <- min(marg_data[, effects[[i]][1]])
-      max1 <- max(marg_data[, effects[[i]][1]])
-      if (is_mono[1]) {
-        values <- seq(min1, max1, by = 1)
-      } else {
-        values <- seq(min1, max1, length.out = 100)
-      }
-    }
-    if (length(effects[[i]]) == 2L) {
-      if (pred_types[1] == "numeric") {
-        values <- setNames(list(values, NA), effects[[i]])
-        if (pred_types[2] == "numeric") {
-          if (is_mono[2]) {
-            median2 <- median(marg_data[, effects[[i]][2]])
-            mad2 <- mad(marg_data[, effects[[i]][2]])
-            values[[2]] <- round((-1:1) * mad2 + median2)
-          } else {
-            mean2 <- mean(marg_data[, effects[[i]][2]])
-            sd2 <- sd(marg_data[, effects[[i]][2]])
-            values[[2]] <- (-1:1) * sd2 + mean2
-          }
-        } else {
-          values[[2]] <- unique(marg_data[, effects[[i]][2]])
-        }
-        marg_data <- do.call(expand.grid, values)
-      }
-    } else if (pred_types == "numeric") {
-      # just a single numeric predictor
-      marg_data <- structure(data.frame(values), names = effects[[i]])
-    }
-    # no need to have the same value combination more than once
-    marg_data <- unique(marg_data)
-    marg_data <- replicate(nrow(conditions), simplify = FALSE,
-     expr = marg_data[do.call(order, as.list(marg_data)), , drop = FALSE])
-    marg_vars <- setdiff(names(conditions), effects[[i]])
-    for (j in seq_len(nrow(conditions))) {
-      marg_data[[j]][, marg_vars] <- conditions[j, marg_vars]
-      marg_data[[j]][["MargCond"]] <- rownames(conditions)[j]
-    }
-    marg_data <- do.call(rbind, marg_data)
-    marg_data$MargCond <- factor(marg_data$MargCond, rownames(conditions))
+    marg_args <- nlist(data = marg_data, conditions, 
+                       int_vars, contour, resolution)
+    marg_data <- do.call(prepare_marg_data, marg_args)
     args <- c(list(x, newdata = marg_data, re_formula = re_formula,
                    allow_new_levels = TRUE, incl_autocor = FALSE,
                    probs = probs, robust = robust), dots)
@@ -1316,11 +1318,13 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
     } else {
       marg_res <- do.call(method, args)
     }
-    colnames(marg_res)[3:4] <- c("lowerCI", "upperCI")
-     
-    if (length(effects[[i]]) == 2L && all(pred_types == "numeric")) {
+    colnames(marg_res) <- c("estimate__", "se__", "lower__", "upper__")
+    
+    types <- attr(marg_data, "types")
+    both_numeric <- length(types) == 2L && all(types == "numeric")
+    if (both_numeric && !contour) {
       # can only be converted to factor after having called method
-      if (is_mono[2]) {
+      if (isTRUE(attr(marg_data, "mono")[2])) {
         labels <- c("Median - MAD", "Median", "Median + MAD")
       } else {
         labels <- c("Mean - SD", "Mean", "Mean + SD") 
@@ -1331,6 +1335,7 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
     marg_res = cbind(marg_data, marg_res)
     attr(marg_res, "response") <- as.character(x$formula[2])
     attr(marg_res, "effects") <- effects[[i]]
+    attr(marg_res, "contour") <- both_numeric && contour
     point_args <- nlist(mf, effects = effects[[i]], conditions,
                         groups = get_random(ee)$group, family = x$family)
     attr(marg_res, "points") <- do.call(make_point_frame, point_args)
@@ -1343,7 +1348,8 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
 #' @rdname marginal_smooths
 #' @export
 marginal_smooths.brmsfit <- function(x, smooths = NULL,
-                                     probs = c(0.025, 0.975), ...) {
+                                     probs = c(0.025, 0.975),
+                                     resolution = 100, ...) {
   contains_samples(x)
   x <- restructure(x)
   mf <- model.frame(x)
@@ -1365,7 +1371,7 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
   args <- nlist(x, smooths_only = TRUE, allow_new_levels = TRUE,
                 incl_autocor = FALSE, f = prepare_family(x), 
                 nsamples = Nsamples(x))
-  multiple_covars <- FALSE
+  too_many_covars <- FALSE
   results <- list()
   for (k in seq_along(lee)) {
     # loop over elements that may contain smooth terms
@@ -1374,16 +1380,17 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
     for (i in seq_along(splines)) {
       # loop over smooth terms and compute their predictions
       ncovars <- length(covars[[i]])
-      if (ncovars > 1L) {
-        multiple_covars <- TRUE
+      if (ncovars > 2L) {
+        too_many_covars <- TRUE
       }
       include_spline <- !length(smooths) || splines[[i]] %in% smooths
-      if (include_spline && ncovars <= 1L) {
+      if (include_spline && ncovars <= 2L) {
         values <- named_list(covars[[i]])
         for (cv in names(values)) {
-          values[[cv]] <- seq(min(mf[[cv]]), max(mf[[cv]]), length.out = 100)
+          values[[cv]] <- seq(min(mf[[cv]]), max(mf[[cv]]), 
+                              length.out = resolution)
         }
-        newdata <- data.frame(values)
+        newdata <- expand.grid(values)
         other_vars <- setdiff(names(conditions), covars[[i]])
         newdata[, other_vars] <- conditions[1, other_vars]
         # prepare draws for linear_predictor
@@ -1397,7 +1404,7 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
         draws[["s"]] <- draws[["s"]][i]
         eta <- get_eta(i = NULL, draws = draws)
         eta <- get_summary(eta, robust = TRUE, probs = probs)
-        colnames(eta)[3:4] <- c("lowerCI", "upperCI")
+        colnames(eta) <- c("estimate__", "se__", "lower__", "upper__")
         res <- cbind(newdata[, covars[[i]], drop = FALSE], eta)
         response <- splines[[i]]
         if (isTRUE(nzchar(names(lee)[k]))) {
@@ -1405,6 +1412,7 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
         }
         attr(res, "response") <- response
         attr(res, "effects") <- covars[[i]]
+        attr(res, "contour") <- ncovars == 2L
         attr(res, "points") <- mf[, covars[[i]], drop = FALSE]
         results[[response]] <- res
       }
@@ -1413,8 +1421,8 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
   if (!length(results)) {
     stop2("No valid smooth terms found in the model.")
   }
-  if (multiple_covars) {
-    warning2("Smooth terms with more than one covariate ",  
+  if (too_many_covars) {
+    warning2("Smooth terms with more than two covariates ",  
              "are not yet supported by 'marginal_smooths'.")
   }
   attr(results, "smooths_only") <- TRUE
@@ -1740,7 +1748,7 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' \dontrun{
 #' ## fit a model
 #' fit <- brm(rating ~ treat + period + carry + (1|subject), 
-#'            data = inhaler, cluster = 2)
+#'            data = inhaler, cores = 2)
 #' 
 #' ## extract residuals 
 #' res <- residuals(fit, summary = TRUE)
@@ -1892,7 +1900,7 @@ update.brmsfit <- function(object, formula., newdata = NULL, ...) {
       family <- get_arg("family", dots, object)
       ee_new <- extract_effects(dots$formula, family = family)
       # no need to recompile the model when changing fixed effects only
-      dont_change <- c("random", "gam", "cse", "mono")
+      dont_change <- c("random", "gam", "cs", "mo", "me")
       n_old_fixef <- length(attr(terms(ee_old$fixed), "term.labels"))
       n_new_fixef <- length(attr(terms(ee_new$fixed), "term.labels"))
       recompile <- recompile ||
@@ -1922,8 +1930,8 @@ update.brmsfit <- function(object, formula., newdata = NULL, ...) {
   # brm computes warmup automatically based on iter 
   dots$chains <- first_not_null(dots$chains, object$fit@sim$chains)
   dots$thin <- first_not_null(dots$thin, object$fit@sim$thin)
-  rc_args <- c("family", "prior", "autocor", "nonlinear", "partial", 
-               "threshold", "cov_ranef", "sparse", "sample_prior")
+  rc_args <- c("family", "prior", "autocor", "nonlinear", "threshold", 
+               "cov_ranef", "sparse", "sample_prior")
   new_args <- intersect(rc_args, names(dots))
   recompile <- recompile || length(new_args)
   if (recompile) {
@@ -1961,8 +1969,11 @@ update.brmsfit <- function(object, formula., newdata = NULL, ...) {
     if (is.null(dots$sample_prior)) {
       dots$sample_prior <- any(grepl("^prior_", pnames))
     }
-    if (is.null(dots$ranef)) {
-      dots$ranef <- any(grepl("^r_", pnames)) || !nrow(object$ranef)
+    if (is.null(dots$save_ranef)) {
+      dots$save_ranef <- any(grepl("^r_", pnames)) || !nrow(object$ranef)
+    }
+    if (is.null(dots$save_mevars)) {
+      dots$save_mevars <- any(grepl("^Xme_", pnames))
     }
     if (is.null(dots$sparse)) {
       dots$sparse <- grepl("sparse matrix", stancode(object))
@@ -1983,10 +1994,18 @@ update.brmsfit <- function(object, formula., newdata = NULL, ...) {
       object$ranef <- tidy_ranef(ee, data = object$data)
       dots$is_newdata <- TRUE
     }
-    if (!is.null(dots$ranef)) {
+    if (!is.null(dots$save_ranef) || !is.null(dots$save_mevars)) {
+      pnames <- parnames(object)
+      if (is.null(dots$save_ranef)) {
+        dots$save_ranef <- any(grepl("^r_", pnames)) || !nrow(object$ranef)
+      }
+      if (is.null(dots$save_mevars)) {
+        dots$save_mevars <- any(grepl("^Xme_", pnames))
+      }
       object$exclude <- exclude_pars(ee, data = object$data, 
                                      ranef = object$ranef, 
-                                     save_ranef = dots$ranef)
+                                     save_ranef = dots$save_ranef,
+                                     save_mevars = dots$save_mevars)
     }
     if (!is.null(dots$algorithm)) {
       object$algorithm <- match.arg(dots$algorithm, 
@@ -2269,4 +2288,40 @@ hypothesis.brmsfit <- function(x, hypothesis, class = "b", group = "",
 #' @export
 expose_functions.brmsfit <- function(x, ...) {
   expose_stan_functions(x$fit)
+}
+
+#' @rdname diagnostic-quantities
+#' @importFrom bayesplot log_posterior
+#' @export log_posterior
+#' @export
+log_posterior.brmsfit <- function(object, ...) {
+  contains_samples(object)
+  bayesplot::log_posterior(object$fit, ...)
+}
+
+#' @rdname diagnostic-quantities
+#' @importFrom bayesplot nuts_params
+#' @export nuts_params
+#' @export
+nuts_params.brmsfit <- function(object, pars = NULL, ...) {
+  contains_samples(object)
+  bayesplot::nuts_params(object$fit, pars = pars, ...)
+}
+
+#' @rdname diagnostic-quantities
+#' @importFrom bayesplot rhat
+#' @export rhat
+#' @export
+rhat.brmsfit <- function(object, pars = NULL, ...) {
+  contains_samples(object)
+  bayesplot::rhat(object$fit, pars = pars, ...)
+}
+
+#' @rdname diagnostic-quantities
+#' @importFrom bayesplot neff_ratio
+#' @export neff_ratio
+#' @export
+neff_ratio.brmsfit <- function(object, pars = NULL, ...) {
+  contains_samples(object)
+  bayesplot::neff_ratio(object$fit, pars = pars, ...)
 }

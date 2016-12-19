@@ -4,15 +4,14 @@
 \alias{brm}
 \title{Fit Bayesian Generalized (Non-)Linear Multilevel Models}
 \usage{
-brm(formula, data = NULL, family = gaussian(), prior = NULL,
-  autocor = NULL, nonlinear = NULL, partial = NULL,
-  threshold = c("flexible", "equidistant"), cov_ranef = NULL,
-  ranef = TRUE, sparse = FALSE, sample_prior = FALSE, knots = NULL,
-  stan_funs = NULL, fit = NA, inits = "random", chains = 4,
-  iter = 2000, warmup = floor(iter/2), thin = 1, cluster = 1,
-  cluster_type = "PSOCK", control = NULL, algorithm = c("sampling",
-  "meanfield", "fullrank"), silent = TRUE, seed = 12345,
-  save_model = NULL, save_dso = TRUE, ...)
+brm(formula, data, family = gaussian(), prior = NULL, autocor = NULL,
+  nonlinear = NULL, threshold = c("flexible", "equidistant"),
+  cov_ranef = NULL, save_ranef = TRUE, save_mevars = FALSE,
+  sparse = FALSE, sample_prior = FALSE, knots = NULL, stan_funs = NULL,
+  fit = NA, inits = "random", chains = 4, iter = 2000,
+  warmup = floor(iter/2), thin = 1, cores = getOption("mc.cores", 1L),
+  control = NULL, algorithm = c("sampling", "meanfield", "fullrank"),
+  silent = TRUE, seed = 12345, save_model = NULL, save_dso = TRUE, ...)
 }
 \arguments{
 \item{formula}{An object of class 
@@ -22,11 +21,9 @@ a symbolic description of the model to be fitted.
 The details of model specification are explained in 
 \code{\link[brms:brmsformula]{brmsformula}}.}
 
-\item{data}{An optional data frame, list or environment  (or object coercible by 
-\code{as.data.frame} to a data frame) containing the variables in the model. 
-If not found in data, the variables are taken from \code{environment(formula)}, 
-typically the environment from which \code{brm} is called. 
-Although it is optional, we strongly recommend to supply a data.frame.}
+\item{data}{An object of class \code{data.frame} 
+(or one that can be coerced to that class) 
+containing data of all variables used in the model.}
 
 \item{family}{A description of the response distribution and link function 
 to be used in the model. This can be a family function, 
@@ -49,7 +46,7 @@ See the documentation of \code{\link{cor_brms}} for a description
 of the available correlation structures. Defaults to NULL, 
 corresponding to no correlations.}
 
-\item{nonlinear}{An optional list of formuluas, specifying 
+\item{nonlinear}{An optional list of formulas, specifying 
 linear models for non-linear parameters. If \code{NULL} (the default)
 \code{formula} is treated as an ordinary formula. 
 If not \code{NULL}, \code{formula} is treated as a non-linear model
@@ -60,13 +57,6 @@ Alternatively, it can be a single formula with all non-linear
 parameters on the left hand side (separated by a \code{+}) and a
 common linear predictor on the right hand side.
 More information is given under 'Details'.}
-
-\item{partial}{(Deprecated) A one sided formula of the form 
-\code{~expression} allowing to specify predictors with 
-category specific effects in non-cumulative ordinal models 
-(i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).
-As of \pkg{brms} > 0.8.0 category specific effects should be 
-specified directly within \code{formula} using function \code{cse}.}
 
 \item{threshold}{A character string indicating the type of thresholds 
 (i.e. intercepts) used in an ordinal model. 
@@ -82,11 +72,20 @@ All levels of the grouping factor should appear as rownames
 of the corresponding matrix. This argument can be used,
 among others, to model pedigrees and phylogenetic effects.}
 
-\item{ranef}{A flag to indicate if group-level effects 
+\item{save_ranef}{A flag to indicate if group-level effects 
 for each level of the grouping factor(s) 
 should be saved (default is \code{TRUE}). 
 Set to \code{FALSE} to save memory. 
-The argument has no impact on the model fitting itself.}
+The argument has no impact on the model fitting itself.
+A deprecated alias is \code{ranef}.}
+
+\item{save_mevars}{A flag to indicate if samples
+of noise-free variables obtained by using \code{me} terms
+should be saved (default is \code{FALSE}).
+Saving these samples allows to use methods such as
+\code{predict} with the noise-free variables but 
+leads to very large \R objects even for models
+of moderate size and complexity.}
 
 \item{sparse}{Logical; indicates whether the population-level 
 design matrix should be treated as sparse (defaults to \code{FALSE}). 
@@ -137,32 +136,23 @@ Alternatively, \code{inits} can be a list of lists containing
 the initial values, or a function (or function name) generating initial values. 
 The latter options are mainly implemented for internal testing.}
 
-\item{chains}{Number of Markov chains (defaults to 4). 
-A deprecated alias is \code{n.chains}.}
+\item{chains}{Number of Markov chains (defaults to 4).}
 
-\item{iter}{Number of total iterations per chain (including warmup; defaults to 2000).
-A deprecated alias is \code{n.iter}.}
+\item{iter}{Number of total iterations per chain (including warmup; defaults to 2000).}
 
 \item{warmup}{A positive integer specifying number of warmup (aka burnin) iterations. 
 This also specifies the number of iterations used for stepsize adaptation, 
 so warmup samples should not be used for inference. The number of warmup should not 
-be larger than \code{iter} and the default is \code{iter/2}.
-A deprecated alias is \code{n.warmup}.}
+be larger than \code{iter} and the default is \code{iter/2}.}
 
 \item{thin}{Thinning rate. Must be a positive integer. 
-Set \code{thin > 1} to save memory and computation time if \code{iter} is large. 
-Default is 1, that is no thinning. A deprecated alias is \code{n.thin}.}
+Set \code{thin > 1} to save memory and computation time if \code{iter} is large.}
 
-\item{cluster}{Number of clusters to use to run parallel chains. Default is 1.
-A deprecated alias is \code{n.cluster}. To use the built-in parallel execution
-of \pkg{rstan}, specify argument \code{cores} instead of \code{cluster}.}
-
-\item{cluster_type}{A character string specifying the type of cluster created by 
-\code{\link[parallel:makeCluster]{makeCluster}} when sampling in parallel 
-(i.e. when \code{cluster} is greater \code{1}). 
-Default is \code{"PSOCK"} working on all platforms. 
-For OS X and Linux, \code{"FORK"} may be a faster and more stable option, 
-but it does not work on Windows.}
+\item{cores}{Number of cores to use when executing the chains in parallel, 
+which defaults to 1 but we recommend setting the \code{mc.cores} option 
+to be as many processors as the hardware and RAM allow (up to the number of chains).
+For non-Windows OS in non-interactive \R sessions, forking is used
+instead of PSOCK clusters. A deprecated alias is \code{cluster}.}
 
 \item{control}{A named \code{list} of parameters to control the sampler's behavior. 
 It defaults to \code{NULL} so all the default values are used. 
@@ -175,9 +165,10 @@ variational inference with independent normal distributions, or
 \code{"fullrank"} for variational inference with a multivariate normal
 distribution.}
 
-\item{silent}{logical; If \code{TRUE}, warning messages of the sampler are suppressed.}
+\item{silent}{logical; If \code{TRUE}, informational messages of 
+the compiler and sampler are suppressed.}
 
-\item{seed}{Positive integer. Used by \code{set.seed} to make results reproducable.}
+\item{seed}{Used by \code{set.seed} to make results reproducable.}
 
 \item{save_model}{Either \code{NULL} or a character string. 
 In the latter case, the model code is
@@ -199,18 +190,32 @@ An object of class \code{brmsfit}, which contains the posterior samples along
   Use \code{methods(class = "brmsfit")} for an overview on available methods.
 }
 \description{
-Fit a Bayesian generalized (non-)linear Multilevel model using Stan
+Fit Bayesian generalized (non-)linear multilevel models 
+using Stan for full Bayesian inference. A wide range of distributions 
+and link functions are supported, allowing users to fit
+linear, robust linear, binomial, Poisson, survival, response times, ordinal, 
+zero-inflated, hurdle, and even non-linear models all in a multilevel context. 
+Further modeling options include auto-correlation and smoothing terms, 
+user defined dependence structures, censored data, meta-analytic 
+standard errors, and quite a few more. 
+In addition, all parameters of the response distribution can be predicted
+in order to perform distributional regression.
+Prior specifications are flexible and explicitly encourage 
+users to apply prior distributions that actually reflect their beliefs.
+In addition, model fit can easily be assessed and compared with
+posterior predictive checks and leave-one-out cross-validation.
 }
 \details{
-Fit a generalized (non-)linear multilevel model, 
-  which incorporates both population-level parameters 
-  (also known as fixed-effects) and group-level parameters
-  (also known as random effects) in a (non-)linear predictor 
+Fit a generalized (non-)linear multilevel model
   via full Bayesian inference using Stan. 
+  See \code{vignette("brms_overview")} for a general 
+  introduction and overview of \pkg{brms}.
+  For a full list of available vignettes see
+  \code{vignette(package = "brms")}.
   
   \bold{Formula syntax of brms models}
   
-  The details of the formula syntax applied in \pkg{brms} 
+  Details of the formula syntax applied in \pkg{brms} 
   can be found in \code{\link[brms:brmsformula]{brmsformula}}.
   
   \bold{Families and link functions}
@@ -287,7 +292,7 @@ plot(marginal_effects(fit1), ask = FALSE)
  
 ## Ordinal regression modeling patient's rating of inhaler instructions 
 ## category specific effects are estimated for variable 'treat'
-fit2 <- brm(rating ~ period + carry + cse(treat), 
+fit2 <- brm(rating ~ period + carry + cs(treat), 
             data = inhaler, family = sratio("cloglog"), 
             prior = set_prior("normal(0,5)"), chains = 2)
 summary(fit2)
@@ -305,14 +310,16 @@ plot(marginal_effects(fit3), ask = FALSE)
 n <- sample(1:10, 100, TRUE)  # number of trials
 success <- rbinom(100, size = n, prob = 0.4)
 x <- rnorm(100)
-fit4 <- brm(success | trials(n) ~ x, 
+data4 <- data.frame(n, success, x)
+fit4 <- brm(success | trials(n) ~ x, data = data4,
             family = binomial("probit"))
 summary(fit4)
 
 ## Simple non-linear gaussian model
 x <- rnorm(100)
 y <- rnorm(100, mean = 2 - 1.5^x, sd = 1)
-fit5 <- brm(y ~ a1 - a2^x, nonlinear = a1 + a2 ~ 1,
+data5 <- data.frame(x, y)
+fit5 <- brm(y ~ a1 - a2^x, data = data5, nonlinear = a1 + a2 ~ 1,
             prior = c(prior(normal(0, 2), nlpar = a1),
                       prior(normal(0, 2), nlpar = a2)))
 summary(fit5)
@@ -325,11 +332,10 @@ fit6 <- brm(bf(y ~ x, sigma ~ 0 + x), data = data_het)
 summary(fit6)
 plot(fit6)
 marginal_effects(fit6)
-# extract residual SDs of both groups
+# extract estimated residual SDs of both groups
 sigmas <- exp(posterior_samples(fit6, "^b_sigma_"))
-colMeans(sigmas)
-hist(sigmas[, 1])
-hist(sigmas[, 2])
+ggplot(stack(sigmas), aes(values)) + 
+  geom_density(aes(fill = ind))
 }
 
 }

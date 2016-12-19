@@ -57,6 +57,10 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' @param chars Maximum number of characters of each hypothesis
 #'  to print or plot. If \code{NULL}, print the full hypotheses.
 #'  Defaults to \code{20}.
+#' @param colors Two values specifying the colors of the posterior
+#'  and prior density respectively. If \code{NULL} (the default)
+#'  colors are taken from the current color scheme of 
+#'  the \pkg{bayesplot} package.
 #' @inheritParams plot.brmsfit
 #' @param ... Currently ignored.
 #' 
@@ -445,43 +449,40 @@ standata <- function(object, ...) {
   UseMethod("standata")
 }
 
-#' Various Plotting Functions implemented in \pkg{rstan} 
+#' MCMC Plots Implemented in \pkg{bayesplot} 
 #' 
-#' Conveniant way to call plotting functions 
-#' implemented in the \pkg{rstan} package. 
+#' Conveniant way to call MCMC plotting functions 
+#' implemented in the \pkg{bayesplot} package. 
 #' 
 #' @inheritParams posterior_samples
-#' @param object An R object typically of class \code{brmsfit}
+#' @param object An \R object typically of class \code{brmsfit}
 #' @param pars Names of parameters to be plotted, 
 #'   as given by a character vector or regular expressions. 
-#'   By default, the first 10 parameters are plotted.
+#'   By default, all parameters except for group-level and 
+#'   smooth effects are plotted. May be ignored for some plots.
 #' @param type The type of the plot. 
-#'   Supported types are (as names) \code{plot},
-#'   \code{trace}, \code{hist}, \code{dens}, \code{scat}, 
-#'   \code{diag}, \code{rhat}, \code{ess}, \code{mcse}, \code{ac}. 
+#'   Supported types are (as names) \code{hist}, \code{dens}, 
+#'   \code{hist_by_chain}, \code{dens_overlay}, 
+#'   \code{violin}, \code{intervals}, \code{areas}, \code{acf}, 
+#'   \code{acf_bar},\code{trace}, \code{trace_highlight}, \code{scatter},
+#'   \code{rhat}, \code{rhat_hist}, \code{neff}, \code{neff_hist}
+#'   \code{nuts_acceptance}, \code{nuts_divergence},
+#'   \code{nuts_stepsize}, \code{nuts_treedepth}, and \code{nuts_energy}. 
 #'   For an overview on the various plot types see
-#'   \code{\link[rstan:plotting-functions]{plotting-functions}}.
+#'   \code{\link[bayesplot:MCMC-overview]{MCMC-overview}}.
 #' @param quiet A flag indicating whether messages 
 #'   produced by \pkg{ggplot2} during the plotting process 
-#'   should be silenced. Default is \code{FALSE}.
+#'   should be silenced. Default is \code{TRUE}.
 #' @param ... Additional arguments passed to the plotting functions.
+#'   See \code{\link[bayesplot:MCMC-overview]{MCMC-overview}} for
+#'   more details.
 #' 
 #' @return A \code{\link[ggplot2:ggplot]{ggplot}} object 
 #'   that can be further customized using the \pkg{ggplot2} package.
 #' 
-#' @details Instead of using \code{stanplot(<brmsfit-object>)}, 
-#'   the plotting functions can be called directly 
-#'   via \code{stan_<plot-type>(<brmsfit-object>$fit)}. 
-#'   For more details on the plotting functions see 
-#'   \code{\link[rstan:stan_plot]{Plots}} as well as 
-#'   \code{\link[rstan:stan_diag]{Diagnostic plots}}.
-#'   Note that the plotting functions themselves 
-#'   only accept full parameter names,
-#'   while \code{stanplot} allows for partial matching 
-#'   and regular expressions.
-#'   You should also consider using 
-#'   the \pkg{shinystan} package available via method 
-#'   \code{\link[brms:launch_shiny]{launch_shiny}} 
+#' @details 
+#'   Also consider using the \pkg{shinystan} package available via 
+#'   method \code{\link[brms:launch_shiny]{launch_shiny}} 
 #'   in \pkg{brms} for flexible and interactive visual analysis. 
 #' 
 #' @examples
@@ -489,32 +490,36 @@ standata <- function(object, ...) {
 #' model <- brm(count ~ log_Age_c + log_Base4_c * Trt_c 
 #'              + (1|patient) + (1|visit),
 #'              data = epilepsy, family = "poisson")
-#' # plot 95% CIs
-#' stanplot(model, type = "plot", ci_level = 0.95)
-#' # equivalent to
-#' stan_plot(model$fit, ci_level = 0.95)
+#'              
+#' # plot posterior intervals
+#' stanplot(model)
 #' 
-#' # only show fixed effects in the plots
-#' # this will not work when calling stan_plot directly
-#' stanplot(model, pars = "^b", type = "plot", ci_level = 0.95)
+#' # only show population-level effects in the plots
+#' stanplot(model, pars = "^b_")
 #' 
-#' # plot some diagnostics on the sampler
-#' stanplot(model, type = "diag")
-#' # equivalent to 
-#' stan_diag(model$fit)                           
+#' # show histograms of the posterior distributions
+#' stanplot(model, type = "hist")
+#' 
+#' # plot some diagnostics of the sampler
+#' stanplot(model, type = "neff")
+#' stanplot(model, type = "rhat")
+#' 
+#' # plot some diagnostics specific to the NUTS sampler
+#' stanplot(model, type = "nuts_acceptance")
+#' stanplot(model, type = "nuts_divergence")
 #' }
 #' 
 #' @export
-stanplot <- function(object, pars, ...) {
+stanplot <- function(object, ...) {
   UseMethod("stanplot")
 }
 
 #' Display marginal effects of predictors
 #' 
 #' Display marginal effects of one or more numeric and/or categorical 
-#' predictors including interaction effects of order 2.
+#' predictors including two-way interaction effects.
 #' 
-#' @param x An object usually of class \code{brmsfit}
+#' @param x An object usually of class \code{brmsfit}.
 #' @param effects An optional character vector naming effects
 #'   (main effects or interactions) for which to compute marginal plots.
 #'   If \code{NULL} (the default), plots for all effects are generated.
@@ -535,6 +540,14 @@ stanplot <- function(object, pars, ...) {
 #' @param method Either \code{"fitted"} or \code{"predict"}. 
 #'   If \code{"fitted"}, plot marginal predictions of the regression curve. 
 #'   If \code{"predict"}, plot marginal predictions of the responses.
+#' @param contour Logical; Indicates whether interactions should be 
+#'   visualized with a contour plot. Defaults to \code{FALSE}.
+#' @param resolution Number of support points used to generate 
+#'   the plots. Higher resolution leads to smoother plots. 
+#'   Defaults to \code{100}. If \code{contour} is \code{TRUE},
+#'   this implies \code{10000} support points for interaction terms,
+#'   so it might be necessary to reduce \code{resolution} 
+#'   when only few RAM is available.
 #' @param ncol Number of plots to display per column for each effect.
 #'   If \code{NULL} (default), \code{ncol} is computed internally based
 #'   on the number of rows of \code{data}.
@@ -549,8 +562,15 @@ stanplot <- function(object, pars, ...) {
 #' @param ... Currently ignored.
 #' 
 #' @return An object of class \code{brmsMarginalEffects}, which is a named list
-#'   with one element per effect containing all information required to generate
-#'   marginal effects plots. The corresponding \code{plot} method returns a named 
+#'   with one data.frame per effect containing all information required 
+#'   to generate marginal effects plots. Among others, these data.frames
+#'   contain some special variables, namely \code{estimate__} (predicted values
+#'   of the response), \code{se__} (standard error of the predicted response),
+#'   \code{lower__} and \code{upper__} (lower and upper bounds of the uncertainty
+#'   interval of the response), as well as \code{cond__} (used in faceting when 
+#'   \code{conditions} contains multiple rows).
+#'   
+#'   The corresponding \code{plot} method returns a named 
 #'   list of \code{\link[ggplot2:ggplot]{ggplot}} objects, which can be further 
 #'   customized using the \pkg{ggplot2} package.
 #'   
@@ -607,8 +627,8 @@ marginal_effects <- function(x, ...) {
 #' \code{\link[brms:marginal_effects]{marginal_effects}} for 
 #' more details and documentation of the related plotting function.
 #' 
-#' @details Smooth terms of more than one covariate cannot be
-#' plotted yet, but this will follow in future version of \pkg{brms}.
+#' @details Two-dimensional smooth terms will be visualized using
+#'   contour plots.
 #'   
 #' @examples 
 #' \dontrun{
@@ -619,6 +639,10 @@ marginal_effects <- function(x, ...) {
 #' plot(marginal_smooths(fit), rug = TRUE, ask = FALSE)
 #' # show only the smooth term s(x2)
 #' plot(marginal_smooths(fit, smooths = "s(x2)"), ask = FALSE)
+#' 
+#' # fit and plot a two-dimensional smooth term
+#' fit2 <- brm(y ~ t2(x0, x2), data = dat)
+#' marginal_smooths(fit2)
 #' }
 #' 
 #' @export
@@ -640,3 +664,40 @@ marginal_smooths <- function(x, ...) {
 expose_functions <- function(x, ...) {
   UseMethod("expose_functions")
 }
+
+#' Extract Diagnostic Quantities of \pkg{brms} Models
+#' 
+#' Extract quantities that can be used to diagnose sampling behavior
+#' of the algorithms applied by \pkg{Stan} at the back-end of \pkg{brms}.
+#' 
+#' @name diagnostic-quantities
+#' @aliases log_posterior nuts_params rhat neff_ratio
+#'     
+#' @param object A \code{brmsfit} object.
+#' @param pars An optional character vector of parameter names. 
+#'   For \code{nuts_params} these will be NUTS sampler parameter 
+#'   names rather than model parameters. If pars is omitted 
+#'   all parameters are included.
+#' @param ... Arguments passed to individual methods.
+#' 
+#' @return The exact form of the output depends on the method.
+#' 
+#' @details For more details see 
+#'   \code{\link[bayesplot:bayesplot-extractors]{bayesplot-extractors}}.
+#'   
+#' @examples 
+#' \dontrun{
+#' fit <- brm(time ~ age * sex, data = kidney)
+#' 
+#' lp <- log_posterior(fit)
+#' head(lp)
+#' 
+#' np <- nuts_params(fit)
+#' str(np)
+#' # extract the number of divergence transitions
+#' sum(subset(np, Parameter == "divergent__")$Value)
+#' 
+#' head(rhat(fit))
+#' head(neff_ratio(fit))
+#' }
+NULL

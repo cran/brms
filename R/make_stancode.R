@@ -17,9 +17,8 @@
 #'               data = epilepsy, family = "poisson")
 #'
 #' @export
-make_stancode <- function(formula, data = NULL, family = gaussian(), 
-                          prior = NULL, autocor = NULL, 
-                          nonlinear = NULL, partial = NULL, 
+make_stancode <- function(formula, data, family = gaussian(), 
+                          prior = NULL, autocor = NULL, nonlinear = NULL,
                           threshold = c("flexible", "equidistant"),
                           sparse = FALSE,  cov_ranef = NULL, 
                           sample_prior = FALSE, stan_funs = NULL, 
@@ -33,7 +32,7 @@ make_stancode <- function(formula, data = NULL, family = gaussian(),
   # some input checks
   family <- check_family(family)
   formula <- update_formula(formula, data = data, family = family,
-                            partial = partial, nonlinear = nonlinear)
+                            nonlinear = nonlinear)
   autocor <- check_autocor(autocor)
   threshold <- match.arg(threshold)
   ee <- extract_effects(formula, family = family, autocor = autocor)
@@ -81,12 +80,10 @@ make_stancode <- function(formula, data = NULL, family = gaussian(),
   text_autocor <- stan_autocor(autocor, effects = ee, family = family,
                                prior = prior)
   text_mv <- stan_mv(family, response = ee$response, prior = prior)
-  text_ordinal <- stan_ordinal(family, prior = prior, cse = has_cse(ee), 
+  text_ordinal <- stan_ordinal(family, prior = prior, cs = has_cs(ee), 
                                threshold = threshold)
-  text_categorical <- stan_categorical(family)
-  text_forked <- stan_forked(family)
-  text_inv_gaussian <- stan_inv_gaussian(family)
-  text_von_mises <- stan_von_mises(family)
+  text_families <- stan_families(family)
+  text_se <- stan_se(is.formula(ee$se))
   text_cens <- stan_cens(has_cens, family = family)
   text_disp <- stan_disp(ee, family = family)
   kronecker <- stan_needs_kronecker(ranef, names_cov_ranef = names(cov_ranef))
@@ -112,9 +109,7 @@ make_stancode <- function(formula, data = NULL, family = gaussian(),
       text_monotonic,
       text_autocor$fun,
       text_ordinal$fun,
-      text_forked$fun,
-      text_inv_gaussian$fun,
-      text_von_mises$fun,
+      text_families$fun,
       stan_funs,
     "} \n")
   
@@ -134,17 +129,17 @@ make_stancode <- function(formula, data = NULL, family = gaussian(),
     text_auxpars$data,
     text_ranef$data,
     text_ordinal$data,
-    text_categorical$data,
+    text_families$data,
     text_autocor$data,
-    text_inv_gaussian$data,
     text_cens$data,
     text_disp$data,
+    text_se$data,
     if (has_trials(family))
       paste0("  int trials", Nbin, ";  // number of trials \n"),
-    if (is.formula(ee$se) && !use_cov(autocor))
-      "  vector<lower=0>[N] se;  // SEs for meta-analysis \n",
     if (is.formula(ee$weights))
       "  vector<lower=0>[N] weights;  // model weights \n",
+    if (is.formula(ee$dec))
+      "  int<lower=0,upper=1> dec[N];  // decisions \n",
     if (any(bounds$lb > -Inf))
       paste0("  ", ifelse(use_int(family), "int", "real"), " lb[N];",  
              "  // lower bounds for truncation; \n"),
@@ -157,15 +152,15 @@ make_stancode <- function(formula, data = NULL, family = gaussian(),
   # generate transformed parameters block
   text_transformed_data <- paste0(
     "transformed data { \n",
-       text_categorical$tdataD,
-       text_inv_gaussian$tdataD,
+       text_families$tdataD,
        text_pred$tdataD,
        text_auxpars$tdataD,
+       text_se$tdataD,
        text_autocor$tdataD,
-       text_categorical$tdataC,
-       text_inv_gaussian$tdataC,
+       text_families$tdataC,
        text_pred$tdataC,
        text_auxpars$tdataC,
+       text_se$tdataC,
        text_autocor$tdataC,
     "} \n")
   
@@ -180,7 +175,7 @@ make_stancode <- function(formula, data = NULL, family = gaussian(),
   text_rngprior <- stan_rngprior(sample_prior = sample_prior, 
                                  par_declars = text_parameters,
                                  prior = text_prior, family = family,
-                                 hs_df = attr(prior, "hs_df"))
+                                 prior_attr = attributes(prior))
   text_parameters <- paste0(
     "parameters { \n",
       text_parameters,
@@ -223,7 +218,6 @@ make_stancode <- function(formula, data = NULL, family = gaussian(),
       text_auxpars$modelD,
       text_disp$modelD,
       text_autocor$modelD,
-      text_forked$modelD,
       if (needs_lp_pre) 
         "  vector[N] lp_pre; \n",
       text_auxpars$modelC1,

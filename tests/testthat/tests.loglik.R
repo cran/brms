@@ -29,15 +29,22 @@ test_that("loglik for location shift models works as expected", {
   expect_equal(ll, as.matrix(ll_gaussian * draws$data$weights[1]))
 })
 
-test_that("loglik for lognormal models works as expected", {
+test_that("loglik for lognormal and exgaussian models works as expected", {
   ns <- 50
-  draws <- list(sigma = rchisq(ns, 3), eta = matrix(rnorm(ns*2), ncol = 2),
+  draws <- list(sigma = rchisq(ns, 3), beta = rchisq(ns, 3),
+                eta = matrix(rnorm(ns*2), ncol = 2),
                 f = lognormal())
   draws$data <- list(Y = rlnorm(ns))
   ll_lognormal <- dlnorm(x = draws$data$Y[1], mean = draws$eta[, 1], 
                          sd = draws$sigma, log = TRUE)
   ll <- loglik_lognormal(1, draws = draws)
   expect_equal(ll, as.matrix(ll_lognormal))
+  
+  ll_exgaussian <- dexgauss(x = draws$data$Y[1], mu = draws$eta[, 1], 
+                            sigma = draws$sigma, beta = draws$beta,
+                            log = TRUE)
+  ll <- loglik_exgaussian(1, draws = draws)
+  expect_equal(ll, ll_exgaussian)
 })
 
 test_that("loglik for multivariate linear models runs without errors", {
@@ -274,4 +281,16 @@ test_that("censored and truncated loglik run without errors", {
   draws$data <- list(Y = sample(-3:3, nobs), lb = -4, ub = 5)
   ll <- sapply(1:nobs, loglik_gaussian, draws = draws)
   expect_equal(dim(ll), c(ns, nobs))
+})
+
+test_that("loglik for the wiener diffusion model runs without errors", {
+  ns <- 5
+  nobs <- 3
+  draws <- list(eta = matrix(rnorm(ns * nobs), ncol = nobs),
+                bs = matrix(rchisq(ns, 3)), ndt = matrix(rep(0.5, ns)),
+                bias = matrix(rbeta(ns, 1, 1)))
+  draws$data <- list(Y = abs(rnorm(ns)) + 0.5, dec = c(1, 0, 1))
+  draws$f$link <- "identity"
+  i <- sample(1:nobs, 1)
+  expect_equal(length(loglik_wiener(i, draws)), ns)
 })

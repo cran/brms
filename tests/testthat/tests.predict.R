@@ -19,13 +19,15 @@ test_that("predict for location shift models runs without errors", {
   expect_equal(length(pred), ns)
 })
 
-test_that("predict for lognormal models runs without errors", {
+test_that("predict for lognormal and exgaussian models runs without errors", {
   ns <- 50
   nobs <- 2
-  draws <- list(sigma = rchisq(ns, 3), nsamples = ns,
+  draws <- list(sigma = rchisq(ns, 3), beta = rchisq(ns, 3),
                 eta = matrix(rnorm(ns * nobs), ncol = nobs),
-                f = lognormal())
+                f = lognormal(), nsamples = ns)
   pred <- predict_lognormal(1, draws = draws)
+  expect_equal(length(pred), ns)
+  pred <- predict_exgaussian(1, draws = draws)
   expect_equal(length(pred), ns)
 })
 
@@ -238,4 +240,16 @@ test_that("truncated predict run without errors", {
   draws$data <- list(lb = rep(0, nobs), ub = sample(70:75, nobs, TRUE))
   pred <- sapply(1:nobs, predict_poisson, draws = draws)
   expect_equal(dim(pred), c(ns, nobs))
+})
+
+test_that("predict for the wiener diffusion model runs without errors", {
+  ns <- 5
+  nobs <- 3
+  draws <- list(eta = matrix(rnorm(ns * nobs), ncol = nobs),
+                bs = matrix(rchisq(ns, 3)), ndt = matrix(rep(0.5, ns)),
+                bias = matrix(rbeta(ns, 1, 1)))
+  draws$data <- list(Y = abs(rnorm(ns)) + 0.5, dec = c(1, 0, 1))
+  draws$f$link <- "identity"
+  i <- sample(1:nobs, 1)
+  expect_equal(nrow(predict_wiener(i, draws)), ns)
 })

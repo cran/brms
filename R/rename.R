@@ -47,7 +47,7 @@ model_name <- function(family) {
     mn <- "brms-model"
   } else {
     type <- ifelse(is.null(family$type), "", paste(",", family$type))
-    mn <- paste0(family$family, "(",family$link, type, ") brms-model")
+    mn <- paste0(family$family, "(", family$link, type, ") brms-model")
   }
   mn
 }
@@ -69,10 +69,9 @@ rename_pars <- function(x) {
   
   # order parameter samples after parameter class
   chains <- length(x$fit@sim$samples) 
-  all_classes <- c("b_Intercept", "b", "bm", "bcs", "ar", "ma", "arr", "sd", 
-                   "cor", "sds", "sigma", "sigmaLL", "rescor", "nu", "shape",
-                   "phi", "zi", "hu", "delta", "simplex", "r", "s", "loclev", 
-                   "prior", "lp")
+  all_classes <- c("b_Intercept", "b", "bmo", "bcs", "bme", "ar", "ma", "arr", 
+                   "sd", "cor", "sds", auxpars(), "sigmaLL", "rescor", "delta",
+                   "simplex", "r", "s", "loclev", "Xme", "prior", "lp")
   class <- get_matches("^[^_\\[]+", x$fit@sim$fnames_oi)
   # make sure that the fixed effects intercept comes first
   if (length(ee$response) > 1L) {
@@ -107,7 +106,8 @@ rename_pars <- function(x) {
       change_eff <- change_effects(
         pars = pars, dims = x$fit@sim$dims_oi,
         fixef = colnames(standata[[paste0("X_", p)]]),
-        monef = colnames(standata[[paste0("Xm_", p)]]),
+        monef = colnames(standata[[paste0("Xmo_", p)]]),
+        meef = get_me_labels(ee$nonlinear[[p]], x$data),
         splines = splines, nlpar = p)
       change <- c(change, change_eff)
     }
@@ -119,7 +119,8 @@ rename_pars <- function(x) {
                               stancode(x), nlpar = r)
         change_eff <- change_effects(
           pars = pars, dims = x$fit@sim$dims_oi, 
-          fixef = fixef, monef = colnames(standata[[paste0("Xm_", r)]]),
+          fixef = fixef, monef = colnames(standata[[paste0("Xmo_", r)]]),
+          meef = get_me_labels(ee, x$data),
           splines = get_spline_labels(ee, x$data, covars = TRUE),
           nlpar = r)
         change <- c(change, change_eff)
@@ -128,7 +129,8 @@ rename_pars <- function(x) {
       fixef <- rm_int_fixef(colnames(standata[["X"]]), stancode(x))
       change_eff <- change_effects(
         pars = pars, dims = x$fit@sim$dims_oi, 
-        fixef = fixef, monef = colnames(standata[["Xm"]]),
+        fixef = fixef, monef = colnames(standata[["Xmo"]]),
+        meef = get_me_labels(ee, x$data),
         splines = get_spline_labels(ee, x$data, covars = TRUE))
       change_csef <- change_csef(colnames(standata[["Xcs"]]), 
                                  pars = pars, ncat = standata$ncat)
@@ -140,7 +142,8 @@ rename_pars <- function(x) {
     change_eff <- change_effects(
       pars = pars, dims = x$fit@sim$dims_oi,
       fixef = colnames(standata[[paste0("X_", ap)]]),
-      monef = colnames(standata[[paste0("Xm_", ap)]]),
+      monef = colnames(standata[[paste0("Xmo_", ap)]]),
+      meef = get_me_labels(ee[[ap]], x$data),
       splines = get_spline_labels(ee[[ap]], x$data, covars = TRUE),
       nlpar = ap)
     change <- c(change, change_eff)
@@ -174,12 +177,13 @@ rename_pars <- function(x) {
 }
 
 change_effects <- function(pars, dims, fixef = NULL, monef = NULL, 
-                           splines = NULL, nlpar = "") {
+                           splines = NULL, meef = NULL, nlpar = "") {
   # helps in renaming various kinds of effects
   change_fixef <- change_fixef(fixef, pars = pars, nlpar = nlpar)
   change_monef <- change_monef(monef, pars = pars, nlpar = nlpar)
   change_splines <- change_splines(splines, pars = pars, nlpar = nlpar)
-  c(change_fixef, change_monef, change_splines)
+  change_meef <- change_meef(meef, pars = pars, dims = dims, nlpar = nlpar)
+  c(change_fixef, change_monef, change_splines, change_meef)
 }
 
 change_fixef <- function(fixef, pars, nlpar = "") {
@@ -214,18 +218,18 @@ change_monef <- function(monef, pars, nlpar = "") {
   change <- list()
   if (length(monef)) {
     p <- usc(nlpar, "prefix")
-    bm <- paste0("bm", p)
-    newnames <- paste0("bm", p, "_", monef)
-    change <- lc(change, list(pos = grepl(paste0("^", bm, "\\["), pars), 
-                              oldname = bm, pnames = newnames, 
+    bmo <- paste0("bmo", p)
+    newnames <- paste0("bmo", p, "_", monef)
+    change <- lc(change, list(pos = grepl(paste0("^", bmo, "\\["), pars), 
+                              oldname = bmo, pnames = newnames, 
                               fnames = newnames))
-    change <- c(change, change_prior(class = bm, pars = pars, names = monef))
+    change <- c(change, change_prior(class = bmo, pars = pars, names = monef))
     for (i in seq_along(monef)) {
       simplex <- paste0(paste0("simplex", p, "_"), c(i, monef[i]))
       pos <- grepl(paste0("^", simplex[1], "\\["), pars)
       change <- lc(change, 
         list(pos = pos, oldname = simplex[1], pnames = simplex[2], 
-             fnames = paste0(simplex[2], "[", 1:sum(pos), "]"), 
+             fnames = paste0(simplex[2], "[", seq_len(sum(pos)), "]"), 
              dim = sum(pos)))
       change <- c(change,
         change_prior(class = simplex[1], new_class = simplex[2],
@@ -254,6 +258,37 @@ change_csef <- function(csef, pars, ncat) {
                               pnames = paste0("bcs_", csef), fnames = csenames,
                               sort = sort_cse, dim = thres))
     change <- c(change, change_prior(class = "bcs", pars = pars, names = csef))
+  }
+  change
+}
+
+change_meef <- function(meef, pars, dims, nlpar = "") {
+  # rename parameters of noisy variables
+  change <- list()
+  if (length(meef)) {
+    p <- usc(nlpar, "prefix")
+    meef <- rename(meef)
+    # rename coefficients of noise free terms
+    bme <- paste0("bme", p)
+    pos <- grepl(paste0("^", bme, "\\["), pars)
+    bmenames <- paste0(bme, "_", meef)
+    change <- lc(change, 
+      nlist(pos, oldname = bme, pnames = bmenames, fnames = bmenames))
+    change <- c(change,
+      change_prior(class = bme, pars = pars, names = meef))
+    # rename noise free variables
+    uni_me <- attr(meef, "uni_me")
+    if (any(grepl("^Xme", pars))) {
+      for (i in seq_along(uni_me)) {
+        Xme <- paste0("Xme", p, "_", i)
+        pos <- grepl(paste0("^", Xme, "\\["), pars)
+        Xme_new <- paste0("Xme", p, "_", rename(uni_me[i]))
+        fnames <- paste0(Xme_new, "[", seq_len(sum(pos)), "]")
+        change_Xme <- nlist(pos, oldname = Xme, pnames = Xme_new, 
+                            fnames = fnames, dims = dims[[Xme]])
+        change <- lc(change, change_Xme)
+      }
+    }
   }
   change
 }

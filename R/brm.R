@@ -1,6 +1,19 @@
 #' Fit Bayesian Generalized (Non-)Linear Multilevel Models
 #' 
-#' Fit a Bayesian generalized (non-)linear Multilevel model using Stan
+#' Fit Bayesian generalized (non-)linear multilevel models 
+#' using Stan for full Bayesian inference. A wide range of distributions 
+#' and link functions are supported, allowing users to fit
+#' linear, robust linear, binomial, Poisson, survival, response times, ordinal, 
+#' zero-inflated, hurdle, and even non-linear models all in a multilevel context. 
+#' Further modeling options include auto-correlation and smoothing terms, 
+#' user defined dependence structures, censored data, meta-analytic 
+#' standard errors, and quite a few more. 
+#' In addition, all parameters of the response distribution can be predicted
+#' in order to perform distributional regression.
+#' Prior specifications are flexible and explicitly encourage 
+#' users to apply prior distributions that actually reflect their beliefs.
+#' In addition, model fit can easily be assessed and compared with
+#' posterior predictive checks and leave-one-out cross-validation.
 #' 
 #' @param formula An object of class 
 #'   \code{\link[brms:brmsformula]{brmsformula}}
@@ -8,11 +21,9 @@
 #'   a symbolic description of the model to be fitted. 
 #'   The details of model specification are explained in 
 #'   \code{\link[brms:brmsformula]{brmsformula}}.
-#' @param data An optional data frame, list or environment  (or object coercible by 
-#'   \code{as.data.frame} to a data frame) containing the variables in the model. 
-#'   If not found in data, the variables are taken from \code{environment(formula)}, 
-#'   typically the environment from which \code{brm} is called. 
-#'   Although it is optional, we strongly recommend to supply a data.frame. 
+#' @param data An object of class \code{data.frame} 
+#'   (or one that can be coerced to that class) 
+#'   containing data of all variables used in the model.
 #' @param family A description of the response distribution and link function 
 #'   to be used in the model. This can be a family function, 
 #'   a call to a family function or a character string naming the family.
@@ -31,7 +42,7 @@
 #'   See the documentation of \code{\link{cor_brms}} for a description 
 #'   of the available correlation structures. Defaults to NULL, 
 #'   corresponding to no correlations.
-#' @param nonlinear An optional list of formuluas, specifying 
+#' @param nonlinear An optional list of formulas, specifying 
 #'   linear models for non-linear parameters. If \code{NULL} (the default)
 #'   \code{formula} is treated as an ordinary formula. 
 #'   If not \code{NULL}, \code{formula} is treated as a non-linear model
@@ -42,12 +53,6 @@
 #'   parameters on the left hand side (separated by a \code{+}) and a
 #'   common linear predictor on the right hand side.
 #'   More information is given under 'Details'.
-#' @param partial (Deprecated) A one sided formula of the form 
-#'   \code{~expression} allowing to specify predictors with 
-#'   category specific effects in non-cumulative ordinal models 
-#'   (i.e. in families \code{cratio}, \code{sratio}, or \code{acat}).
-#'   As of \pkg{brms} > 0.8.0 category specific effects should be 
-#'   specified directly within \code{formula} using function \code{cse}.
 #' @param threshold A character string indicating the type of thresholds 
 #'   (i.e. intercepts) used in an ordinal model. 
 #'   \code{"flexible"} provides the standard unstructured thresholds and 
@@ -73,11 +78,19 @@
 #'   All levels of the grouping factor should appear as rownames 
 #'   of the corresponding matrix. This argument can be used,
 #'   among others, to model pedigrees and phylogenetic effects.
-#' @param ranef A flag to indicate if group-level effects 
+#' @param save_ranef A flag to indicate if group-level effects 
 #'   for each level of the grouping factor(s) 
 #'   should be saved (default is \code{TRUE}). 
 #'   Set to \code{FALSE} to save memory. 
 #'   The argument has no impact on the model fitting itself.
+#'   A deprecated alias is \code{ranef}.
+#' @param save_mevars A flag to indicate if samples
+#'   of noise-free variables obtained by using \code{me} terms
+#'   should be saved (default is \code{FALSE}).
+#'   Saving these samples allows to use methods such as
+#'   \code{predict} with the noise-free variables but 
+#'   leads to very large \R objects even for models
+#'   of moderate size and complexity.
 #' @param sample_prior A flag to indicate if samples from all specified 
 #'   proper priors should be drawn additionally to the posterior samples
 #'   (defaults to \code{FALSE}). Among others, these samples can be used 
@@ -109,26 +122,18 @@
 #'   the initial values, or a function (or function name) generating initial values. 
 #'   The latter options are mainly implemented for internal testing.
 #' @param chains Number of Markov chains (defaults to 4). 
-#'   A deprecated alias is \code{n.chains}.
 #' @param iter Number of total iterations per chain (including warmup; defaults to 2000).
-#'   A deprecated alias is \code{n.iter}.
 #' @param warmup A positive integer specifying number of warmup (aka burnin) iterations. 
 #'   This also specifies the number of iterations used for stepsize adaptation, 
 #'   so warmup samples should not be used for inference. The number of warmup should not 
 #'   be larger than \code{iter} and the default is \code{iter/2}.
-#'   A deprecated alias is \code{n.warmup}.
 #' @param thin Thinning rate. Must be a positive integer. 
 #'   Set \code{thin > 1} to save memory and computation time if \code{iter} is large. 
-#'   Default is 1, that is no thinning. A deprecated alias is \code{n.thin}.
-#' @param cluster	Number of clusters to use to run parallel chains. Default is 1.  
-#'   A deprecated alias is \code{n.cluster}. To use the built-in parallel execution
-#'   of \pkg{rstan}, specify argument \code{cores} instead of \code{cluster}. 
-#' @param cluster_type A character string specifying the type of cluster created by 
-#'   \code{\link[parallel:makeCluster]{makeCluster}} when sampling in parallel 
-#'   (i.e. when \code{cluster} is greater \code{1}). 
-#'   Default is \code{"PSOCK"} working on all platforms. 
-#'   For OS X and Linux, \code{"FORK"} may be a faster and more stable option, 
-#'   but it does not work on Windows.
+#' @param cores	Number of cores to use when executing the chains in parallel, 
+#'   which defaults to 1 but we recommend setting the \code{mc.cores} option 
+#'   to be as many processors as the hardware and RAM allow (up to the number of chains).
+#'   For non-Windows OS in non-interactive \R sessions, forking is used
+#'   instead of PSOCK clusters. A deprecated alias is \code{cluster}.
 #' @param algorithm Character string indicating the estimation approach to use. 
 #'   Can be \code{"sampling"} for MCMC (the default), \code{"meanfield"} for
 #'   variational inference with independent normal distributions, or
@@ -138,8 +143,9 @@
 #'   It defaults to \code{NULL} so all the default values are used. 
 #'   The most important control parameters are discussed in the 'Details'
 #'   section below. For a comprehensive overview see \code{\link[rstan:stan]{stan}}.
-#' @param silent logical; If \code{TRUE}, warning messages of the sampler are suppressed.
-#' @param seed Positive integer. Used by \code{set.seed} to make results reproducable.  
+#' @param silent logical; If \code{TRUE}, informational messages of 
+#'   the compiler and sampler are suppressed.
+#' @param seed Used by \code{set.seed} to make results reproducable.  
 #' @param save_model Either \code{NULL} or a character string. 
 #'   In the latter case, the model code is
 #'   saved in a file named after the string supplied in \code{save_model}, 
@@ -158,15 +164,16 @@
 #'  
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
-#' @details Fit a generalized (non-)linear multilevel model, 
-#'   which incorporates both population-level parameters 
-#'   (also known as fixed-effects) and group-level parameters
-#'   (also known as random effects) in a (non-)linear predictor 
+#' @details Fit a generalized (non-)linear multilevel model
 #'   via full Bayesian inference using Stan. 
+#'   See \code{vignette("brms_overview")} for a general 
+#'   introduction and overview of \pkg{brms}.
+#'   For a full list of available vignettes see
+#'   \code{vignette(package = "brms")}.
 #'   
 #'   \bold{Formula syntax of brms models}
 #'   
-#'   The details of the formula syntax applied in \pkg{brms} 
+#'   Details of the formula syntax applied in \pkg{brms} 
 #'   can be found in \code{\link[brms:brmsformula]{brmsformula}}.
 #'   
 #'   \bold{Families and link functions}
@@ -249,7 +256,7 @@
 #'  
 #' ## Ordinal regression modeling patient's rating of inhaler instructions 
 #' ## category specific effects are estimated for variable 'treat'
-#' fit2 <- brm(rating ~ period + carry + cse(treat), 
+#' fit2 <- brm(rating ~ period + carry + cs(treat), 
 #'             data = inhaler, family = sratio("cloglog"), 
 #'             prior = set_prior("normal(0,5)"), chains = 2)
 #' summary(fit2)
@@ -267,14 +274,16 @@
 #' n <- sample(1:10, 100, TRUE)  # number of trials
 #' success <- rbinom(100, size = n, prob = 0.4)
 #' x <- rnorm(100)
-#' fit4 <- brm(success | trials(n) ~ x, 
+#' data4 <- data.frame(n, success, x)
+#' fit4 <- brm(success | trials(n) ~ x, data = data4,
 #'             family = binomial("probit"))
 #' summary(fit4)
 #' 
 #' ## Simple non-linear gaussian model
 #' x <- rnorm(100)
 #' y <- rnorm(100, mean = 2 - 1.5^x, sd = 1)
-#' fit5 <- brm(y ~ a1 - a2^x, nonlinear = a1 + a2 ~ 1,
+#' data5 <- data.frame(x, y)
+#' fit5 <- brm(y ~ a1 - a2^x, data = data5, nonlinear = a1 + a2 ~ 1,
 #'             prior = c(prior(normal(0, 2), nlpar = a1),
 #'                       prior(normal(0, 2), nlpar = a2)))
 #' summary(fit5)
@@ -287,11 +296,10 @@
 #' summary(fit6)
 #' plot(fit6)
 #' marginal_effects(fit6)
-#' # extract residual SDs of both groups
+#' # extract estimated residual SDs of both groups
 #' sigmas <- exp(posterior_samples(fit6, "^b_sigma_"))
-#' colMeans(sigmas)
-#' hist(sigmas[, 1])
-#' hist(sigmas[, 2])
+#' ggplot(stack(sigmas), aes(values)) + 
+#'   geom_density(aes(fill = ind))
 #' }
 #' 
 #' @import rstan
@@ -299,52 +307,54 @@
 #' @import methods
 #' @import stats   
 #' @export 
-brm <- function(formula, data = NULL, family = gaussian(), 
-                prior = NULL, autocor = NULL, nonlinear = NULL, 
-                partial = NULL, threshold = c("flexible", "equidistant"), 
-                cov_ranef = NULL, ranef = TRUE, sparse = FALSE,
-                sample_prior = FALSE, knots = NULL, stan_funs = NULL, 
-                fit = NA, inits = "random", chains = 4, iter = 2000, 
-                warmup = floor(iter / 2), thin = 1, cluster = 1, 
-                cluster_type = "PSOCK", control = NULL, 
+brm <- function(formula, data, family = gaussian(), prior = NULL, 
+                autocor = NULL, nonlinear = NULL, 
+                threshold = c("flexible", "equidistant"), 
+                cov_ranef = NULL, save_ranef = TRUE, save_mevars = FALSE, 
+                sparse = FALSE, sample_prior = FALSE, knots = NULL, 
+                stan_funs = NULL, fit = NA, inits = "random", 
+                chains = 4, iter = 2000, warmup = floor(iter / 2),
+                thin = 1, cores = getOption("mc.cores", 1L), control = NULL,
                 algorithm = c("sampling", "meanfield", "fullrank"),
                 silent = TRUE, seed = 12345, save_model = NULL,
                 save_dso = TRUE, ...) {
   
   dots <- list(...) 
   # use deprecated arguments if specified
-  iter <- use_alias(iter, dots$n.iter)
-  warmup <- use_alias(warmup, dots$n.warmup)
-  thin <- use_alias(thin, dots$n.thin)
-  chains <- use_alias(chains, dots$n.chains)
-  cluster <- use_alias(cluster, dots$n.cluster)
-  cov_ranef <- use_alias(cov_ranef, dots$cov.ranef)
-  sample_prior <- use_alias(sample_prior, dots$sample.prior)
-  save_model <- use_alias(save_model, dots$save.model)
-  dots[c("n.iter", "n.warmup", "n.thin", "n.chains", "n.cluster",
-         "cov.ranef", "sample.prior", "save.model")] <- NULL
-  # some input checks 
-  if (!(is.null(data) || is.list(data)))
-    stop("argument 'data' must be a data.frame or list", call. = FALSE)
-  check_brm_input(nlist(family, chains, cluster, inits))
+  iter <- use_alias(iter, dots[["n.iter"]])
+  warmup <- use_alias(warmup, dots[["n.warmup"]])
+  thin <- use_alias(thin, dots[["n.thin"]])
+  chains <- use_alias(chains, dots[["n.chains"]])
+  cores <- use_alias(cores, dots[["cluster"]])
+  cov_ranef <- use_alias(cov_ranef, dots[["cov.ranef"]])
+  save_ranef <- use_alias(save_ranef, dots[["ranef"]])
+  sample_prior <- use_alias(sample_prior, dots[["sample.prior"]])
+  save_model <- use_alias(save_model, dots[["save.model"]])
+  if (!is.null(dots[["cluster_type"]])) {
+    warning2("Argument 'cluster_type' is deprecated and unused.\n",
+             "Forking is now automatically applied when appropriate.")
+  }
+  dots[deprecated_brm_args()] <- NULL
+  check_brm_input(nlist(family, inits))
   autocor <- check_autocor(autocor)
   threshold <- match.arg(threshold)
   algorithm <- match.arg(algorithm)
   
   testmode <- dots$testmode
   dots$testmode <- NULL
-  if (is(fit, "brmsfit")) {  
-    x <- fit  # re-use existing model
+  if (is(fit, "brmsfit")) {
+    # re-use existing model
+    x <- fit
     # compute data to be passed to Stan
     standata <- standata(x, is_newdata = dots$is_newdata)
     dots$is_newdata <- NULL
     # extract the compiled model
     x$fit <- rstan::get_stanmodel(x$fit)  
   } else {  # build new model
-    # see validate.R for function definitions
+    # see validate.R and formula-helpers.R
     family <- check_family(family)
     formula <- update_formula(formula, data = data, family = family, 
-                              nonlinear = nonlinear, partial = partial)
+                              nonlinear = nonlinear)
     ee <- extract_effects(formula, family = family, autocor = autocor)
     if (is.null(dots$data.name)) {
       data.name <- substr(Reduce(paste, deparse(substitute(data))), 1, 50)
@@ -367,7 +377,8 @@ brm <- function(formula, data = NULL, family = gaussian(),
     # see validate.R
     x$ranef <- tidy_ranef(ee, data = x$data)  
     x$exclude <- exclude_pars(ee, x$data, ranef = x$ranef, 
-                              save_ranef = ranef)
+                              save_ranef = save_ranef,
+                              save_mevars = save_mevars)
     # see make_stancode.R
     x$model <- make_stancode(formula = formula, data = data, 
                              family = family, prior = prior,  
@@ -377,14 +388,21 @@ brm <- function(formula, data = NULL, family = gaussian(),
                              stan_funs = stan_funs, save_model = save_model, 
                              brm_call = TRUE)
     # generate standata before compiling the model to avoid
-    # unnecessary compilations in case that the data is invalid
+    # unnecessary compilations in case of invalid data
     standata <- standata(x, newdata = dots$is_newdata)
     message("Compiling the C++ model")
-    x$fit <- rstan::stan_model(stanc_ret = x$model, save_dso = save_dso)
+    comp_expr <- expression(
+      x$fit <- rstan::stan_model(stanc_ret = x$model, save_dso = save_dso)
+    )
+    if (silent) {
+      utils::capture.output(eval(comp_expr))
+    } else {
+      eval(comp_expr)
+    }
     x$model <- x$model$model_code
   }
   
-  # arguments to be passed to stan
+  # arguments to be passed to Stan
   if (is.character(inits) && !inits %in% c("random", "0")) {
     inits <- get(inits, mode = "function", envir = parent.frame())
   }
@@ -392,43 +410,42 @@ brm <- function(formula, data = NULL, family = gaussian(),
                include = FALSE, algorithm = algorithm)
   args[names(dots)] <- dots 
   if (algorithm == "sampling") {
-    args <- c(args, list(init = inits, iter = iter, warmup = warmup, 
-              thin = thin, chains = chains, control = control,
-              show_messages = !silent))
+    args <- c(args, nlist(init = inits, iter, warmup, thin, chains, 
+                          cores, control, show_messages = !silent))
   }
   
   set.seed(seed)
-  if (cluster > 1) {  # sample in parallel
-    message("Start sampling")
-    if (is.character(args$init) || is.numeric(args$init)) 
-      args$init <- rep(args$init, chains)
-    cl <- makeCluster(cluster, type = cluster_type)
-    on.exit(stopCluster(cl))  # close all clusters when exiting brm
-    clusterExport(cl = cl, varlist = "args", envir = environment())
-    clusterEvalQ(cl, require(rstan))
-    run_chain <- function(i) {
-      args$chains <- 1L
-      args$chain_id <- i
-      args$init <- args$init[i]
-      Sys.sleep(0.5 * i)
-      if (args$algorithm == "sampling") {
-        args$algorithm <- NULL
-        do.call(rstan::sampling, args = args)
-      } else {
-        do.call(rstan::vb, args = args)
-      } 
-    }
-    x$fit <- rstan::sflist2stanfit(parLapply(cl, X = 1:chains, run_chain))
-  } else {  # do not sample in parallel
-    if (args$algorithm == "sampling") {
-      args$algorithm <- NULL
-      x$fit <- do.call(rstan::sampling, args = args)
-    } else {
-      x$fit <- do.call(rstan::vb, args = args)
-    } 
+  message("Start sampling")
+  if (args$algorithm == "sampling") {
+    args$algorithm <- NULL
+    x$fit <- do.call(rstan::sampling, args = args)
+  } else {
+    x$fit <- do.call(rstan::vb, args = args)
   }
   if (!isTRUE(testmode)) {
-    x <- rename_pars(x) # see rename.R
+    x <- rename_pars(x)
   }
   x
+}
+
+check_brm_input <- function(x) {
+  # misc checks on brm arguments 
+  # Args:
+  #   x: A named list
+  family <- check_family(x$family) 
+  if (family$family == "inverse.gaussian") {
+    warning2("Inverse gaussian models require carefully chosen ", 
+             "prior distributions to ensure convergence of the chains.")
+  }
+  if (family$link == "sqrt") {
+    warning2(family$family, " model with sqrt link may not be ", 
+             "uniquely identified")
+  }
+  invisible(NULL)
+}
+
+deprecated_brm_args <- function() {
+  # list all deprecated arguments of the brm function
+  c("n.iter", "n.warmup", "n.thin", "n.chains", "cluster", "cov.ranef",
+    "ranef", "sample.prior", "save.model", "cluster_type")
 }

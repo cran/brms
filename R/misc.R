@@ -100,10 +100,10 @@ ulapply <- function(X, FUN, ...) {
   unlist(lapply(X = X, FUN = FUN, ...))
 }
 
-lc <- function(l, x) {
-  # append x to l
-  l[[length(l) + 1]] <- x
-  l
+lc <- function(l, ...) {
+  # append ... to l
+  dots <- list(...)
+  c(l, dots)
 }
 
 collapse <- function(..., sep = "") {
@@ -197,24 +197,6 @@ get_arg <- function(x, ...) {
   out
 }
 
-rhs <- function(x) {
-  # return the righthand side of a formula
-  attri <- attributes(x)
-  x <- as.formula(x)
-  x <- if (length(x) == 3) x[-2] else x
-  do.call(structure, c(list(x), attri))
-}
-
-lhs <- function(x) {
-  # return the lefthand side of a formula
-  x <- as.formula(x)
-  if (length(x) == 3L) update(x, . ~ 1) else NULL
-}
-
-is.formula <- function(x) {
-  is(x, "formula")
-}
-
 SW <- function(expr) {
   # just a short form for suppressWarnings
   base::suppressWarnings(expr)
@@ -227,6 +209,32 @@ get_matches <- function(pattern, text, simplify = TRUE, ...) {
     x <- unlist(x)
   }
   x
+}
+
+get_matches_expr <- function(pattern, expr, ...) {
+  # loop over the parse tree of 'expr '
+  # and find matches of 'pattern'
+  if (is.character(expr)) {
+    expr <- parse(text = expr)
+  }
+  out <- NULL
+  for (i in seq_along(expr)) {
+    sexpr <- try(expr[[i]], silent = TRUE)
+    if (!is(sexpr, "try-error")) {
+      sexpr_char <- deparse(sexpr)
+      out <- c(out, get_matches(pattern, sexpr_char, ...))
+    }
+    if (is.call(sexpr) || is.expression(sexpr)) {
+      out <- c(out, get_matches_expr(pattern, sexpr, ...))
+    }
+  }
+  unique(out)
+}
+
+grepl_expr <- function(pattern, expr, ...) {
+  # like base::grepl but handles (parse trees of) expressions 
+  as.logical(ulapply(expr, function(e) 
+    length(get_matches_expr(pattern, e, ...)) > 0L))
 }
 
 usc <- function(x, pos = c("prefix", "suffix")) {
@@ -396,126 +404,17 @@ use_alias <- function(arg, alias = NULL, default = NULL,
   alias_name <- Reduce(paste, deparse(substitute(alias)))
   if (!is_equal(alias, default)) {
     arg <- alias
-    if (substr(alias_name, 1, 5) == "dots$") {
-      alias_name <- substr(alias_name, 6, nchar(alias_name))
+    if (grepl("^dots\\$", alias_name)) {
+      alias_name <- gsub("^dots\\$", "", alias_name)
+    } else if (grepl("^dots\\[\\[", alias_name)) {
+      alias_name <- gsub("^dots\\[\\[\"|\"\\]\\]$", "", alias_name)
     }
     if (warn) {
-      warning(paste0("Argument '", alias_name, "' is deprecated. ", 
-                     "Please use argument '", arg_name, "' instead."), 
-              call. = FALSE)
+      warning2("Argument '", alias_name, "' is deprecated. ", 
+               "Please use argument '", arg_name, "' instead.")
     }
   }
   arg
-}
-
-.addition <- function(formula, data = NULL) {
-  # computes data for addition arguments
-  formula <- as.formula(formula)
-  eval(formula[[2]], data, environment(formula))
-}
-
-.se <- function(x) {
-  # standard errors for meta-analysis
-  if (!is.numeric(x)) 
-    stop("SEs must be numeric")
-  if (min(x) < 0) 
-    stop("standard errors must be non-negative", call. = FALSE)
-  x  
-}
-
-.weights <- function(x) {
-  # weights to be applied on any model
-  if (!is.numeric(x)) 
-    stop("weights must be numeric")
-  if (min(x) < 0) 
-    stop("weights must be non-negative", call. = FALSE)
-  x
-}
-
-.disp <- function(x) {
-  # dispersion factors
-  if (!is.numeric(x)) 
-    stop("dispersion factors must be numeric")
-  if (min(x) < 0) 
-    stop("dispersion factors must be non-negative", call. = FALSE)
-  x  
-}
-
-.trials <- function(x) {
-  # trials for binomial models
-  if (any(!is.wholenumber(x) || x < 1))
-    stop("number of trials must be positive integers", call. = FALSE)
-  x
-}
-
-.cat <- function(x) {
-  # number of categories for categorical and ordinal models
-  if (any(!is.wholenumber(x) || x < 1))
-    stop("number of categories must be positive integers", call. = FALSE)
-  x
-}
-
-.cens <- function(x, y2 = NULL) {
-  # indicator for censoring
-  if (is.factor(x)) {
-    x <- as.character(x)
-  }
-  .prepare_cens <- function(x) {
-    stopifnot(length(x) == 1L)
-    regx <- paste0("^", x)
-    if (grepl(regx, "left")) {
-      x <- -1
-    } else if (grepl(regx, "none") || isFALSE(x)) {
-      x <- 0
-    } else if (grepl(regx, "right") || isTRUE(x)) {
-      x <- 1
-    } else if (grepl(regx, "interval")) {
-      x <- 2
-    }
-    x
-  }
-  cens <- unname(ulapply(x, .prepare_cens))
-  if (!all(is.wholenumber(cens) & cens %in% -1:2)) {
-    stop2("Invalid censoring data. Accepted values are ", 
-          "'left', 'none', 'right', and 'interval'\n",
-          "(abbreviations are allowed) or -1, 0, 1, and 2.\n",
-          "TRUE and FALSE are also accepted ",
-          "and refer to 'right' and 'none' respectively.")
-  }
-  if (any(cens %in% 2)) {
-    if (length(y2) != length(cens)) {
-      stop2("Argument 'y2' is required for interval censored data.")
-    }
-    attr(cens, "y2") <- unname(y2)
-  }
-  cens
-}
-
-.trunc <- function(lb = -Inf, ub = Inf) {
-  lb <- as.numeric(lb)
-  ub <- as.numeric(ub)
-  if (any(lb >= ub)) {
-    stop2("Invalid truncation bounds")
-  }
-  nlist(lb, ub)
-}
-
-cse <- function(...) {
-  stop2("inappropriate use of function 'cse'")
-}
-
-monotonic <- function(...) {
-  stop2("inappropriate use of function 'monotonic'")
-}
-
-mono <- function(...) {
-  # abbreviation of monotonic
-  stop2("inappropriate use of function 'monotonic'")
-}
-
-monotonous <- function(...) {
-  # abbreviation of monotonic
-  stop2("please use function 'monotonic' instead")
 }
 
 # startup messages for brms
@@ -524,5 +423,5 @@ monotonous <- function(...) {
     "Loading 'brms' package (version ", utils::packageVersion("brms"), "). ",
     "Useful instructions \n", 
     "can be found by typing help('brms'). A more detailed introduction \n", 
-    "to the package is available through vignette('brms')."))
+    "to the package is available through vignette('brms_overview')."))
 }

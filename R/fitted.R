@@ -62,6 +62,15 @@ fitted_response <- function(draws, mu) {
       }
       mu <- mu * trials
     }
+  } else if (is.exgaussian(draws$f)) { 
+    mu <- ilink(mu, draws$f$link) + get_auxpar(draws$beta)
+  } else if (is.wiener(draws$f)) {
+    delta <- ilink(mu, draws$f$link)
+    bs <- get_auxpar(draws$bs)
+    ndt <- get_auxpar(draws$ndt)
+    bias <- get_auxpar(draws$bias)
+    mu <- ndt - bias / delta + bs / delta * 
+      (exp(- 2 * delta * bias) - 1) / (exp(-2 * delta * bs) - 1)
   } else {
     mu <- ilink(mu, draws$f$link)
   }
@@ -70,10 +79,10 @@ fitted_response <- function(draws, mu) {
     lb <- matrix(data$lb, nrow = nrow(mu), ncol = ncol(mu), byrow = TRUE)
     ub <- matrix(data$ub, nrow = nrow(mu), ncol = ncol(mu), byrow = TRUE)
     fitted_trunc_fun <- try(get(paste0("fitted_trunc_", draws$f$family), 
-                                mode = "function"))
+                                mode = "function"), silent = TRUE)
     if (is(fitted_trunc_fun, "try-error")) {
-      stop(paste("fitted values on the respone scale not implemented",
-                 "for truncated", family, "models"))
+      stop2("Fitted values on the respone scale not yet implemented ",
+            "for truncated '", draws$f$family, "' models.")
     } else {
       trunc_args <- nlist(mu, lb, ub, draws, dim)
       mu <- do.call(fitted_trunc_fun, trunc_args)

@@ -16,15 +16,22 @@
 #'   names on their left-hand side. Currently, the following
 #'   names are accepted: 
 #'   \code{sigma} (residual standard deviation of
-#'   the \code{gaussian} and \code{student} families);
+#'   the \code{gaussian}, \code{student}, and \code{lognormal} 
+#'   families);
 #'   \code{shape} (shape parameter of the \code{Gamma},
 #'   \code{weibull}, \code{negbinomial} and related
 #'   zero-inflated / hurdle families); \code{nu}
 #'   (degrees of freedom parameter of the \code{student} family);
 #'   \code{phi} (precision parameter of the \code{beta} 
 #'   and \code{zero_inflated_beta} families);
+#'   \code{kappa} (precision parameter of the \code{von_mises} family);
+#'   \code{beta} (mean parameter of the exponential componenent
+#'   of the \code{exgaussian} family);
 #'   \code{zi} (zero-inflation probability); 
-#'   \code{hu} (hurdle probability).
+#'   \code{hu} (hurdle probability);
+#'   \code{bs}, \code{ndt}, and \code{bias} (boundary separation,
+#'   non-decision time, and initial bias of the \code{wiener}
+#'   diffusion model).
 #'   All auxiliary parameters are modeled 
 #'   on the log or logit scale to ensure correct definition
 #'   intervals after transformation.
@@ -44,13 +51,20 @@
 #'   accross grouping variables specified in \code{group}. We
 #'   call them 'group-level' effects or (adopting frequentist 
 #'   vocabulary) 'random' effects, although the latter name is misleading
-#'   in a Bayesian context (for more details type \code{vignette("brms")}).
+#'   in a Bayesian context 
+#'   (for more details type \code{vignette("brms_overview")}).
 #'   Multiple grouping factors each with multiple group-level effects 
-#'   are possible. Instead of \code{|} you may use \code{||} in grouping terms
+#'   are possible. You can specify multi-membership terms
+#'   using the \code{\link[brms:mm]{mm}} function. For instance, 
+#'   a multi-membership term with two members could be
+#'   \code{(1|mm(g1, g2))}, where \code{g1} and \code{g2} specify
+#'   the first and second member, respectively.
+#'   
+#'   Instead of \code{|} you may use \code{||} in grouping terms
 #'   to prevent correlations from being modeled. 
 #'   Alternatively, it is possible to model different group-level terms of 
 #'   the same grouping factor as correlated (even across different formulae,
-#'   e.g. in non-linear models) by using \code{|<ID>|} instead of \code{|}.
+#'   e.g., in non-linear models) by using \code{|<ID>|} instead of \code{|}.
 #'   All group-level terms sharing the same ID will be modeled as correlated.
 #'   If, for instance, one specifies the terms \code{(1+x|2|g)} and 
 #'   \code{(1+z|2|g)} somewhere in the formulae passed to \code{brmsformula},
@@ -65,12 +79,15 @@
 #'   For more details on this model class see \code{\link[mgcv:gam]{gam}} 
 #'   and \code{\link[mgcv:gamm]{gamm}}.
 #'   
-#'   The \code{Pterms} and \code{Gterms} parts may contain two non-standard
-#'   effect types namely monotonic and category specific effects,
-#'   which can be specified using terms of the form \code{monotonic(<predictors>)} 
-#'   and \code{cse(<predictors>)} respectively. The latter can only be applied in
-#'   ordinal models and is explained in more detail in the package's vignette
-#'   (type \code{vignette("brms")}). The former effect type is explained here.
+#'   The \code{Pterms} and \code{Gterms} parts may contain three non-standard
+#'   effect types namely monotonic, measurement error, and category specific effects,
+#'   which can be specified using terms of the form \code{mo(<predictors>)},
+#'   \code{me(predictor, sd_predictor)}, and \code{cs(<predictors>)}, 
+#'   respectively. Category specific effects can only be estimated in
+#'   ordinal models and are explained in more detail in the package's 
+#'   main vignette (type \code{vignette("brms_overview")}). 
+#'   The other two effect types are explained in the following.
+#'   
 #'   A monotonic predictor must either be integer valued or an ordered factor, 
 #'   which is the first difference to an ordinary continuous predictor. 
 #'   More importantly, predictor categories (or integers) are not assumend to be 
@@ -83,13 +100,38 @@
 #'   estimates the normalized distances between consecutive predictor categories.     
 #'   A main application of monotonic effects are ordinal predictors that
 #'   can this way be modeled without (falsely) treating them as continuous
-#'   or as unordered categorical predictors.
+#'   or as unordered categorical predictors. For more details and examples
+#'   see \code{vignette("brms_monotonic")}.
 #'   
-#'   The third exception is the optional \code{addition} term, which may contain 
+#'   Quite often, predictors are measured and as such naturally contain 
+#'   measurement error. Although most reseachers are well aware of this problem,
+#'   measurement error in predictors is ignored in most
+#'   regression analyses, possibly because only few packages allow
+#'   for modelling it. Notably, measurement error can be handled in 
+#'   structural equation models, but many more general regression models
+#'   (such as those featured by \pkg{brms}) cannot be transferred 
+#'   to the SEM framework. In \pkg{brms}, effects of noise-free predictors 
+#'   can be modeled using the \code{me} (for 'measurement error') function.
+#'   If, say, \code{y} is the response variable and 
+#'   \code{x} is a measured predictor with known measurement error
+#'   \code{sdx}, we can simply include it on the right-hand side of the
+#'   model formula via \code{y ~ me(x, sdx)}. 
+#'   This can easily be extended to more general formulae. 
+#'   If \code{x2} is another measured predictor with corresponding error
+#'   \code{sdx2} and \code{z} is a predictor without error
+#'   (e.g., an experimental setting), we can model all main effects 
+#'   and interactions of the three predictors in the well known manner: 
+#'   \code{y ~ me(x, sdx) * me(x2, sdx2) * z}. In future version of \pkg{brms},
+#'   a vignette will be added to explain more details about these
+#'   so called 'error-in-variables' models and provide real world examples.
+#'   
+#'   Another speciality of the \pkg{brms} formula syntax is the optional 
+#'   \code{addition} term, which may contain 
 #'   multiple terms of the form \code{fun(variable)} seperated by \code{+} each 
 #'   providing special information on the response variable. \code{fun} can be 
 #'   replaced with either \code{se}, \code{weights}, \code{disp}, \code{trials},
-#'   \code{cat}, \code{cens}, or \code{trunc}. Their meanings are explained below. 
+#'   \code{cat}, \code{cens}, \code{trunc}, or \code{dec}. 
+#'   Their meanings are explained below. 
 #'   
 #'   For families \code{gaussian} and \code{student}, it is 
 #'   possible to specify standard errors of the observation, thus allowing 
@@ -103,6 +145,10 @@
 #'   \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1|study)} 
 #'   or \cr \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1 + mod1 + mod2|study)}, 
 #'   where \code{mod1} and \code{mod2} represent moderator variables. 
+#'   By default, the standard errors replace the paramter \code{sigma}.
+#'   To model \code{sigma} in addition to the known standard errors,
+#'   set argument \code{sigma} in function \code{se} to \code{TRUE}, 
+#'   for instance, \code{yi | se(sei, sigma = TRUE) ~ 1}.
 #'   
 #'   For all families, weighted regression may be performed using
 #'   \code{weights} in the addition part. Internally, this is 
@@ -159,10 +205,18 @@
 #'   \code{yi | trunc(lb = 0, ub = 100) ~ predictors}. 
 #'   Instead of numbers, variables in the data set can also be passed allowing 
 #'   for varying truncation points across observations. 
-#'   Defining only one of the two arguments in \code{trunc} leads to one-sided truncation.
+#'   Defining only one of the two arguments in \code{trunc} 
+#'   leads to one-sided truncation.
+#'   
+#'   In Wiener diffusion models (family \code{wiener}) the addition term
+#'   \code{dec} is mandatory to specify the (vector of) binary decisions 
+#'   corresponding to the reaction times. Non-zero values will be treated
+#'   as a response on the upper boundary of the diffusion process and zeros
+#'   will be treated as a response on the lower boundary. 
 #' 
 #'   Mutiple \code{addition} terms may be specified at the same time using 
-#'   the \code{+} operator, for instance \code{formula = yi | se(sei) + cens(censored) ~ 1} 
+#'   the \code{+} operator, for instance 
+#'   \code{formula = yi | se(sei) + cens(censored) ~ 1} 
 #'   for a censored meta-analytic model. \cr
 #'   
 #'   For families \code{gaussian} and \code{student},
@@ -276,7 +330,7 @@
 #'   All auxiliary parameters currently supported by \code{brmsformula}
 #'   have to positive (a negative standard deviation or precision parameter 
 #'   doesn't make any sense) or are bounded between 0 and 1 (for zero-inflated / 
-#'   hurdle proabilities). 
+#'   hurdle proabilities or the intial bias parameter of the \code{wiener} family). 
 #'   However, linear predictors can be positive or negative, and thus
 #'   the log link (for positive parameters) or logit link (for probability parameters) 
 #'   are used to ensure that auxiliary parameters are within their valid intervals.
@@ -315,14 +369,21 @@
 #' bf(y ~ x * z + (1+x|ID1|g), zi ~ x + (1|ID1|g))
 #' 
 #' # specify a predictor as monotonic
-#' bf(y ~ mono(x) + more_predictors)
+#' bf(y ~ mo(x) + more_predictors)
 #' 
 #' # specify a predictor as category specific
 #' # for ordinal models only
-#' bf(y ~ cse(x) + more_predictors)
+#' bf(y ~ cs(x) + more_predictors)
 #' 
 #' # add a category specific group-level intercept
-#' bf(y ~ cse(x) + (cse(1)|g))
+#' bf(y ~ cs(x) + (cs(1)|g))
+#' 
+#' # specify variables containing measurement error
+#' bf(y ~ me(x, sdx))
+#' 
+#' # specify predictors on all parameters of the wiener diffusion model
+#' # the main formula models the drift rate 'delta'
+#' bf(rt ~ x, bs ~ x, ndt ~ x, bias ~ x)
 #' 
 #' @export
 brmsformula <- function(formula, ..., nonlinear = NULL) {
@@ -353,10 +414,9 @@ brmsformula <- function(formula, ..., nonlinear = NULL) {
   new_att <- rmNULL(c(nlist(nonlinear), dots))
   dupl_args <- intersect(names(new_att), names(old_att))
   if (length(dupl_args)) {
-    warning("Duplicated definitions of arguments ", 
-            paste0("'", dupl_args, "'", collapse = ", "),
-            "\nIgnoring definitions outside the formula",
-            call. = FALSE)
+    warning2("Duplicated definitions of arguments ", 
+             paste0("'", dupl_args, "'", collapse = ", "),
+             "\nIgnoring definitions outside the formula.")
   }
   null_pars <- setdiff(auxpars, names(old_att))
   new_pars <- intersect(names(new_att), null_pars)
@@ -409,35 +469,32 @@ prepare_auxformula <- function(formula, par = NULL, rsv_pars = NULL) {
   if (!is.null(lhs(formula))) {
     resp_pars <- all.vars(formula[[2]])
     if (length(resp_pars) != 1L) {
-      stop("LHS of additional formulas must contain exactly one variable.",
-           call. = FALSE)
+      stop2("LHS of additional formulas must contain exactly one variable.")
     }
     par <- resp_pars
     formula[[2]] <- eval(parse(text = paste("quote(", par, ")")))
   } else {
     if (!isTRUE(nzchar(par))) {
-      stop("Additional formulas must be named.", call. = FALSE)
+      stop2("Additional formulas must be named.")
     }
-    formula <- formula(paste(par, formula2string(formula)))
+    formula <- formula(paste(par, formula2str(formula)))
   }
   if (any(ulapply(c(".", "_"), grepl, x = par, fixed = TRUE))) {
-    stop("Parameter names should not contain dots or underscores.",
-         call. = FALSE)
+    stop2("Parameter names should not contain dots or underscores.")
   }
   if (par %in% rsv_pars) {
-    stop("Parameter name '", par, "' is reserved for this model.",
-         call. = FALSE)
+    stop2("Parameter name '", par, "' is reserved for this model.")
   }
   if (!is.null(attr(terms(formula), "offset"))) {
-    stop("Offsets in additional formulas are currently not allowed.", 
-         call. = FALSE)
+    stop2("Offsets in additional formulas are currently not allowed.")
   }
   structure(formula, par = par)
 }
 
 auxpars <- function(incl_nl = FALSE) {
   # names of auxiliary parameters
-  auxpars <- c("sigma", "shape", "nu", "phi", "kappa", "zi", "hu")
+  auxpars <- c("sigma", "shape", "nu", "phi", "kappa", "beta", 
+               "zi", "hu", "bs", "ndt", "bias")
   if (incl_nl) {
     auxpars <- c(auxpars, "nonlinear")
   }
@@ -447,16 +504,32 @@ auxpars <- function(incl_nl = FALSE) {
 ilink_auxpars <- function(ap = NULL, stan = FALSE) {
   # helper function to store inverse links of auxiliary parameters
   if (stan) {
-    ilink <- c(sigma = "exp", shape = "exp", nu = "exp", 
-               phi = "exp", kappa = "exp", zi = "", hu = "") 
+    ilink <- c(sigma = "exp", shape = "exp", nu = "exp", phi = "exp", 
+               kappa = "exp", beta = "exp", zi = "", hu = "",
+               bs = "exp", ndt = "exp", bias = "inv_logit") 
   } else {
     ilink <- c(sigma = "exp", shape = "exp", nu = "exp", phi = "exp", 
-               kappa = "exp", zi = "inv_logit", hu = "inv_logit")
+               kappa = "exp", beta = "exp", zi = "inv_logit", 
+               hu = "inv_logit", bs = "exp", ndt = "exp", 
+               bias = "inv_logit")
   }
   if (length(ap)) {
     ilink <- ilink[ap]
   }
   ilink
+}
+
+valid_auxpars <- function(family, effects = list(), autocor = cor_arma()) {
+  # convenience function to find relevant auxiliary parameters
+  x <- c(sigma = has_sigma(family, effects = effects, autocor = autocor),
+         shape = has_shape(family), nu = has_nu(family), 
+         phi = has_phi(family), kappa = has_kappa(family),
+         beta = has_beta(family),
+         zi = is.zero_inflated(family, zi_beta = TRUE), 
+         hu = is.hurdle(family, zi_beta = FALSE),
+         bs = is.wiener(family), ndt = is.wiener(family), 
+         bias = is.wiener(family))
+  names(x)[x]
 }
 
 sformula <- function(x, incl_nl = TRUE, flatten = FALSE, ...) {

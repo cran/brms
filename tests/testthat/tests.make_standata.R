@@ -149,7 +149,7 @@ test_that("make_standata returns correct values for addition arguments", {
                           c3 = c(rep(c(TRUE, FALSE), 4), FALSE),
                           c4 = c(sample(-1:1, 5, TRUE), rep(2, 4)),
                           t = 11:19)
-  expect_equal(make_standata(y | se(s) ~ 1, data = temp_data)$se, 
+  expect_equal(as.numeric(make_standata(y | se(s) ~ 1, data = temp_data)$se), 
                1:9)
   expect_equal(make_standata(y | weights(w) ~ 1, data = temp_data)$weights, 
                1:9)
@@ -177,9 +177,9 @@ test_that("make_standata rejects incorrect addition arguments", {
   temp_data <- data.frame(y = rnorm(9), s = -(1:9), w = -(1:9), 
                           c = rep(-2:0, 3), t = 9:1, z = 1:9)
   expect_error(make_standata(y | se(s) ~ 1, data = temp_data), 
-               "standard errors must be non-negative")
+               "Standard errors must be non-negative")
   expect_error(make_standata(y | weights(w) ~ 1, data = temp_data), 
-               "weights must be non-negative")
+               "Weights must be non-negative")
   expect_error(make_standata(y | cens(c) ~ 1, data = temp_data))
   expect_error(make_standata(z | trials(t) ~ 1, data = temp_data, 
                              family = "binomial"),
@@ -219,7 +219,6 @@ test_that(paste("make_standata returns correct data",
                             autocor = cor_ar(~tim|g, cov = TRUE))
   expect_equal(standata$begin_tg, as.array(c(1, 6)))
   expect_equal(standata$nobs_tg, as.array(c(5, 5)))
-  expect_equal(standata$se2, rep(0, 10))
 })
 
 test_that("make_standata allows to retrieve the initial data order", {
@@ -280,7 +279,7 @@ test_that("make_standata correctly prepares data for non-linear models", {
                      g = rep(1:3, 3))
   standata <- make_standata(y ~ a - b^z, data = data, nonlinear = nonlinear)
   expect_equal(names(standata), c("N", "Y", "KC", "C", "K_a", "X_a", "Z_1_a_1", 
-                                  "K_b", "X_b", "Km_b", "Xm_b", "Jm_b", 
+                                  "K_b", "X_b", "Kmo_b", "Xmo_b", "Jmo_b", 
                                   "con_simplex_b_1", "Z_1_b_2", "J_1", "N_1", 
                                   "M_1", "NC_1", "prior_only"))
   expect_equal(colnames(standata$X_a), c("Intercept", "x"))
@@ -292,9 +291,9 @@ test_that("make_standata correctly prepares data for monotonic effects", {
   data <- data.frame(y = rpois(120, 10), x1 = rep(1:4, 30), 
                      x2 = factor(rep(c("a", "b", "c"), 40), ordered = TRUE))
   sdata <- make_standata(y ~ mono(x1 + x2), data = data)
-  expect_true(all(c("Xm", "Jm", "con_simplex_1", "con_simplex_2") %in% names(sdata)))
-  expect_equivalent(sdata$Xm, cbind(data$x1 - 1, as.numeric(data$x2) - 1))
-  expect_equal(as.vector(unname(sdata$Jm)), 
+  expect_true(all(c("Xmo", "Jmo", "con_simplex_1", "con_simplex_2") %in% names(sdata)))
+  expect_equivalent(sdata$Xmo, cbind(data$x1 - 1, as.numeric(data$x2) - 1))
+  expect_equal(as.vector(unname(sdata$Jmo)), 
                c(max(data$x1) - 1, length(unique(data$x2)) - 1))
   expect_equal(sdata$con_simplex_1, rep(1, 3))
   
@@ -392,7 +391,44 @@ test_that("make_standata handles category specific effects correctly", {
   expect_equivalent(sdata$Z_1_4, as.array(inhaler$treat))
   expect_error(make_standata(rating ~ 1 + cse(treat), data = inhaler,
                              family = "cumulative"), "only meaningful")
-  expect_error(make_standata(rating ~ 1 + (1 + cse(1)|subject), 
+  expect_error(make_standata(rating ~ 1 + (treat + cse(1)|subject), 
                              data = inhaler, family = "cratio"), 
                "category specific effects in separate group-level terms")
+})
+
+test_that("make_standata handles wiener diffusion models correctly", {
+  dat <- RWiener::rwiener(n=100, alpha=2, tau=.3, beta=.5, delta=.5)
+  dat$x <- rnorm(100)
+  dat$dec <- ifelse(dat$resp == "lower", 0, 1)
+  dat$test <- "a"
+  sdata <- make_standata(q | dec(resp) ~ x, data = dat, family = wiener())
+  expect_equal(sdata$dec, dat$dec)
+  sdata <- make_standata(q | dec(dec) ~ x, data = dat, family = wiener())
+  expect_equal(sdata$dec, dat$dec)
+  expect_error(make_standata(q | dec(test) ~ x, data = dat, family = wiener()),
+               "Decisions should be 'lower' or 'upper'")
+})
+
+test_that("make_standata handles noise-free terms correctly", {
+  N <- 30
+  dat <- data.frame(y = rnorm(N), x = rnorm(N), z = rnorm(N),
+                    xsd = abs(rnorm(N, 1)), zsd = abs(rnorm(N, 1)),
+                    ID = rep(1:5, each = N / 5))
+  sdata <- make_standata(y ~ me(x, xsd)*me(z, zsd)*x, data = dat)
+  expect_equal(sdata$Xn_1, dat$x)
+  expect_equal(sdata$noise_2, dat$zsd)
+  expect_equal(unname(sdata$Cme_3), dat$x)
+  expect_equal(sdata$Kme, 6)
+})
+
+test_that("make_standata handles multi-membership models correctly", {
+  dat <- data.frame(y = rnorm(10), g1 = c(7:2, rep(10, 4)),
+                    g2 = 1:10, w1 = rep(1, 10),
+                    w2 = rep(abs(rnorm(10))))
+  sdata <- make_standata(y ~ (1|mm(g1,g2,g1,g2)), data = dat)
+  expect_true(all(paste0(c("W_1_", "J_1_"), 1:4) %in% names(sdata)))
+  expect_equal(sdata$W_1_4, rep(0.25, 10))
+  # this checks whether combintation of factor levels works as intended
+  expect_equal(sdata$J_1_1, as.array(c(6, 5, 4, 3, 2, 1, 7, 7, 7, 7)))
+  expect_equal(sdata$J_1_2, as.array(c(8, 1, 2, 3, 4, 5, 6, 9, 10, 7)))
 })

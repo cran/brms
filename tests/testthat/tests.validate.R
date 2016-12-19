@@ -21,18 +21,21 @@ test_that("extract_effects finds all random effects terms", {
   expect_equal(extract_effects(y ~ (1+x||g1/g2) + (1|g3))$random$cor, 
                c(FALSE, FALSE, TRUE))
   expect_equal(extract_effects(y ~ 1|g1)$random$group, "g1")
-  expect_error(extract_effects(y ~ (1+x|g1+g2) + x + (1|g1)))
+  expect_equal(extract_effects(y ~ x + (1+x|g1+g2))$random$group,
+               c("g1", "g2"))
 })
 
 test_that("extract_effects accepts || syntax", {
-  random <- brms:::extract_effects(y ~ a + (1+x||g1) + (1+z|g2))$random
-  target <- data.frame(group = c("g1", "g2"), gn = 1:2, id = c(NA, NA),
-                       cor = c(FALSE, TRUE), type = "",
+  random <- extract_effects(y ~ a + (1+x||g1) + (1+z|g2))$random
+  target <- data.frame(group = c("g1", "g2"), gtype = rep("", 2), 
+                       gn = 1:2, id = c(NA, NA),
+                       type = "", cor = c(FALSE, TRUE), 
                        stringsAsFactors = FALSE)
+  target$gcall <- list(list(groups = "g1", allvars = ~ g1, type = ""),
+                       list(groups = "g2", allvars = ~ g2, type = ""))
   target$form <- list(~1+x, ~1+z)
-  expect_equal(random, target)
+  expect_equivalent(random, target)
   expect_equal(extract_effects(y ~ (1+x||g1:g2))$random$group, c("g1:g2"))
-  expect_error(extract_effects(y ~ (1+x||g1-g2) + x + (1|g1)))
 })
 
 test_that("extract_effects finds all response variables", {
@@ -90,7 +93,7 @@ test_that("extract_effects accepts calls to the poly function", {
 test_that("extract_effects also saves untransformed variables", {
   ee <- extract_effects(y ~ as.numeric(x) + (as.factor(z) | g))
   expect_equivalent(ee$allvars, 
-                    y ~ y + as.numeric(x) + x + as.factor(z) + z + g)
+                    y ~ y + as.numeric(x) + x + as.factor(z) + g + z)
 })
 
 test_that("extract_effects finds all variables in non-linear models", {
@@ -113,7 +116,7 @@ test_that("extract_effects returns expected error messages", {
                "Non-linear effects are not yet allowed for this family", 
                fixed = TRUE)
   expect_error(extract_effects(y ~ mono(1)),
-               "No variable supplied to function 'monotonic'")
+               "No variable supplied to function 'mo'")
   expect_error(extract_effects(y | se(sei) ~ x, family = weibull()),
                "Argument 'se' is not supported for family")
   expect_error(extract_effects(y | se(sei) + se(sei2) ~ x, 
@@ -146,17 +149,23 @@ test_that("extract_effects finds all spline terms", {
 test_that("extract_effects correctly handles group IDs", {
   form <- bf(y ~ x + (1+x|3|g) + (1|g2),
              sigma = ~ (x|3|g) + (1||g2))
-  target <- data.frame(group = c("g", "g2"), gn = 1:2, id = c("3", NA),
-                       cor = c(TRUE, TRUE), type = "", 
+  target <- data.frame(group = c("g", "g2"), gtype = rep("", 2), 
+                       gn = 1:2, id = c("3", NA),
+                       type = "", cor = c(TRUE, TRUE), 
                        stringsAsFactors = FALSE)
+  target$gcall <- list(list(groups = "g", allvars = ~ g, type = ""),
+                       list(groups = "g2", allvars = ~ g2, type = ""))
   target$form <- list(~1+x, ~1)
   expect_equal(extract_effects(form)$random, target)
   
   form <- bf(y ~ a, nonlinear = a ~ x + (1+x|3|g) + (1|g2),
              sigma = ~ (x|3|g) + (1||g2))
-  target <- data.frame(group = c("g", "g2"), gn = 1:2, id = c("3", NA),
-                       cor = c(TRUE, FALSE), type = "",
+  target <- data.frame(group = c("g", "g2"), gtype = rep("", 2), 
+                       gn = 1:2, id = c("3", NA),
+                       type = "", cor = c(TRUE, FALSE),
                        stringsAsFactors = FALSE)
+  target$gcall <- list(list(groups = "g", allvars = ~ g, type = ""),
+                       list(groups = "g2", allvars = ~ g2, type = ""))
   target$form <- list(~x, ~1)
   expect_equal(extract_effects(form)$sigma$random, target)
 })
@@ -206,14 +215,14 @@ test_that("extract_time returns all desired variables", {
 
 test_that("update_formula returns correct formulas", {
   expect_warning(uf <- update_formula(y ~ x + z, partial = ~ a + I(a^2)))
-  expect_equal(uf, y ~ x + z + cse(a + I(a^2)))
+  expect_equal(uf, y ~ x + z + cs(a + I(a^2)))
 })
 
 test_that("get_effect works correctly", {
   effects <- extract_effects(y ~ a - b^x, 
                nonlinear = list(a ~ z, b ~ v + mono(z)))
   expect_equivalent(get_effect(effects), list(y ~ a - b^x, ~1 + z, ~ 1 + v))
-  expect_equivalent(get_effect(effects, "mono"), list(b = ~ z))
+  expect_equivalent(get_effect(effects, "mo"), list(b = ~ z))
   effects <- extract_effects(y ~ x + z + (1|g))
   expect_equivalent(get_effect(effects), list(y ~ 1 + x + z))
 })
@@ -266,10 +275,11 @@ test_that("tidy_ranef works correctly", {
   data <- data.frame(g = 1:10, x = 11:20, y = 1:10)
   data[["g:x"]] <- with(data, paste0(g, "_", x))
   
-  target <- data.frame(id = 1, group = "g", gn = 1, 
+  target <- data.frame(id = 1, group = "g", gn = 1, gtype = "", 
                        coef = c("Intercept", "x"), cn = 1:2,
-                       nlpar = "", cor = FALSE, type = "",
+                       nlpar = "", cor = FALSE, type = "", 
                        stringsAsFactors = FALSE)
+  target$gcall <- replicate(2, list(list(groups = "g", allvars = ~ g, tyep = "")))
   target$form <- replicate(2, ~1+x)
   ranef <- tidy_ranef(extract_effects(y~(1+x||g)), data = data)
   expect_equivalent(ranef, target)
@@ -296,16 +306,6 @@ test_that("tidy_ranef works correctly", {
   expect_equivalent(ranef, empty_ranef())
 })
 
-test_that("check_brm_input returns correct warnings and errors", {
-  expect_error(check_brm_input(list(chains = 3, cluster = 2)), 
-               "'chains' must be a multiple of 'cluster'", fixed = TRUE)
-  x <- list(family = inverse.gaussian(), chains = 1, cluster = 1,
-            algorithm = "sampling")
-  expect_warning(check_brm_input(x))
-  x$family <- poisson("sqrt")
-  expect_warning(check_brm_input(x))
-})
-
 test_that("exclude_pars returns expected parameter names", {
   ranef <- data.frame(id = c(1, 1, 2), group = c("g1", "g1", "g2"),
                        gn = c(1, 1, 2), coef = c("x", "z", "x"), 
@@ -319,7 +319,7 @@ test_that("exclude_pars returns expected parameter names", {
   ranef$nlpar <- c("a", "a", "")
   ep <- exclude_pars(list(), ranef = ranef, save_ranef = FALSE)
   expect_true(all(c("r_1_a_1", "r_1_a_2") %in% ep))
-  effects <- brms:::extract_effects(y ~ x + s(z))
+  effects <- extract_effects(y ~ x + s(z))
   data <- data.frame(y = rnorm(20), x = rnorm(20), z = rnorm(20))
   expect_true("zs_1_1" %in% exclude_pars(effects, data))
   effects <- extract_effects(y ~ eta, nonlinear = list(eta ~ x + s(z)))
