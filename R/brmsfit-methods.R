@@ -1122,11 +1122,10 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
       stop2("Argument 'x' is required for ppc type '", type, "'.")
     }
     ee <- extract_effects(formula(object), family = family(object))
-    ae_collapsed <- ulapply(get_all_effects(ee), 
-                            function(e) paste(e, collapse = ":"))
-    if (!x %in% ae_collapsed) {
+    ae_coll <- ulapply(get_all_effects(ee), paste, collapse = ":")
+    if (!x %in% ae_coll) {
       stop2("Variable '", x, "' is not a valid variable for this model. \n",
-            "Valid variables are: ", paste(ae_collapsed, collapse = ", "))
+            "Valid variables are: ", paste(ae_coll, collapse = ", "))
     }
   }
   if (type == "error_binned") {
@@ -1258,10 +1257,11 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
   rsv_vars <- rsv_vars(x$family, nresp = length(ee$response),
                        rsv_intercept = attr(ee$fixed, "rsv_intercept"),
                        old_mv = attr(ee$formula, "old_mv"))
-  all_effects <- get_all_effects(ee, rsv_vars = rsv_vars)
-  ae_collapsed <- ulapply(all_effects, function(e) paste(e, collapse = ":"))
   if (is.null(effects)) {
-    effects <- all_effects
+    effects <- get_all_effects(ee, rsv_vars = rsv_vars)
+    if (!length(effects)) {
+      stop2("No valid effects detected.")
+    }
   } else {
     # allow to define interactions in any order
     effects <- strsplit(as.character(effects), split = ":")
@@ -1273,19 +1273,23 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
       stop2("To display interactions of order higher than 2 ",
             "please use the 'conditions' argument.")
     }
+    all_effects <- get_all_effects(ee, rsv_vars = rsv_vars, comb_all = TRUE)
+    ae_coll <- all_effects[lengths(all_effects) == 1L]
+    ae_coll <- ulapply(ae_coll, paste, collapse = ":")
     matches <- match(lapply(all_effects, sort), lapply(effects, sort), 0L)
     if (sum(matches) > 0 && sum(matches > 0) < length(effects)) {
-      invalid <- effects[setdiff(1:length(effects), sort(matches))]  
-      invalid <- ulapply(invalid, function(e) paste(e, collapse = ":"))
+      invalid <- effects[setdiff(seq_along(effects), sort(matches))]  
+      invalid <- ulapply(invalid, paste, collapse = ":")
       warning2("Some specified effects are invalid for this model: ",
-               paste(invalid, collapse = ", "), "\nValid effects are: ", 
-               paste(ae_collapsed, collapse = ", "))
+               paste(invalid, collapse = ", "), "\nValid effects are ", 
+               "(combinations of): ", paste(ae_coll, collapse = ", "))
     }
     effects <- unique(effects[sort(matches)])
-  }
-  if (!length(unlist(effects))) {
-    stop2("All specified effects are invalid for this model.\n", 
-          "Valid effects are: ", paste(ae_collapsed, collapse = ", ")) 
+    if (!length(effects)) {
+      stop2("All specified effects are invalid for this model.\n", 
+            "Valid effects are (combinations of): ", 
+            paste(ae_coll, collapse = ", ")) 
+    }
   }
   if (length(probs) != 2L) {
     stop2("Arguments 'probs' must be of length 2.")
@@ -1301,6 +1305,8 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
     marg_args <- nlist(data = marg_data, conditions, 
                        int_vars, contour, resolution)
     marg_data <- do.call(prepare_marg_data, marg_args)
+    # make sure numeric variables come first
+    effects[[i]] <- attr(marg_data, "effects")
     args <- c(list(x, newdata = marg_data, re_formula = re_formula,
                    allow_new_levels = TRUE, incl_autocor = FALSE,
                    probs = probs, robust = robust), dots)
@@ -1551,8 +1557,7 @@ predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   draws$eta <- get_eta(i = NULL, draws = draws)
   for (ap in intersect(auxpars(), names(draws))) {
     if (is(draws[[ap]], "list")) {
-      ilink <- get(draws[[ap]][["ilink"]], mode = "function")
-      draws[[ap]] <- ilink(get_eta(i = NULL, draws = draws[[ap]]))
+      draws[[ap]] <- get_auxpar(draws[[ap]])
     }
   }
   # see predict.R
@@ -1687,8 +1692,7 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   }
   for (ap in intersect(auxpars(), names(draws))) {
     if (is(draws[[ap]], "list")) {
-      ilink <- get(draws[[ap]][["ilink"]], mode = "function")
-      draws[[ap]] <- ilink(get_eta(i = NULL, draws = draws[[ap]]))
+      draws[[ap]] <- get_auxpar(draws[[ap]])
     }
   }
   if (scale == "response") {

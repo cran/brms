@@ -327,6 +327,12 @@
 #'   The syntax closely resembles that of a non-linear 
 #'   parameter, for instance \code{sigma ~ x + s(z) + (1+x|g)}.
 #'   
+#'   A special case is the parameter \code{disc} ('discrimination') 
+#'   in ordinal models. It is usually fixed to 1 and not estimated, 
+#'   but may be modeled as any other auxiliary parameter if desired
+#'   (see examples). For reasons of identification, \code{'disc'}
+#'   can only be positive, which is achieved by applying the log-link.
+#'   
 #'   All auxiliary parameters currently supported by \code{brmsformula}
 #'   have to positive (a negative standard deviation or precision parameter 
 #'   doesn't make any sense) or are bounded between 0 and 1 (for zero-inflated / 
@@ -371,12 +377,13 @@
 #' # specify a predictor as monotonic
 #' bf(y ~ mo(x) + more_predictors)
 #' 
-#' # specify a predictor as category specific
 #' # for ordinal models only
+#' # specify a predictor as category specific
 #' bf(y ~ cs(x) + more_predictors)
-#' 
 #' # add a category specific group-level intercept
 #' bf(y ~ cs(x) + (cs(1)|g))
+#' # specify parameter 'disc'
+#' bf(y ~ person + item, disc ~ item)
 #' 
 #' # specify variables containing measurement error
 #' bf(y ~ me(x, sdx))
@@ -494,7 +501,7 @@ prepare_auxformula <- function(formula, par = NULL, rsv_pars = NULL) {
 auxpars <- function(incl_nl = FALSE) {
   # names of auxiliary parameters
   auxpars <- c("sigma", "shape", "nu", "phi", "kappa", "beta", 
-               "zi", "hu", "bs", "ndt", "bias")
+               "zi", "hu", "bs", "ndt", "bias", "disc")
   if (incl_nl) {
     auxpars <- c(auxpars, "nonlinear")
   }
@@ -506,12 +513,12 @@ ilink_auxpars <- function(ap = NULL, stan = FALSE) {
   if (stan) {
     ilink <- c(sigma = "exp", shape = "exp", nu = "exp", phi = "exp", 
                kappa = "exp", beta = "exp", zi = "", hu = "",
-               bs = "exp", ndt = "exp", bias = "inv_logit") 
+               bs = "exp", ndt = "exp", bias = "inv_logit", disc = "exp") 
   } else {
     ilink <- c(sigma = "exp", shape = "exp", nu = "exp", phi = "exp", 
                kappa = "exp", beta = "exp", zi = "inv_logit", 
                hu = "inv_logit", bs = "exp", ndt = "exp", 
-               bias = "inv_logit")
+               bias = "inv_logit", disc = "exp")
   }
   if (length(ap)) {
     ilink <- ilink[ap]
@@ -528,7 +535,7 @@ valid_auxpars <- function(family, effects = list(), autocor = cor_arma()) {
          zi = is.zero_inflated(family, zi_beta = TRUE), 
          hu = is.hurdle(family, zi_beta = FALSE),
          bs = is.wiener(family), ndt = is.wiener(family), 
-         bias = is.wiener(family))
+         bias = is.wiener(family), disc = is.ordinal(family))
   names(x)[x]
 }
 

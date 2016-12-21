@@ -2,6 +2,32 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.3.1}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Introduce the auxiliary parameter \code{disc}
+      ('discrimination') to be used in ordinal models.
+      By default it is not estimated but fixed to one.
+      \item Create \code{marginal_effects} plots of 
+      two-way interactions of variables that were 
+      not explicitely modeled as interacting.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Move \pkg{rstan} to 'Imports' and \pkg{Rcpp} 
+      to 'Depends' in order to avoid loading \pkg{rstan} 
+      into the global environment automatically.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix a bug leading to unexpected errors
+      in some S3 methods when applied to ordinal models.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.3.0}{
   \subsection{NEW FEATURES}{
     \itemize{
