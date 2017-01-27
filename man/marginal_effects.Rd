@@ -8,13 +8,14 @@
 \usage{
 \method{marginal_effects}{brmsfit}(x, effects = NULL, conditions = NULL,
   re_formula = NA, robust = TRUE, probs = c(0.025, 0.975),
-  method = c("fitted", "predict"), contour = FALSE, resolution = 100, ...)
+  method = c("fitted", "predict"), surface = FALSE, resolution = 100,
+  too_far = 0, ...)
 
 marginal_effects(x, ...)
 
 \method{plot}{brmsMarginalEffects}(x, ncol = NULL, points = FALSE,
-  rug = FALSE, theme = bayesplot::theme_default(), ask = TRUE,
-  plot = TRUE, ...)
+  rug = FALSE, stype = c("contour", "raster"),
+  theme = bayesplot::theme_default(), ask = TRUE, plot = TRUE, ...)
 }
 \arguments{
 \item{x}{An object usually of class \code{brmsfit}.}
@@ -28,7 +29,7 @@ and two-way interactions estimated in the model. When specifying
 even if not orginally modeled.}
 
 \item{conditions}{An optional \code{data.frame} containing variable values
-to marginalize on. Each effect defined in \code{effects} will
+to condition on. Each effect defined in \code{effects} will
 be plotted separately for each row of \code{data}. 
 The row names of \code{data} will be treated as titles of the subplots. 
 It is recommended to only define a few rows in order to keep the plots clear.
@@ -49,8 +50,10 @@ intervals (defaults to 2.5 and 97.5 percent quantiles)}
 If \code{"fitted"}, plot marginal predictions of the regression curve. 
 If \code{"predict"}, plot marginal predictions of the responses.}
 
-\item{contour}{Logical; Indicates whether interactions should be 
-visualized with a contour plot. Defaults to \code{FALSE}.}
+\item{surface}{Logical; Indicates whether interactions or 
+two-dimensional smooths should be visualized as a surface. 
+Defaults to \code{FALSE}. The surface type can be controlled 
+via argument \code{stype} of the related plotting method.}
 
 \item{resolution}{Number of support points used to generate 
 the plots. Higher resolution leads to smoother plots. 
@@ -58,6 +61,13 @@ Defaults to \code{100}. If \code{contour} is \code{TRUE},
 this implies \code{10000} support points for interaction terms,
 so it might be necessary to reduce \code{resolution} 
 when only few RAM is available.}
+
+\item{too_far}{For contour plots only: Grid points that are too 
+far away from the actual data points can be excluded from the plot. 
+\code{too_far} determines what is too far. The grid is scaled into 
+the unit square and then grid points more than \code{too_far} 
+from the predictor variables are excluded. By default, all
+grid points are used. Ignored for non-contour plots.}
 
 \item{...}{Currently ignored.}
 
@@ -74,12 +84,13 @@ that match the specified conditions defined in \code{conditions}.}
 values should be added via \code{\link[ggplot2:geom_rug]{geom_rug}}.
 Default is \code{FALSE}.}
 
+\item{stype}{Indicates how surface plots should be displayed.
+Either \code{"contour"} or \code{"raster"}.}
+
 \item{theme}{A \code{\link[ggplot2:theme]{theme}} object 
 modifying the appearance of the plots. 
 For some basic themes see \code{\link[ggplot2:ggtheme]{ggtheme}}
-and \code{\link[bayesplot:theme_default]{theme_default}}.
-Can be defined globally for the current session, via
-\code{\link[ggplot2:theme_update]{theme_set}}.}
+and \code{\link[bayesplot:theme_default]{theme_default}}.}
 
 \item{ask}{logical; indicates if the user is prompted 
 before a new page is plotted. 
@@ -108,7 +119,22 @@ Display marginal effects of one or more numeric and/or categorical
 predictors including two-way interaction effects.
 }
 \details{
-\code{NA} values within factors in \code{conditions}, 
+When creating \code{marginal_effects} for a particular predictor 
+  (or interaction of two predictors), one has to choose the values of all 
+  other predictors to condition on. 
+  By default, the mean is used for continuous variables
+  and the reference category is used for factors, but you may change these
+  values via argument \code{conditions}. 
+  This also has an implication for the \code{points} argument: 
+  In the created plots, only those points will be shown that correspond 
+  to the factor levels actually used in the conditioning, in order not 
+  to create the false impressivion of bad model fit, where it is just 
+  due to conditioning on certain factor levels.
+  Since we condition on rather than actually marginalizing variables, 
+  the name  \code{marginal_effects} is possibly not ideally chosen in 
+  retrospect. 
+
+  \code{NA} values within factors in \code{conditions}, 
   are interpreted as if all dummy variables of this factor are 
   zero. This allows, for instance, to make predictions of the grand mean 
   when using sum coding.

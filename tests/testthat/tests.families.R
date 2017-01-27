@@ -27,7 +27,8 @@ test_that("family functions returns expected results", {
                "zero_inflated_negbinomial")
   expect_equal(zero_inflated_beta(logit)$family, 
                "zero_inflated_beta")
-  zi_binom <- list(family = "zero_inflated_binomial", link = "logit")
+  zi_binom <- list(family = "zero_inflated_binomial", link = "logit",
+                   link_zi = "logit")
   class(zi_binom) <- "family"
   expect_equivalent(zero_inflated_binomial(), zi_binom)
   expect_error(zero_inflated_binomial(y~x), "zero_inflated_binomial")
@@ -38,37 +39,18 @@ test_that("family functions returns expected results", {
   expect_equal(cratio("cloglog")$family, "cratio")
   expect_equal(acat(cloglog)$link, "cloglog")
   expect_equivalent(brmsfamily("gaussian", inverse),
-                    list(family = "gaussian", link = "inverse"))
+                    list(family = "gaussian", link = "inverse",
+                         link_sigma = "log"))
   expect_equivalent(brmsfamily("geometric", "identity"),
                     list(family = "geometric", link = "identity"))
   expect_equivalent(brmsfamily("zi_poisson"),
-                    list(family = "zero_inflated_poisson", link = "log"))
-})
-
-test_that("check_family returns correct links", {
-  expect_equal(check_family("gaussian")$link, "identity")
-  expect_equal(check_family("weibull")$link, "log")
-  expect_equal(check_family(binomial)$link, "logit")
-  expect_equal(check_family(binomial("probit"))$link, "probit")
-  expect_equal(check_family(c("acat", "cloglog"))$link, "cloglog")
-})
-
-test_that("check_family return an error on wrong links", {
-  expect_error(check_family(gaussian("logit")), 
-               "'logit' is not a supported link for family 'gaussian'")
-  expect_error(check_family(poisson("inverse")), 
-               "'inverse' is not a supported link for family 'poisson'")
-  expect_error(check_family(c("weibull", "sqrt")), 
-               "'sqrt' is not a supported link for family 'weibull'")
-  expect_error(check_family(c("categorical","probit")), 
-               "'probit' is not a supported link for family 'categorical'")
-})
-
-test_that("check_family rejects invalid families", {
-  expect_error(check_family("multigaussian"),
-               "multigaussian is not a supported family")
-  expect_error(check_family("ordinal"),
-               "ordinal is not a supported family")
+                    list(family = "zero_inflated_poisson", link = "log",
+                         link_zi = "logit"))
+  
+  expect_error(weibull(link_shape = "logit"), 
+               "Link 'logit' is invalid for parameter 'shape'")
+  expect_error(weibull(link_shape = c("log", "logit")),
+               "Link functions must be of length 1")
 })
 
 test_that("print brmsfamily works correctly", {

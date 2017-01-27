@@ -3,6 +3,7 @@
 \name{brmsfamily}
 \alias{Beta}
 \alias{acat}
+\alias{asym_laplace}
 \alias{bernoulli}
 \alias{brmsfamily}
 \alias{categorical}
@@ -10,6 +11,7 @@
 \alias{cumulative}
 \alias{exgaussian}
 \alias{exponential}
+\alias{frechet}
 \alias{geometric}
 \alias{hurdle_gamma}
 \alias{hurdle_lognormal}
@@ -28,55 +30,66 @@
 \alias{zero_inflated_poisson}
 \title{Special Family Functions for \pkg{brms} Models}
 \usage{
-brmsfamily(family, link = NULL)
+brmsfamily(family, link = NULL, link_sigma = "log", link_shape = "log",
+  link_nu = "logm1", link_phi = "log", link_kappa = "log",
+  link_beta = "log", link_zi = "logit", link_hu = "logit",
+  link_disc = "log", link_bs = "log", link_ndt = "log",
+  link_bias = "logit", link_quantile = "logit")
 
-student(link = "identity")
+student(link = "identity", link_sigma = "log", link_nu = "logm1")
 
 bernoulli(link = "logit")
 
-negbinomial(link = "log")
+negbinomial(link = "log", link_shape = "log")
 
 geometric(link = "log")
 
-lognormal(link = "identity")
+lognormal(link = "identity", link_sigma = "log")
 
 exponential(link = "log")
 
-weibull(link = "log")
+weibull(link = "log", link_shape = "log")
 
-exgaussian(link = "identity")
+frechet(link = "log", link_nu = "logm1")
 
-wiener(link = "identity")
+exgaussian(link = "identity", link_sigma = "log", link_beta = "log")
 
-Beta(link = "logit")
+wiener(link = "identity", link_bs = "log", link_ndt = "log",
+  link_bias = "logit")
 
-von_mises(link = "tan_half")
+Beta(link = "logit", link_phi = "log")
+
+von_mises(link = "tan_half", link_kappa = "log")
+
+asym_laplace(link = "identity", link_sigma = "log",
+  link_quantile = "logit")
 
 hurdle_poisson(link = "log")
 
-hurdle_negbinomial(link = "log")
+hurdle_negbinomial(link = "log", link_shape = "log", link_hu = "logit")
 
-hurdle_gamma(link = "log")
+hurdle_gamma(link = "log", link_shape = "log", link_hu = "logit")
 
-hurdle_lognormal(link = "identity")
+hurdle_lognormal(link = "identity", link_sigma = "log", link_hu = "logit")
 
-zero_inflated_beta(link = "logit")
+zero_inflated_beta(link = "logit", link_phi = "log", link_zi = "logit")
 
-zero_inflated_poisson(link = "log")
+zero_inflated_poisson(link = "log", link_zi = "logit")
 
-zero_inflated_negbinomial(link = "log")
+zero_inflated_negbinomial(link = "log", link_shape = "log",
+  link_zi = "logit")
 
-zero_inflated_binomial(link = "logit")
+zero_inflated_binomial(link = "logit", link_zi = "logit")
 
 categorical(link = "logit")
 
-cumulative(link = "logit")
+cumulative(link = "logit", link_disc = "log")
 
-sratio(link = "logit")
+sratio(link = "logit", link_disc = "log")
 
-cratio(link = "logit")
+cratio(link = "logit", link_disc = "log")
 
-acat(link = "logit")
+acat(link = "logit", link_disc = "log")
 }
 \arguments{
 \item{family}{A character string naming the distribution
@@ -86,8 +99,9 @@ Currently, the following families are supported:
 \code{bernoulli}, \code{poisson}, \code{negbinomial}, 
 \code{geometric}, \code{Gamma}, \code{lognormal}, 
 \code{exgaussian}, \code{wiener}, \code{inverse.gaussian}, 
-\code{exponential}, \code{weibull}, \code{Beta}, \code{von_mises},
-\code{categorical}, \code{cumulative}, \code{cratio}, \code{sratio}, 
+\code{exponential}, \code{weibull}, \code{frechet},
+\code{Beta}, \code{von_mises},
+\code{categorical}, \code{cumulative}, \code{cratio}, \code{sratio},
 \code{acat}, \code{hurdle_poisson}, \code{hurdle_negbinomial}, 
 \code{hurdle_gamma}, \code{hurdle_lognormal}, 
 \code{zero_inflated_binomial}, \code{zero_inflated_beta},
@@ -98,6 +112,32 @@ and \code{zero_inflated_poisson}.}
 This can be a name/expression or character string. 
 See the 'Details' section for more information on link
 functions supported by each family.}
+
+\item{link_sigma}{Link of auxiliary parameter \code{sigma} if being predicted.}
+
+\item{link_shape}{Link of auxiliary parameter \code{shape} if being predicted.}
+
+\item{link_nu}{Link of auxiliary parameter \code{nu} if being predicted.}
+
+\item{link_phi}{Link of auxiliary parameter \code{phi} if being predicted.}
+
+\item{link_kappa}{Link of auxiliary parameter \code{kappa} if being predicted.}
+
+\item{link_beta}{Link of auxiliary parameter \code{beta} if being predicted.}
+
+\item{link_zi}{Link of auxiliary parameter \code{zi} if being predicted.}
+
+\item{link_hu}{Link of auxiliary parameter \code{hu} if being predicted.}
+
+\item{link_disc}{Link of auxiliary parameter \code{disc} if being predicted.}
+
+\item{link_bs}{Link of auxiliary parameter \code{bs} if being predicted.}
+
+\item{link_ndt}{Link of auxiliary parameter \code{ndt} if being predicted.}
+
+\item{link_bias}{Link of auxiliary parameter \code{bias} if being predicted.}
+
+\item{link_quantile}{Link of auxiliary parameter \code{quantile} if being predicted.}
 }
 \description{
 Family objects provide a convenient way to specify the details of the models 
@@ -119,8 +159,10 @@ Family \code{gaussian} with \code{identity} link leads to linear regression.
   Families \code{cumulative}, \code{cratio} ('contiuation ratio'), 
   \code{sratio} ('stopping ratio'), and \code{acat} ('adjacent category') 
   leads to ordinal regression. Families \code{Gamma}, \code{weibull}, 
-  \code{exponential}, \code{lognormal}, and \code{inverse.gaussian} can be used 
-  (among others) for survival regression.
+  \code{exponential}, \code{lognormal}, \code{frechet}, and 
+  \code{inverse.gaussian} can be used (among others) for survival regression.
+  Family \code{asym_laplace} allows for quantile regression when fixing
+  the auxiliary \code{quantile} parameter to the quantile of interest.
   Family \code{exgaussian} ('exponentially modified Gaussian') is especially
   suited to model reaction times and the \code{wiener} family provides
   an implementation of the Wiener diffusion model. For this family,
@@ -138,8 +180,9 @@ Family \code{gaussian} with \code{identity} link leads to linear regression.
   models cannot be reasonably fitted for data containing zeros in the response.
   
   In the following, we list all possible links for each family.
-  The families \code{gaussian}, \code{student}, and \code{exgaussian}
-  accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
+  The families \code{gaussian}, \code{student}, \code{exgaussian}. and
+  \code{asym_laplace} accept the links (as names) \code{identity}, 
+  \code{log}, and \code{inverse};
   families \code{poisson}, \code{negbinomial}, and \code{geometric} the links 
   \code{log}, \code{identity}, and \code{sqrt}; 
   families \code{binomial}, \code{bernoulli}, \code{Beta},
@@ -147,8 +190,8 @@ Family \code{gaussian} with \code{identity} link leads to linear regression.
   the links \code{logit}, \code{probit}, \code{probit_approx}, 
   \code{cloglog}, and \code{cauchit}; 
   family \code{categorical} the link \code{logit};
-  families \code{Gamma}, \code{weibull}, and \code{exponential} 
-  the links \code{log}, \code{identity}, and \code{inverse};
+  families \code{Gamma}, \code{weibull}, \code{exponential}, and 
+  \code{frechet} the links \code{log}, \code{identity}, and \code{inverse};
   family \code{lognormal} the links \code{identity} and \code{inverse};
   family \code{inverse.gaussian} the links \code{1/mu^2}, 
   \code{inverse}, \code{identity} and \code{log}; 

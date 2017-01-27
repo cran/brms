@@ -11,6 +11,15 @@ brmsfit <- function(formula = NULL, family = "", link = "", data.name = "",
   x
 }
 
+#' Checks if argument is a \code{brmsfit} object
+#' 
+#' @param x An \R object
+#' 
+#' @export
+is.brmsfit <- function(x) {
+  inherits(x, "brmsfit")
+}
+
 brmssummary <- function(formula = NULL, family = "", link = "", 
                         data.name = "", group = NULL, nobs = NULL, 
                         ngrps = NULL, chains = 1, iter = 2000, 
@@ -259,11 +268,11 @@ prior_samples <- function(x, pars = NA, ...) {
 #'  
 #' @aliases par.names parnames.brmsfit par.names.brmsfit
 #' 
-#' @param x An \code{R} object
+#' @param x An \R object
 #' @param ... Further arguments passed to or from other methods
 #' 
-#' @details Currently there are methods for \code{brmsfit} 
-#'   and \code{formula} objects.
+#' @details Currently there are methods for \code{brmsfit} objects.
+#' 
 #' @return A character vector containing the parameter names of the model.
 #' 
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
@@ -273,17 +282,54 @@ parnames <- function(x, ...) {
   UseMethod("parnames")
 }
 
+#' Number of Posterior Samples
+#' 
+#' Extract the number of posterior samples 
+#' stored in a fitted Bayesian model.
+#' 
+#' @param x An \R object
+#' @param ... Further arguments passed to or from other methods
+#' @param subset An optional integer vector defining a 
+#'   subset of samples to be considered.
+#' @param incl_warmup A flag indicating whether to also 
+#'   count warmup / burn-in samples.
+#' 
+#' @details Currently there are methods for \code{brmsfit} objects.
+#' 
+#' @export
+nsamples <- function(x, ...) {
+  UseMethod("nsamples")
+}
+
+#' Number of levels
+#' 
+#' Extract the number of levels of one or more grouping factors.
+#' 
+#' @aliases ngrps.brmsfit
+#' 
+#' @param object An \R object.
+#' @param ... Currently ignored.
+#' 
+#' @return A named list containing the number of levels per
+#'   grouping factor.
+#' 
+#' @export
+ngrps <- function(object, ...) {
+  UseMethod("ngrps")
+}
+
 #' Compute the WAIC
 #' 
-#' Compute the Watanabe-Akaike Information Criterion 
+#' Compute the widely applicable information criterion (WAIC)
 #' based on the posterior likelihood using the \pkg{loo} package.
 #' 
 #' @aliases WAIC.brmsfit waic.brmsfit waic
 #' 
 #' @param x A fitted model object typically of class \code{brmsfit}. 
 #' @param ... Optionally more fitted model objects.
-#' @param compare A flag indicating if the WAICs 
-#'  of the models should be compared to each other.
+#' @param compare A flag indicating if the information criteria
+#'  of the models should be compared to each other
+#'  via \code{\link[brms:compare_ic]{compare_ic}}.
 #' @param pointwise A flag indicating whether to compute the full
 #'  log-likelihood matrix at once or separately for each observation. 
 #'  The latter approach is usually considerably slower but 
@@ -303,12 +349,12 @@ parnames <- function(x, ...) {
 #' 
 #' @examples
 #' \dontrun{
-#' # model with fixed effects only
+#' # model with population-level effects only
 #' fit1 <- brm(rating ~ treat + period + carry,
 #'             data = inhaler, family = "gaussian")
 #' WAIC(fit1)
 #' 
-#' # model with an additional random intercept for subjects
+#' # model with an additional varying intercept for subjects
 #' fit2 <- brm(rating ~ treat + period + carry + (1|subject),
 #'             data = inhaler, family = "gaussian")
 #' # compare both models
@@ -316,9 +362,9 @@ parnames <- function(x, ...) {
 #' }
 #' 
 #' @references 
-#' Vehtari, A., Gelman, A., and Gabry, J. (2015). 
-#' Efficient implementation of leave-one-out cross-validation 
-#' and WAIC for evaluating fitted Bayesian models.
+#' Vehtari, A., Gelman, A., & Gabry J. (2016). Practical Bayesian model
+#' evaluation using leave-one-out cross-validation and WAIC. In Statistics 
+#' and Computing, doi:10.1007/s11222-016-9696-4. arXiv preprint arXiv:1507.04544.
 #' 
 #' Gelman, A., Hwang, J., & Vehtari, A. (2014). 
 #' Understanding predictive information criteria for Bayesian models. 
@@ -357,12 +403,12 @@ WAIC <- function(x, ...) {
 #' 
 #' @examples
 #' \dontrun{
-#' # model with fixed effects only
+#' # model with population-level effects only
 #' fit1 <- brm(rating ~ treat + period + carry,
 #'             data = inhaler, family = "gaussian")
 #' LOO(fit1)
 #' 
-#' # model with an additional random intercept for subjects
+#' # model with an additional varying intercept for subjects
 #' fit2 <- brm(rating ~ treat + period + carry + (1|subject),
 #'             data = inhaler, family = "gaussian")
 #' # compare both models
@@ -370,9 +416,9 @@ WAIC <- function(x, ...) {
 #' }
 #' 
 #' @references 
-#' Vehtari, A., Gelman, A., and Gabry, J. (2015). 
-#' Efficient implementation of leave-one-out cross-validation 
-#' and WAIC for evaluating fitted Bayesian models.
+#' Vehtari, A., Gelman, A., & Gabry J. (2016). Practical Bayesian model
+#' evaluation using leave-one-out cross-validation and WAIC. In Statistics 
+#' and Computing, doi:10.1007/s11222-016-9696-4. arXiv preprint arXiv:1507.04544.
 #' 
 #' Gelman, A., Hwang, J., & Vehtari, A. (2014). 
 #' Understanding predictive information criteria for Bayesian models. 
@@ -470,9 +516,6 @@ standata <- function(object, ...) {
 #'   \code{nuts_stepsize}, \code{nuts_treedepth}, and \code{nuts_energy}. 
 #'   For an overview on the various plot types see
 #'   \code{\link[bayesplot:MCMC-overview]{MCMC-overview}}.
-#' @param quiet A flag indicating whether messages 
-#'   produced by \pkg{ggplot2} during the plotting process 
-#'   should be silenced. Default is \code{TRUE}.
 #' @param ... Additional arguments passed to the plotting functions.
 #'   See \code{\link[bayesplot:MCMC-overview]{MCMC-overview}} for
 #'   more details.
@@ -528,7 +571,7 @@ stanplot <- function(object, ...) {
 #'   \code{effects} manually, \emph{all} two-way interactions may be plotted
 #'   even if not orginally modeled.
 #' @param conditions An optional \code{data.frame} containing variable values
-#'   to marginalize on. Each effect defined in \code{effects} will
+#'   to condition on. Each effect defined in \code{effects} will
 #'   be plotted separately for each row of \code{data}. 
 #'   The row names of \code{data} will be treated as titles of the subplots. 
 #'   It is recommended to only define a few rows in order to keep the plots clear.
@@ -544,14 +587,22 @@ stanplot <- function(object, ...) {
 #' @param method Either \code{"fitted"} or \code{"predict"}. 
 #'   If \code{"fitted"}, plot marginal predictions of the regression curve. 
 #'   If \code{"predict"}, plot marginal predictions of the responses.
-#' @param contour Logical; Indicates whether interactions should be 
-#'   visualized with a contour plot. Defaults to \code{FALSE}.
+#' @param surface Logical; Indicates whether interactions or 
+#'   two-dimensional smooths should be visualized as a surface. 
+#'   Defaults to \code{FALSE}. The surface type can be controlled 
+#'   via argument \code{stype} of the related plotting method.
 #' @param resolution Number of support points used to generate 
 #'   the plots. Higher resolution leads to smoother plots. 
 #'   Defaults to \code{100}. If \code{contour} is \code{TRUE},
 #'   this implies \code{10000} support points for interaction terms,
 #'   so it might be necessary to reduce \code{resolution} 
 #'   when only few RAM is available.
+#' @param too_far For contour plots only: Grid points that are too 
+#'   far away from the actual data points can be excluded from the plot. 
+#'   \code{too_far} determines what is too far. The grid is scaled into 
+#'   the unit square and then grid points more than \code{too_far} 
+#'   from the predictor variables are excluded. By default, all
+#'   grid points are used. Ignored for non-contour plots.
 #' @param ncol Number of plots to display per column for each effect.
 #'   If \code{NULL} (default), \code{ncol} is computed internally based
 #'   on the number of rows of \code{data}.
@@ -562,6 +613,8 @@ stanplot <- function(object, ...) {
 #' @param rug Logical; indicating whether a rug representation of predictor
 #'   values should be added via \code{\link[ggplot2:geom_rug]{geom_rug}}.
 #'   Default is \code{FALSE}.
+#' @param stype Indicates how surface plots should be displayed.
+#'   Either \code{"contour"} or \code{"raster"}.
 #' @inheritParams plot.brmsfit
 #' @param ... Currently ignored.
 #' 
@@ -578,7 +631,22 @@ stanplot <- function(object, ...) {
 #'   list of \code{\link[ggplot2:ggplot]{ggplot}} objects, which can be further 
 #'   customized using the \pkg{ggplot2} package.
 #'   
-#' @details \code{NA} values within factors in \code{conditions}, 
+#' @details When creating \code{marginal_effects} for a particular predictor 
+#'   (or interaction of two predictors), one has to choose the values of all 
+#'   other predictors to condition on. 
+#'   By default, the mean is used for continuous variables
+#'   and the reference category is used for factors, but you may change these
+#'   values via argument \code{conditions}. 
+#'   This also has an implication for the \code{points} argument: 
+#'   In the created plots, only those points will be shown that correspond 
+#'   to the factor levels actually used in the conditioning, in order not 
+#'   to create the false impressivion of bad model fit, where it is just 
+#'   due to conditioning on certain factor levels.
+#'   Since we condition on rather than actually marginalizing variables, 
+#'   the name  \code{marginal_effects} is possibly not ideally chosen in 
+#'   retrospect. 
+#' 
+#'   \code{NA} values within factors in \code{conditions}, 
 #'   are interpreted as if all dummy variables of this factor are 
 #'   zero. This allows, for instance, to make predictions of the grand mean 
 #'   when using sum coding. 
@@ -646,7 +714,9 @@ marginal_effects <- function(x, ...) {
 #' 
 #' # fit and plot a two-dimensional smooth term
 #' fit2 <- brm(y ~ t2(x0, x2), data = dat)
-#' marginal_smooths(fit2)
+#' ms <- marginal_smooths(fit2)
+#' plot(ms, stype = "contour")
+#' plot(ms, stype = "raster")
 #' }
 #' 
 #' @export

@@ -174,8 +174,7 @@ loglik_cauchy_fixed <- function(i, draws, data = data.frame()) {
 }
 
 loglik_binomial <- function(i, draws, data = data.frame()) {
-  trials <- ifelse(length(draws$data$max_obs) > 1, 
-                   draws$data$max_obs[i], draws$data$max_obs) 
+  trials <- draws$data$trials[i]
   args <- list(size = trials, prob = ilink(get_eta(draws, i), draws$f$link))
   out <- censor_loglik(dist = "binom", args = args, i = i, data = draws$data)
   out <- truncate_loglik(out, cdf = pbinom, args = args, 
@@ -238,10 +237,22 @@ loglik_gamma <- function(i, draws, data = data.frame()) {
 
 loglik_weibull <- function(i, draws, data = data.frame()) {
   shape <- get_shape(draws$shape, data = draws$data, i = i)
-  args <- list(scale = ilink(get_eta(draws, i) / shape, draws$f$link),
-               shape = shape)
-  out <- censor_loglik(dist = "weibull", args = args, i = i, data = draws$data)
+  scale <- ilink(get_eta(draws, i) / shape, draws$f$link)
+  args <- list(shape = shape, scale = scale)
+  out <- censor_loglik(dist = "weibull", args = args, 
+                       i = i, data = draws$data)
   out <- truncate_loglik(out, cdf = pweibull, args = args,
+                         i = i, data = draws$data)
+  weight_loglik(out, i = i, data = draws$data)
+}
+
+loglik_frechet <- function(i, draws, data = data.frame()) {
+  nu <- get_auxpar(draws$nu, i = i)
+  scale <- ilink(get_eta(draws, i), draws$f$link) / gamma(1 - 1 / nu)
+  args <- list(scale = scale, shape = nu)
+  out <- censor_loglik(dist = "frechet", args = args, 
+                       i = i, data = draws$data)
+  out <- truncate_loglik(out, cdf = pfrechet, args = args,
                          i = i, data = draws$data)
   weight_loglik(out, i = i, data = draws$data)
 }
@@ -287,6 +298,17 @@ loglik_von_mises <- function(i, draws, data = data.frame()) {
   args <- list(mu = ilink(get_eta(draws, i), draws$f$link), 
                kappa = get_auxpar(draws$kappa, i = i))
   out <- censor_loglik(dist = "von_mises", args = args, 
+                       i = i, data = draws$data)
+  out <- truncate_loglik(out, cdf = pvon_mises, args = args,
+                         i = i, data = draws$data)
+  weight_loglik(out, i = i, data = draws$data)
+}
+
+loglik_asym_laplace <- function(i, draws, ...) {
+  args <- list(mu = ilink(get_eta(draws, i), draws$f$link), 
+               sigma = get_sigma(draws$sigma, data = draws$data, i = i),
+               quantile = get_auxpar(draws$quantile, i = i))
+  out <- censor_loglik(dist = "asym_laplace", args = args, 
                        i = i, data = draws$data)
   out <- truncate_loglik(out, cdf = pvon_mises, args = args,
                          i = i, data = draws$data)
@@ -347,8 +369,7 @@ loglik_zero_inflated_negbinomial <- function(i, draws, data = data.frame()) {
 }
 
 loglik_zero_inflated_binomial <- function(i, draws, data = data.frame()) {
-  trials <- ifelse(length(draws$data$max_obs) > 1, 
-                   draws$data$max_obs[i], draws$data$max_obs) 
+  trials <- draws$data$trials[i] 
   theta <- get_theta(draws, i, par = "zi")
   args <- list(size = trials, prob = ilink(get_eta(draws, i), draws$f$link))
   out <- zero_inflated_loglik(pdf = dbinom, theta = theta, 
@@ -368,8 +389,6 @@ loglik_zero_inflated_beta <- function(i, draws, data = data.frame()) {
 }
 
 loglik_categorical <- function(i, draws, data = data.frame()) {
-  ncat <- ifelse(length(draws$data$max_obs) > 1, draws$data$max_obs[i], 
-                 draws$data$max_obs) 
   if (draws$f$link == "logit") {
     p <- cbind(rep(0, draws$nsamples), get_eta(draws, i)[, 1, ])
     out <- p[, draws$data$Y[i]] - log(rowSums(exp(p)))
@@ -380,8 +399,7 @@ loglik_categorical <- function(i, draws, data = data.frame()) {
 }
 
 loglik_cumulative <- function(i, draws, data = data.frame()) {
-  ncat <- ifelse(length(draws$data$max_obs) > 1, 
-                 draws$data$max_obs[i], draws$data$max_obs)
+  ncat <- draws$data$ncat
   disc <- get_disc(draws, i, ncat)
   eta <- disc * get_eta(draws, i)
   y <- draws$data$Y[i]
@@ -397,8 +415,7 @@ loglik_cumulative <- function(i, draws, data = data.frame()) {
 }
 
 loglik_sratio <- function(i, draws, data = data.frame()) {
-  ncat <- ifelse(length(draws$data$max_obs) > 1, 
-                 draws$data$max_obs[i], draws$data$max_obs)
+  ncat <- draws$data$ncat
   disc <- get_disc(draws, i, ncat)
   eta <- disc * get_eta(draws, i)
   y <- draws$data$Y[i]
@@ -417,8 +434,7 @@ loglik_sratio <- function(i, draws, data = data.frame()) {
 }
 
 loglik_cratio <- function(i, draws, data = data.frame()) {
-  ncat <- ifelse(length(draws$data$max_obs) > 1, 
-                 draws$data$max_obs[i], draws$data$max_obs)
+  ncat <- draws$data$ncat
   disc <- get_disc(draws, i, ncat)
   eta <- disc * get_eta(draws, i)
   y <- draws$data$Y[i]
@@ -437,8 +453,7 @@ loglik_cratio <- function(i, draws, data = data.frame()) {
 }
 
 loglik_acat <- function(i, draws, data = data.frame()) {
-  ncat <- ifelse(length(draws$data$max_obs) > 1, 
-                 draws$data$max_obs[i], draws$data$max_obs)
+  ncat <- draws$data$ncat
   disc <- get_disc(draws, i, ncat)
   eta <- disc * get_eta(draws, i)
   y <- draws$data$Y[i]
@@ -466,7 +481,7 @@ loglik_acat <- function(i, draws, data = data.frame()) {
   weight_loglik(out, i = i, data = draws$data)
 }
 
-#---------------loglik helper-functions----------------------------
+# ----------- loglik helper-functions -----------
 
 censor_loglik <- function(dist, args, i, data) {
   # compute (possibly censored) loglik values

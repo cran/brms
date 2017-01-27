@@ -31,6 +31,15 @@ test_that("predict for lognormal and exgaussian models runs without errors", {
   expect_equal(length(pred), ns)
 })
 
+test_that("predict for aysm_laplace models runs without errors", {
+  ns <- 50
+  draws <- list(sigma = rchisq(ns, 3), quantile = rbeta(ns, 2, 1),
+                eta = matrix(rnorm(ns*2), ncol = 2),
+                f = asym_laplace(), nsamples = ns)
+  pred <- brms:::predict_asym_laplace(1, draws = draws)
+  expect_equal(length(pred), ns)
+})
+
 test_that("predict for multivariate linear models runs without errors", {
   ns <- 10
   nvars <- 3
@@ -99,7 +108,8 @@ test_that("predict for count and survival models runs without errors", {
   trials <- sample(10:30, nobs, replace = TRUE)
   draws <- list(eta = matrix(rnorm(ns*nobs), ncol = nobs),
                 shape = rgamma(ns, 4), nsamples = ns)
-  draws$data <- list(max_obs = trials)
+  draws$nu <- draws$shape + 1
+  draws$data <- list(trials = trials)
   i <- sample(nobs, 1)
   
   draws$f$link <- "cloglog"
@@ -123,6 +133,9 @@ test_that("predict for count and survival models runs without errors", {
   expect_equal(length(pred), ns)
   
   pred <- predict_weibull(i, data = data, draws = draws)
+  expect_equal(length(pred), ns)
+  
+  pred <- predict_frechet(i, data = data, draws = draws)
   expect_equal(length(pred), ns)
   
   pred <- predict_inverse.gaussian(i, data = data, draws = draws)
@@ -166,7 +179,7 @@ test_that("predict for zero-inflated and hurdle models runs without erros", {
   draws <- list(eta = matrix(rnorm(ns * nobs * 2), ncol = nobs * 2),
                 shape = rgamma(ns, 4), phi = rgamma(ns, 1),
                 nsamples = ns)
-  draws$data <- list(N_trait = nobs, max_obs = trials)
+  draws$data <- list(N_trait = nobs, trials = trials)
   draws$f$link <- "log"
   
   pred <- predict_hurdle_poisson(1, draws = draws)
@@ -198,7 +211,7 @@ test_that("predict for categorical and ordinal models runs without erros", {
   ncat <- 4
   draws <- list(eta = array(rnorm(ns*nobs), dim = c(ns, nobs, ncat)),
                 nsamples = ns)
-  draws$data <- list(Y = rep(1:ncat, 2), max_obs = ncat)
+  draws$data <- list(Y = rep(1:ncat, 2), ncat = ncat)
   
   draws$f$link <- "logit"
   pred <- sapply(1:nobs, predict_categorical, draws = draws)

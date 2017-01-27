@@ -7,15 +7,17 @@
 \usage{
 \method{pp_check}{brmsfit}(object, type, nsamples, group = NULL, x = NULL,
   newdata = NULL, re_formula = NULL, allow_new_levels = FALSE,
-  incl_autocor = TRUE, subset = NULL, ntrys = 5, quiet = TRUE, ...)
+  incl_autocor = TRUE, subset = NULL, ntrys = 5, ...)
 }
 \arguments{
 \item{object}{An object of class \code{brmsfit}.}
 
 \item{type}{Type of the ppc plot as given by a character string.
-Currently, the following plots (as names) are implemented:
-\code{dens} \code{dens_overlay}, \code{ecdf_overlay}, 
-\code{error_binned}, \code{error_hist}, \code{error_scatter}, 
+Currently, the following plots (as names) are implemented
+in \pkg{bayesplot} (v1.1.0):
+\code{boxplot}, \code{dens} \code{dens_overlay} (default), 
+\code{ecdf_overlay}, \code{error_binned}, 
+\code{error_hist}, \code{error_scatter}, 
 \code{error_scatter_avg}, \code{error_scatter_avg_vs_x},
 \code{freqpoly}, \code{freqpoly_grouped}, \code{hist},
 \code{intervals}, \code{intervals_grouped}, 
@@ -41,13 +43,14 @@ and ignored otherwise.}
 \item{newdata}{An optional data.frame for which to evaluate predictions.
 If \code{NULL} (default), the orginal data of the model is used.}
 
-\item{re_formula}{formula containing random effects 
+\item{re_formula}{formula containing group-level effects 
 to be considered in the prediction. 
-If \code{NULL} (default), include all random effects; 
-if \code{NA}, include no random effects.}
+If \code{NULL} (default), include all group-level effects; 
+if \code{NA}, include no group-level effects.}
 
 \item{allow_new_levels}{A flag indicating if new
-levels of random effects are allowed (defaults to \code{FALSE}). 
+levels of group-level effects are allowed 
+(defaults to \code{FALSE}). 
 Only relevant if \code{newdata} is provided.}
 
 \item{incl_autocor}{A flag indicating if autocorrelation
@@ -62,10 +65,6 @@ If \code{NULL} (the default), all samples are used.}
 for truncated discrete models only
 (defaults to \code{5}). For more details see
 \code{\link[brms:predict.brmsfit]{predict.brmsfit}}.}
-
-\item{quiet}{A flag indicating whether messages 
-produced by \pkg{ggplot2} during the plotting process 
-should be silenced. Default is \code{TRUE}.}
 
 \item{...}{Further arguments passed to the ppc functions
 of the \pkg{\link[bayesplot:bayesplot]{bayesplot}} package.}

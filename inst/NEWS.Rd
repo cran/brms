@@ -2,6 +2,83 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.4.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Fit quantile regression models via family
+      \code{asym_laplace} (asymmetric Laplace distribution).
+      \item Specify non-linear models in a (hopefully) more
+      intuitive way using \code{brmsformula}.
+      \item Fix auxiliary parameters to certain values
+      through \code{brmsformula}.
+      \item Allow \code{family} to be specified in
+      \code{brmsformula}.
+      \item Introduce family \code{frechet} for modelling
+      strictly positive responses.
+      \item Allow truncation and censoring at the same time.
+      \item Introduce function \code{prior_} allowing
+      to specify priors using one-sided formulas or \code{quote}.
+      \item Pass priors to \pkg{Stan} directly without
+      performing any checks by setting \code{check = FALSE} 
+      in \code{set_prior}.
+      \item Introduce method \code{nsamples} to extract
+      the number of posterior samples.
+      \item Export the main formula parsing function 
+      \code{parse_bf}.
+      \item Add more options to customize two-dimensional surface
+      plots created by \code{marginal_effects} or \code{marginal_smooths}.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Change structure of \code{brmsformula}
+      objects to be more reliable and easier to extend.
+      \item Make sure that parameter \code{nu} never 
+      falls below \code{1} to reduce convergence problems
+      when using family \code{student}.
+      \item Deprecate argument \code{nonlinear}.
+      \item Deprecate family \code{geometric}.
+      \item Rename \code{cov_fixed} to \code{cor_fixed}.
+      \item Make handling of addition terms more transparent
+      by exporting and documenting related functions.
+      \item Refactor helper functions of the \code{fitted}
+      method to be easier to extend in the future.
+      \item Remove many units tests of internal functions
+      and add tests of user-facing functions instead.
+      \item Import some generics from \pkg{nlme} instead
+      of \pkg{lme4} to remove dependency on the latter one.
+      \item Do not apply \code{structure} to \code{NULL}
+      anymore to get rid of warnings in \R-devel.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix problems when fitting smoothing terms
+      with factors as \code{by} variables thanks to
+      Milani Chaloupka.
+      \item Fix a bug that could cause some monotonic 
+      effects to be ignored in the \pkg{Stan} code thanks 
+      to the GitHub user bschneider.
+      \item Make sure that the data of models with
+      only a single observation are compatible with 
+      the generated \pkg{Stan} code.
+      \item Handle argument \code{algorithm} 
+      correctly in \code{update.brmsfit}.
+      \item Fix a bug sometimes causing an error in
+      \code{marginal_effects} when using family
+      \code{wiener} thanks to Andrew Ellis.
+      \item Fix problems in \code{fitted} when applied
+      to \code{zero_inflated_beta} models thanks to
+      Milani Chaloupka.
+      \item Fix minor problems related to the prediction
+      of autocorrelated models.
+      \item Fix a few minor bugs related to the backwards 
+      compatibility of multivariate and related models 
+      fitted with \pkg{brms} < 1.0.0.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.3.1}{
   \subsection{NEW FEATURES}{
     \itemize{

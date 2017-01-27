@@ -47,6 +47,16 @@ test_that("loglik for lognormal and exgaussian models works as expected", {
   expect_equal(ll, ll_exgaussian)
 })
 
+test_that("loglik of aysm_laplace models runs without errors", {
+  ns <- 50
+  draws <- list(sigma = rchisq(ns, 3), quantile = rbeta(ns, 2, 1),
+                eta = matrix(rnorm(ns*2), ncol = 2),
+                f = asym_laplace())
+  draws$data <- list(Y = brms:::rasym_laplace(ns))
+  ll <- brms:::loglik_asym_laplace(1, draws = draws)
+  expect_equal(length(ll), ns)
+})
+
 test_that("loglik for multivariate linear models runs without errors", {
   ns <- 10
   nvars <- 3
@@ -117,15 +127,16 @@ test_that("loglik for count and survival models works correctly", {
   trials <- sample(10:30, nobs, replace = TRUE)
   draws <- list(eta = matrix(rnorm(ns*nobs), ncol = nobs),
                 shape = matrix(rgamma(ns, 4)), nsamples = ns)
+  draws$nu <- draws$shape + 1
   draws$data <- list(Y = rbinom(nobs, size = trials, 
                                 prob = rbeta(nobs, 1, 1)), 
-                     max_obs = trials)
+                     trials = trials)
   
   i <- sample(nobs, 1)
   
   draws$f$link <- "logit"
   ll_binom <- dbinom(x = draws$data$Y[i], prob = inv_logit(draws$eta[, i]), 
-                     size = draws$data$max_obs[i], log = TRUE)
+                     size = draws$data$trials[i], log = TRUE)
   ll <- loglik_binomial(i, draws = draws)
   expect_equal(ll, as.matrix(ll_binom))
   
@@ -159,6 +170,12 @@ test_that("loglik for count and survival models works correctly", {
                          scale = exp(draws$eta[, i] / draws$shape), log = TRUE)
   ll <- loglik_weibull(i, draws = draws)
   expect_equal(ll, as.matrix(ll_weibull))
+  
+  scale <- exp(draws$eta[, i]) / gamma(1 - 1 / draws$nu)
+  ll_frechet <- evd::dfrechet(x = draws$data$Y[i], shape = draws$nu,
+                              scale = scale, log = TRUE)
+  ll <- loglik_frechet(i, draws = draws)
+  expect_equal(ll, ll_frechet)
   
   ll_invgauss <- dinvgauss(x = draws$data$Y[i], shape = draws$shape,
                            mean = exp(draws$eta[, i]), log = TRUE)
@@ -211,7 +228,7 @@ test_that("loglik for zero-inflated and hurdle models runs without erros", {
                 shape = matrix(rgamma(ns, 4)), 
                 phi = matrix(rgamma(ns, 1)))
   draws$data <- list(Y = c(resp, rep(0, 4)), N_trait = nobs, 
-                     max_obs = trials)
+                     trials = trials)
   draws$f$link <- "log"
   
   ll <- loglik_hurdle_poisson(1, draws = draws)
@@ -247,7 +264,7 @@ test_that("loglik for categorical and ordinal models runs without erros", {
   ncat <- 4
   draws <- list(eta = array(rnorm(ns*nobs), dim = c(ns, nobs, ncat)),
                 nsamples = ns)
-  draws$data <- list(Y = rep(1:ncat, 2), max_obs = ncat)
+  draws$data <- list(Y = rep(1:ncat, 2), ncat = ncat)
   draws$f$link <- "logit"
   ll <- sapply(1:nobs, loglik_categorical, draws = draws)
   expect_equal(dim(ll), c(ns, nobs))

@@ -8,13 +8,13 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
   #   other arguments: see doc of logLik.brmsfit
   # Returns:
   #   A named list to be understood by linear_predictor.
-  #   For non-linear models, every element of draws$nonlinear
+  #   For non-linear models, every element of draws$nlpars
   #   can itself be passed to linear_predictor
-  ee <- extract_effects(formula(x), family = family(x))
+  bterms <- parse_bf(formula(x), family = family(x))
   if (is.null(subset) && !is.null(nsamples)) {
-    subset <- sample(Nsamples(x), nsamples)
+    subset <- sample(nsamples(x), nsamples)
   }
-  nsamples <- Nsamples(x, subset = subset)
+  nsamples <- nsamples(x, subset = subset)
   newd_args <- nlist(newdata, re_formula, allow_new_levels, incl_autocor)
   standata <- do.call(amend_newdata, c(newd_args, list(fit = x, ...)))
   draws <- nlist(f = prepare_family(x), data = standata, 
@@ -23,18 +23,21 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
   
   # extract draws of auxiliary parameters
   am_args <- list(x = x, subset = subset)
-  valid_auxpars <- valid_auxpars(family(x), effects = ee, autocor = x$autocor)
+  valid_auxpars <- valid_auxpars(family(x), bterms = bterms, 
+                                 autocor = x$autocor)
   for (ap in valid_auxpars) {
-    if (!is.null(ee[[ap]])) {
-      more_args <- list(rhs_formula = attr(x$formula, ap),
+    if (is.brmsterms(bterms$auxpars[[ap]])) {
+      more_args <- list(rhs_formula = bterms$auxpars[[ap]]$formula,
                         nlpar = ap, ilink = ilink_auxpars(ap))
       draws[[ap]] <- do.call(.extract_draws, c(args, more_args))
+    } else if (is.numeric(bterms$fauxpars[[ap]])) {
+      draws[[ap]] <- bterms$fauxpars[[ap]]
     } else {
       regex <- paste0("^", ap, "($|_)")
       draws[[ap]] <- do.call(as.matrix, c(am_args, pars = regex))
     }
   }
-  if (is.linear(family(x)) && length(ee$response) > 1L) {
+  if (is_linear(family(x)) && length(bterms$response) > 1L) {
     # parameters for multivariate models
     draws[["sigma"]] <- do.call(as.matrix, c(am_args, pars = "^sigma($|_)"))
     draws[["rescor"]] <- do.call(as.matrix, c(am_args, pars = "^rescor_"))
@@ -61,15 +64,15 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
     }
   }
   # samples of the (non-linear) predictor
-  nlpars <- names(ee$nonlinear)
+  nlpars <- names(bterms$nlpars)
   if (length(nlpars)) {
-    for (i in seq_along(nlpars)) {
-      rhs_formula <- attr(x$formula, "nonlinear")[[i]]
-      more_args <- nlist(rhs_formula, nlpar = nlpars[i])
-      draws$nonlinear[[nlpars[i]]] <- 
+    for (np in nlpars) {
+      rhs_formula <- bterms$nlpars[[np]]$formula
+      more_args <- nlist(rhs_formula, nlpar = np)
+      draws$nlpars[[np]] <- 
         do.call(.extract_draws, c(args, more_args))
     }
-    covars <- all.vars(rhs(ee$covars))
+    covars <- all.vars(rhs(bterms$covars))
     if (!all(covars %in% colnames(standata$C))) {
       stop("Covariate matrix is invalid. Please report a bug.")
     }
@@ -78,16 +81,13 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
         matrix(standata[["C"]][, covars[i]], nrow = nsamples, 
                ncol = nrow(standata[["C"]]), byrow = TRUE)
     }
-    draws$nlform <- ee$fixed[[3]]
+    draws$nlform <- bterms$fixed[[3]]
     # remove redudant information to save working memory
     keep <- !grepl("^(X|Z|J|C)", names(draws$data))
     draws$data <- subset_attr(draws$data, keep)
   } else {
-    x$formula <- rm_attr(formula(x), auxpars())
-    x$ranef <- tidy_ranef(extract_effects(formula(x)), 
-                          data = model.frame(x))
-    resp <- ee$response
-    if (length(resp) > 1L && !isTRUE(attr(formula(x), "old_mv"))) {
+    resp <- bterms$response
+    if (length(resp) > 1L && !isTRUE(x$formula[["old_mv"]])) {
       # new multivariate models
       draws[["mv"]] <- named_list(resp)
       for (r in resp) {
@@ -119,29 +119,30 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
   # Returns:
   #   a named list
   dots <- list(...)
-  nsamples <- Nsamples(x, subset = subset)
-  # always update formula to make sure that formulae of
-  # non-linear and auxiliary parameters are not included
-  # fixes issue #154
-  x$formula <- update.formula(formula(x), rhs(rhs_formula))
-  x$ranef <- tidy_ranef(extract_effects(formula(x)), data = model.frame(x))
+  nsamples <- nsamples(x, subset = subset)
+  stopifnot(is.brmsformula(x$formula))
+  x$formula$formula <- update.formula(x$formula$formula, rhs(rhs_formula))
+  # ensure that auxiliary parameters are not included (fixes #154)
+  x$formula$pforms <- x$formula$pfix <- NULL
+  x$formula$nl <- FALSE
+  x$ranef <- tidy_ranef(parse_bf(x$formula), data = x$data)
   if (nzchar(nlpar)) {
     # make sure not to evaluate family specific stuff
     # when extracting draws of nlpars
-    attr(x$formula, "response") <- nlpar 
+    x$formula[["response"]] <- nlpar
     na_family <- list(family = NA, link = "identity")
     class(na_family) <- c("brmsfamily", "family")
-    x$family <- dots$f <- na_family
+    x$family <- x$formula$family <- dots$f <- na_family
   }
-  new_formula <- update_re_terms(formula(x), re_formula = re_formula)
-  ee <- extract_effects(new_formula, family = family(x))
-  new_ranef <- tidy_ranef(ee, model.frame(x))
+  new_formula <- update_re_terms(x$formula, re_formula = re_formula)
+  bterms <- parse_bf(new_formula, family = family(x))
+  new_ranef <- tidy_ranef(bterms, model.frame(x))
   nlpar_usc <- usc(nlpar, "suffix")
   usc_nlpar <- usc(usc(nlpar))
   newd_args <- nlist(fit = x, newdata, re_formula, 
                      allow_new_levels, incl_autocor)
   draws <- list(data = do.call(amend_newdata, newd_args), 
-                old_cat = is.old_categorical(x))
+                old_cat = is_old_categorical(x))
   draws[names(dots)] <- dots
   
   if (smooths_only) {
@@ -176,7 +177,7 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
     }
   }
   # noise-free effects
-  meef <- get_me_labels(ee, x$data)
+  meef <- get_me_labels(bterms, x$data)
   if (length(meef)) {
     if (!is.null(newdata)) {
       stop2("Predictions with noise-free variables are not yet ",
@@ -230,7 +231,7 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
     }
   }
   # category specific effects 
-  if (is.ordinal(family(x))) {
+  if (is_ordinal(family(x))) {
     draws[["Intercept"]] <- 
       do.call(as.matrix, c(args, list(pars = "^b_Intercept\\[")))
     if (isTRUE(ncol(draws$data[["Xcs"]]) > 0)) {
@@ -246,7 +247,7 @@ extract_draws <- function(x, newdata = NULL, re_formula = NULL,
     }
   }
   # splines
-  splines <- rename(get_spline_labels(ee, x$data, covars = TRUE))
+  splines <- rename(get_spline_labels(bterms, x$data, covars = TRUE))
   if (length(splines)) {
     draws[["Zs"]] <- draws[["s"]] <- named_list(splines)
     for (i in seq_along(splines)) {
@@ -407,7 +408,7 @@ expand_matrix <- function(A, x, max_level = max(x), weights = 1) {
   #   A sparse matrix of dimension nrow(A) x (ncol(A) * max_level)
   stopifnot(is.matrix(A))
   stopifnot(length(x) == nrow(A))
-  stopifnot(all(is.wholenumber(x) & x > 0))
+  stopifnot(all(is_wholenumber(x) & x > 0))
   stopifnot(length(weights) %in% c(1, nrow(A), prod(dim(A))))
   A <- A * weights
   K <- ncol(A)

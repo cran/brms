@@ -50,6 +50,10 @@ isFALSE <- function(x) {
   identical(FALSE, x)
 }
 
+isNA <- function(x) {
+  identical(NA, x)
+}
+
 is_equal <- function(x, y, ...) {
   isTRUE(all.equal(x, y, ...))
 }
@@ -57,6 +61,14 @@ is_equal <- function(x, y, ...) {
 rmNum <- function(x) {
   # remove all numeric elements from an object
   x[sapply(x, Negate(is.numeric))]
+}
+
+structure_not_null <- function(.Data, ...) {
+  # structure but ignore NULL
+  if (!is.null(.Data)) {
+    .Data <- structure(.Data, ...)
+  }
+  .Data
 }
 
 rmMatch <- function(x, ...) {
@@ -86,7 +98,7 @@ subset_attr <- function(x, y) {
   x
 } 
 
-is.wholenumber <- function(x, tol = .Machine$double.eps) {  
+is_wholenumber <- function(x, tol = .Machine$double.eps) {  
   # check if x is a whole number (integer)
   if (!is.numeric(x)) {
     return(FALSE)
@@ -107,8 +119,17 @@ lc <- function(l, ...) {
 }
 
 collapse <- function(..., sep = "") {
-  # wrapper for paste with collapse
+  # wrapper for paste with collapse = ""
   paste(..., sep = sep, collapse = "")
+}
+
+paste_colon <- function(..., collapse = NULL) {
+  # wrapper for paste with sep = ":"
+  paste(..., sep = ":", collapse = collapse)
+}
+
+collapse_comma <- function(...) {
+  paste0("'", ..., "'", collapse = ", ")
 }
 
 collapse_lists <- function(ls) {
@@ -118,8 +139,8 @@ collapse_lists <- function(ls) {
   # Returns:
   #  a named list containg the collapsed strings
   elements <- unique(unlist(lapply(ls, names)))
-  out <- do.call(mapply, c(FUN = collapse, lapply(ls, "[", elements), 
-                           SIMPLIFY = FALSE))
+  out <- do.call(mapply, 
+    c(FUN = collapse, lapply(ls, "[", elements), SIMPLIFY = FALSE))
   names(out) <- elements
   out
 }
@@ -315,16 +336,32 @@ hypot <- function(x, y) {
   sqrt(x^2 + y^2)
 }
 
-log1p <- function(x) {
-  log(1 + x)
-}
-
 log1m <- function(x) {
   log(1 - x)
 }
 
-expm1 <- function(x) {
-  exp(x) - 1
+#' Logarithm with a minus one offset.
+#' 
+#' Computes \code{log(x - 1)}.
+#' 
+#' @param x A numeric or complex vector.
+#' @param base A positive or complex number: the base with respect to which
+#'   logarithms are computed. Defaults to \emph{e} = \code{exp(1)}.
+#'     
+#' @export
+logm1 <- function(x, base = exp(1)) {
+  log(x - 1, base = base)
+}
+
+#' Exponential function plus one.
+#' 
+#' Computes \code{exp(x) + 1}.
+#' 
+#' @param x A numeric or complex vector.
+#' 
+#' @export
+expp1 <- function(x) {
+  exp(x) + 1
 }
 
 multiply_log <- function(x, y) {
@@ -415,6 +452,20 @@ use_alias <- function(arg, alias = NULL, default = NULL,
     }
   }
   arg
+}
+
+warn_deprecated <- function(new, old = as.character(sys.call(sys.parent()))[1]) {
+  msg <- paste0("Function '", old, "' is deprecated.")
+  if (!missing(new)) {
+    msg <- paste0(msg, " Please use '", new, "' instead.")
+  }
+  warning2(msg)
+  invisible(NULL)
+}
+
+expect_match2 <- function(object, regexp, ..., all = TRUE) {
+  # just testthat::expect_match with fixed = TRUE
+  testthat::expect_match(object, regexp, fixed = TRUE, ..., all = all)
 }
 
 # startup messages for brms

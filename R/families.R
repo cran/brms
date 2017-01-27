@@ -14,8 +14,9 @@
 #'   \code{bernoulli}, \code{poisson}, \code{negbinomial}, 
 #'   \code{geometric}, \code{Gamma}, \code{lognormal}, 
 #'   \code{exgaussian}, \code{wiener}, \code{inverse.gaussian}, 
-#'   \code{exponential}, \code{weibull}, \code{Beta}, \code{von_mises},
-#'   \code{categorical}, \code{cumulative}, \code{cratio}, \code{sratio}, 
+#'   \code{exponential}, \code{weibull}, \code{frechet},
+#'   \code{Beta}, \code{von_mises},
+#'   \code{categorical}, \code{cumulative}, \code{cratio}, \code{sratio},
 #'   \code{acat}, \code{hurdle_poisson}, \code{hurdle_negbinomial}, 
 #'   \code{hurdle_gamma}, \code{hurdle_lognormal}, 
 #'   \code{zero_inflated_binomial}, \code{zero_inflated_beta},
@@ -25,7 +26,20 @@
 #'   This can be a name/expression or character string. 
 #'   See the 'Details' section for more information on link
 #'   functions supported by each family.
-#'   
+#' @param link_sigma Link of auxiliary parameter \code{sigma} if being predicted.
+#' @param link_shape Link of auxiliary parameter \code{shape} if being predicted.
+#' @param link_nu Link of auxiliary parameter \code{nu} if being predicted.
+#' @param link_phi Link of auxiliary parameter \code{phi} if being predicted.
+#' @param link_kappa Link of auxiliary parameter \code{kappa} if being predicted.
+#' @param link_beta Link of auxiliary parameter \code{beta} if being predicted.
+#' @param link_zi Link of auxiliary parameter \code{zi} if being predicted.
+#' @param link_hu Link of auxiliary parameter \code{hu} if being predicted.
+#' @param link_disc Link of auxiliary parameter \code{disc} if being predicted.
+#' @param link_bs Link of auxiliary parameter \code{bs} if being predicted.
+#' @param link_ndt Link of auxiliary parameter \code{ndt} if being predicted.
+#' @param link_bias Link of auxiliary parameter \code{bias} if being predicted.
+#' @param link_quantile Link of auxiliary parameter \code{quantile} if being predicted.
+#' 
 #' @details 
 #'   Family \code{gaussian} with \code{identity} link leads to linear regression. 
 #'   Family \code{student} with \code{identity} link leads to 
@@ -38,8 +52,10 @@
 #'   Families \code{cumulative}, \code{cratio} ('contiuation ratio'), 
 #'   \code{sratio} ('stopping ratio'), and \code{acat} ('adjacent category') 
 #'   leads to ordinal regression. Families \code{Gamma}, \code{weibull}, 
-#'   \code{exponential}, \code{lognormal}, and \code{inverse.gaussian} can be used 
-#'   (among others) for survival regression.
+#'   \code{exponential}, \code{lognormal}, \code{frechet}, and 
+#'   \code{inverse.gaussian} can be used (among others) for survival regression.
+#'   Family \code{asym_laplace} allows for quantile regression when fixing
+#'   the auxiliary \code{quantile} parameter to the quantile of interest.
 #'   Family \code{exgaussian} ('exponentially modified Gaussian') is especially
 #'   suited to model reaction times and the \code{wiener} family provides
 #'   an implementation of the Wiener diffusion model. For this family,
@@ -57,8 +73,9 @@
 #'   models cannot be reasonably fitted for data containing zeros in the response.
 #'   
 #'   In the following, we list all possible links for each family.
-#'   The families \code{gaussian}, \code{student}, and \code{exgaussian}
-#'   accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
+#'   The families \code{gaussian}, \code{student}, \code{exgaussian}. and
+#'   \code{asym_laplace} accept the links (as names) \code{identity}, 
+#'   \code{log}, and \code{inverse};
 #'   families \code{poisson}, \code{negbinomial}, and \code{geometric} the links 
 #'   \code{log}, \code{identity}, and \code{sqrt}; 
 #'   families \code{binomial}, \code{bernoulli}, \code{Beta},
@@ -66,8 +83,8 @@
 #'   the links \code{logit}, \code{probit}, \code{probit_approx}, 
 #'   \code{cloglog}, and \code{cauchit}; 
 #'   family \code{categorical} the link \code{logit};
-#'   families \code{Gamma}, \code{weibull}, and \code{exponential} 
-#'   the links \code{log}, \code{identity}, and \code{inverse};
+#'   families \code{Gamma}, \code{weibull}, \code{exponential}, and 
+#'   \code{frechet} the links \code{log}, \code{identity}, and \code{inverse};
 #'   family \code{lognormal} the links \code{identity} and \code{inverse};
 #'   family \code{inverse.gaussian} the links \code{1/mu^2}, 
 #'   \code{inverse}, \code{identity} and \code{log}; 
@@ -101,24 +118,39 @@
 #'  identical(fam1, fam2) 
 #' 
 #' @export
-brmsfamily <- function(family, link = NULL) {
+brmsfamily <- function(family, link = NULL, link_sigma = "log", 
+                       link_shape = "log", link_nu = "logm1",
+                       link_phi = "log", link_kappa = "log",
+                       link_beta = "log", link_zi = "logit", 
+                       link_hu = "logit", link_disc = "log",
+                       link_bs = "log", link_ndt = "log",
+                       link_bias = "logit", link_quantile = "logit") {
   slink <- substitute(link)
-  .brmsfamily(family, link = link, slink = slink)
+  .brmsfamily(family, link = link, slink = slink,
+              link_sigma = link_sigma, link_shape = link_shape, 
+              link_nu = link_nu, link_phi = link_phi, 
+              link_kappa = link_kappa, link_beta = link_beta, 
+              link_zi = link_zi, link_hu = link_hu, 
+              link_disc = link_disc, link_bs = link_bs, 
+              link_ndt = link_ndt, link_bias = link_bias,
+              link_quantile = link_quantile)
 }
 
-.brmsfamily <- function(family, link = NULL, slink = link) {
+.brmsfamily <- function(family, link = NULL, slink = link, ...) {
   # helper function to prepare brmsfamily objects
   # Args:
   #   family: character string naming the model family
   #   link: character string naming the link function
   #   slink: can be used with substitute(link) for 
   #          non-standard evaluation of the link function
+  #   ...: link functions (as character strings) of auxiliary parameters
   # returns:
   #  An object of class = c(brmsfamily, family) to be used
   #  only insided the brms package
   family <- tolower(as.character(family))
+  aux_links <- list(...)
   if (length(family) != 1L) {
-    stop("Argument 'family' must be of length 1.", call. = FALSE)
+    stop2("Argument 'family' must be of length 1.")
   }
   family <- rename(family, symbols = c("^normal$", "^zi_", "^hu_"),
                    subs = c("gaussian", "zero_inflated_", "hurdle_"),
@@ -127,8 +159,9 @@ brmsfamily <- function(family, link = NULL) {
     "gaussian", "student", "lognormal", 
     "binomial", "bernoulli", "categorical", 
     "poisson", "negbinomial", "geometric", 
-    "gamma", "weibull", "exponential", "exgaussian",
-    "inverse.gaussian", "wiener", "beta", "von_mises",
+    "gamma", "weibull", "exponential", 
+    "exgaussian", "frechet", "inverse.gaussian", 
+    "wiener", "beta", "von_mises", "asym_laplace",
     "cumulative", "cratio", "sratio", "acat",
     "hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
     "hurdle_lognormal", "zero_inflated_poisson", 
@@ -140,28 +173,28 @@ brmsfamily <- function(family, link = NULL) {
   }
   
   # check validity of link
-  if (is.linear(family) || family %in% "exgaussian") {
+  if (is_linear(family) || family %in% c("exgaussian", "asym_laplace")) {
     ok_links <- c("identity", "log", "inverse")
   } else if (family == "inverse.gaussian") {
     ok_links <- c("1/mu^2", "inverse", "identity", "log")
-  } else if (is.count(family)) {
+  } else if (is_count(family)) {
     ok_links <- c("log", "identity", "sqrt")
-  } else if (is.ordinal(family) || family %in% "zero_inflated_beta") {
+  } else if (is_ordinal(family) || family %in% "zero_inflated_beta") {
     ok_links <- c("logit", "probit", "probit_approx", "cloglog", "cauchit")
-  } else if (is.binary(family) || family %in% "beta") {
+  } else if (is_binary(family) || family %in% "beta") {
     ok_links <- c("logit", "probit", "probit_approx", 
                  "cloglog", "cauchit", "identity")
   } else if (family %in% c("categorical", "zero_inflated_binomial")) {
     ok_links <- c("logit")
-  } else if (is.skewed(family)) {
+  } else if (is_skewed(family)) {
     ok_links <- c("log", "identity", "inverse")
-  } else if (is.lognormal(family)) {
+  } else if (is_lognormal(family)) {
     ok_links <- c("identity", "inverse")
   } else if (family %in% c("hurdle_lognormal", "wiener")) {
     ok_links <- c("identity")
   } else if (family %in% c("von_mises")) {
     ok_links <- c("tan_half")
-  } else if (is.hurdle(family) || is.zero_inflated(family)) {
+  } else if (is_hurdle(family) || is_zero_inflated(family)) {
     # does not include zi_binomial, zi_beta, or hu_lognormal
     ok_links <- c("log")
   }
@@ -187,15 +220,31 @@ brmsfamily <- function(family, link = NULL) {
          family, "'. \nSupported links are: ", 
          paste(ok_links, collapse = ", "), call. = FALSE) 
   }
-  structure(list(family = family, link = slink), 
-            class = c("brmsfamily", "family"))
+  out <- structure(list(family = family, link = slink), 
+                   class = c("brmsfamily", "family"))
+  for (ap in valid_auxpars(out$family)) {
+    alink <- as.character(aux_links[[paste0("link_", ap)]])
+    if (length(alink)) {
+      if (length(alink) > 1L) {
+        stop2("Link functions must be of length 1.")
+      }
+      valid_links <- links_auxpars(ap)
+      if (!alink %in% valid_links) {
+        stop2("Link '", alink, "' is invalid for parameter '", ap, 
+              "'. Valid links are: ", collapse_comma(valid_links))
+      }
+      out[[paste0("link_", ap)]] <- alink
+    }
+  }
+  out
 }
 
 #' @rdname brmsfamily
 #' @export
-student <- function(link = "identity") {
+student <- function(link = "identity", link_sigma = "log", link_nu = "logm1") {
   slink <- substitute(link)
-  .brmsfamily("student", link = link, slink = slink)
+  .brmsfamily("student", link = link, slink = slink, 
+              link_sigma = link_sigma, link_nu = link_nu)
 }
 
 #' @rdname brmsfamily
@@ -207,9 +256,10 @@ bernoulli <- function(link = "logit") {
 
 #' @rdname brmsfamily
 #' @export
-negbinomial <- function(link = "log") {
+negbinomial <- function(link = "log", link_shape = "log") {
   slink <- substitute(link)
-  .brmsfamily("negbinomial", link = link, slink = slink)
+  .brmsfamily("negbinomial", link = link, slink = slink,
+              link_shape = link_shape)
 }
 
 #' @rdname brmsfamily
@@ -221,9 +271,10 @@ geometric <- function(link = "log") {
 
 #' @rdname brmsfamily
 #' @export
-lognormal <- function(link = "identity") {
+lognormal <- function(link = "identity", link_sigma = "log") {
   slink <- substitute(link)
-  .brmsfamily("lognormal", link = link, slink = slink)
+  .brmsfamily("lognormal", link = link, slink = slink,
+              link_sigma = link_sigma)
 }
 
 #' @rdname brmsfamily
@@ -235,37 +286,60 @@ exponential <- function(link = "log") {
 
 #' @rdname brmsfamily
 #' @export
-weibull <- function(link = "log") {
+weibull <- function(link = "log", link_shape = "log") {
   slink <- substitute(link)
-  .brmsfamily("weibull", link = link, slink = slink)
+  .brmsfamily("weibull", link = link, slink = slink,
+              link_shape = link_shape)
 }
 
 #' @rdname brmsfamily
 #' @export
-exgaussian <- function(link = "identity") {
+frechet <- function(link = "log", link_nu = "logm1") {
   slink <- substitute(link)
-  .brmsfamily("exgaussian", link = link, slink = slink)
+  .brmsfamily("frechet", link = link, slink = slink,
+              link_nu = link_nu)
 }
 
 #' @rdname brmsfamily
 #' @export
-wiener <- function(link = "identity") {
+exgaussian <- function(link = "identity", link_sigma = "log",
+                       link_beta = "log") {
+  slink <- substitute(link)
+  .brmsfamily("exgaussian", link = link, slink = slink,
+              link_sigma = link_sigma, link_beta = link_beta)
+}
+
+#' @rdname brmsfamily
+#' @export
+wiener <- function(link = "identity", link_bs = "log", 
+                   link_ndt = "log", link_bias = "logit") {
   slink <- substitute(link)
   .brmsfamily("wiener", link = link, slink = slink)
 }
 
 #' @rdname brmsfamily
 #' @export
-Beta <- function(link = "logit") {
+Beta <- function(link = "logit", link_phi = "log") {
   slink <- substitute(link)
-  .brmsfamily("beta", link = link, slink = slink)
+  .brmsfamily("beta", link = link, slink = slink,
+              link_phi = link_phi)
 }
 
 #' @rdname brmsfamily
 #' @export
-von_mises <- function(link = "tan_half") {
+von_mises <- function(link = "tan_half", link_kappa = "log") {
   slink <- substitute(link)
-  .brmsfamily("von_mises", link = link, slink = slink)
+  .brmsfamily("von_mises", link = link, slink = slink,
+              link_kappa = link_kappa)
+}
+
+#' @rdname brmsfamily
+#' @export
+asym_laplace <- function(link = "identity", link_sigma = "log",
+                         link_quantile = "logit") {
+  slink <- substitute(link)
+  .brmsfamily("asym_laplace", link = link, slink = slink,
+              link_sigma = link_sigma, link_quantile = link_quantile)
 }
 
 #' @rdname brmsfamily
@@ -277,51 +351,63 @@ hurdle_poisson <- function(link = "log") {
 
 #' @rdname brmsfamily
 #' @export
-hurdle_negbinomial <- function(link = "log") {
+hurdle_negbinomial <- function(link = "log", link_shape = "log",
+                               link_hu = "logit") {
   slink <- substitute(link)
-  .brmsfamily("hurdle_negbinomial", link = link, slink = slink)
+  .brmsfamily("hurdle_negbinomial", link = link, slink = slink,
+              link_shape = link_shape, link_hu = link_hu)
 }
 
 #' @rdname brmsfamily
 #' @export
-hurdle_gamma <- function(link = "log") {
+hurdle_gamma <- function(link = "log", link_shape = "log",
+                         link_hu = "logit") {
   slink <- substitute(link)
-  .brmsfamily("hurdle_gamma", link = link, slink = slink)
+  .brmsfamily("hurdle_gamma", link = link, slink = slink,
+              link_shape = link_shape, link_hu = link_hu)
 }
 
 #' @rdname brmsfamily
 #' @export
-hurdle_lognormal <- function(link = "identity") {
+hurdle_lognormal <- function(link = "identity", link_sigma = "log",
+                             link_hu = "logit") {
   slink <- substitute(link)
-  .brmsfamily("hurdle_lognormal", link = link, slink = slink)
+  .brmsfamily("hurdle_lognormal", link = link, slink = slink,
+              link_sigma = link_sigma, link_hu = link_hu)
 }
 
 #' @rdname brmsfamily
 #' @export
-zero_inflated_beta <- function(link = "logit") {
+zero_inflated_beta <- function(link = "logit", link_phi = "log",
+                               link_zi = "logit") {
   slink <- substitute(link)
-  .brmsfamily("zero_inflated_beta", link = link, slink = slink)
+  .brmsfamily("zero_inflated_beta", link = link, slink = slink,
+              link_phi = link_phi, link_zi = link_zi)
 }
 
 #' @rdname brmsfamily
 #' @export
-zero_inflated_poisson <- function(link = "log") {
+zero_inflated_poisson <- function(link = "log", link_zi = "logit") {
   slink <- substitute(link)
-  .brmsfamily("zero_inflated_poisson", link = link, slink = slink)
+  .brmsfamily("zero_inflated_poisson", link = link, slink = slink,
+              link_zi = link_zi)
 }
 
 #' @rdname brmsfamily
 #' @export
-zero_inflated_negbinomial <- function(link = "log") {
+zero_inflated_negbinomial <- function(link = "log", link_shape = "log",
+                                      link_zi = "logit") {
   slink <- substitute(link)
-  .brmsfamily("zero_inflated_negbinomial", link = link, slink = slink)
+  .brmsfamily("zero_inflated_negbinomial", link = link, slink = slink,
+              link_shape = link_shape, link_zi = link_zi)
 }
 
 #' @rdname brmsfamily
 #' @export
-zero_inflated_binomial <- function(link = "logit") {
+zero_inflated_binomial <- function(link = "logit", link_zi = "logit") {
   slink <- substitute(link)
-  .brmsfamily("zero_inflated_binomial", link = link, slink = slink)
+  .brmsfamily("zero_inflated_binomial", link = link, slink = slink,
+              link_zi = link_zi)
 }
 
 #' @rdname brmsfamily
@@ -333,30 +419,34 @@ categorical <- function(link = "logit") {
 
 #' @rdname brmsfamily
 #' @export
-cumulative <- function(link = "logit") {
+cumulative <- function(link = "logit", link_disc = "log") {
   slink <- substitute(link)
-  .brmsfamily("cumulative", link = link, slink = slink)
+  .brmsfamily("cumulative", link = link, slink = slink,
+              link_disc = link_disc)
 }
 
 #' @rdname brmsfamily
 #' @export
-sratio <- function(link = "logit") {
+sratio <- function(link = "logit", link_disc = "log") {
   slink <- substitute(link)
-  .brmsfamily("sratio", link = link, slink = slink)
+  .brmsfamily("sratio", link = link, slink = slink,
+              link_disc = link_disc)
 }
 
 #' @rdname brmsfamily
 #' @export
-cratio <- function(link = "logit") {
+cratio <- function(link = "logit", link_disc = "log") {
   slink <- substitute(link)
-  .brmsfamily("cratio", link = link, slink = slink)
+  .brmsfamily("cratio", link = link, slink = slink,
+              link_disc = link_disc)
 }
 
 #' @rdname brmsfamily
 #' @export
-acat <- function(link = "logit") {
+acat <- function(link = "logit", link_disc = "log") {
   slink <- substitute(link)
-  .brmsfamily("acat", link = link, slink = slink)
+  .brmsfamily("acat", link = link, slink = slink,
+              link_disc = link_disc)
 }
 
 check_family <- function(family, link = NULL) {
@@ -370,7 +460,7 @@ check_family <- function(family, link = NULL) {
     family <- family()   
   }
   if (!is(family, "brmsfamily")) {
-    if (is(family, "family")) {
+    if (is.family(family)) {
       link <- family$link
       family <- family$family
     } 
@@ -380,115 +470,137 @@ check_family <- function(family, link = NULL) {
       }
       family <- .brmsfamily(family[1], link = link)
     } else {
-      stop("Argument 'family' is invalid.", call. = FALSE)
+      stop2("Argument 'family' is invalid.")
     } 
   }
   family
 }
 
 #' @export
-print.brmsfamily <- function(x, ...) {
+print.brmsfamily <- function(x, links = FALSE, ...) {
   cat("\nFamily:", x$family, "\n")
   cat("Link function:", x$link, "\n")
   if (!is.null(x$type)) {
     cat("Type:", x$type, "\n") 
   }
+  if (isTRUE(links) || is.character(links)) {
+    ap_links <- x[grepl("^link_", names(x))]
+    names(ap_links) <- sub("^link_", "", names(ap_links))
+    if (is.character(links)) {
+      ap_links <- rmNULL(ap_links[links])
+    }
+    for (ap in names(ap_links)) {
+      cat(paste0("Link function of ", ap, ": ", ap_links[[ap]], " \n")) 
+    }
+  }
   cat("\n")
   invisible(x)
 }
 
-is.linear <- function(family) {
+is.family <- function(x) {
+  inherits(x, "family")
+}
+
+is_linear <- function(family) {
   # indicate if family is for a linear model
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("gaussian", "student", "cauchy")
+  isTRUE(family %in% c("gaussian", "student", "cauchy"))
 }
 
-is.binary <- function(family) {
+is_binary <- function(family) {
   # indicate if family is bernoulli or binomial
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("binomial", "bernoulli")
+  isTRUE(family %in% c("binomial", "bernoulli"))
 }
 
-is.ordinal <- function(family) {
+is_ordinal <- function(family) {
   # indicate if family is for an ordinal model
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("cumulative", "cratio", "sratio", "acat") 
+  isTRUE(family %in% c("cumulative", "cratio", "sratio", "acat"))
 }
 
-is.categorical <- function(family) {
-  if (is(family, "family")) {
+is_categorical <- function(family) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% "categorical" 
+  isTRUE(family %in% "categorical")
 }
 
-is.skewed <- function(family) {
+is_skewed <- function(family) {
   # indicate if family is for model with postive skewed response
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("gamma", "weibull", "exponential")
+  isTRUE(family %in% c("gamma", "weibull", "exponential", "frechet"))
 }
 
-is.lognormal <- function(family) {
+is_lognormal <- function(family) {
   # indicate if family is lognormal
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("lognormal")
+  isTRUE(family %in% c("lognormal"))
 }
 
-is.exgaussian <- function(family) {
+is_exgaussian <- function(family) {
   # indicate if family is exgaussian
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("exgaussian")
+  isTRUE(family %in% c("exgaussian"))
 }
 
-is.wiener <- function(family) {
+is_wiener <- function(family) {
   # indicate if family is the wiener diffusion model
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("wiener")
+  isTRUE(family %in% c("wiener"))
 }
 
-is.count <- function(family) {
+is_asym_laplace <- function(family) {
+  # indicates if family is asymmetric laplace
+  if (is.family(family)) {
+    family <- family$family
+  }
+  isTRUE(family %in% c("asym_laplace"))
+}
+
+is_count <- function(family) {
   # indicate if family is for a count model
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("poisson", "negbinomial", "geometric")
+  isTRUE(family %in% c("poisson", "negbinomial", "geometric"))
 }
 
-is.hurdle <- function(family, zi_beta = TRUE) {
+is_hurdle <- function(family, zi_beta = TRUE) {
   # indicate if family is for a hurdle model
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
   # zi_beta is technically a hurdle model
-  family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
-                "hurdle_lognormal", if (zi_beta) "zero_inflated_beta")
+  isTRUE(family %in% c("hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
+                       "hurdle_lognormal", if (zi_beta) "zero_inflated_beta"))
 }
 
-is.zero_inflated <- function(family, zi_beta = FALSE) {
+is_zero_inflated <- function(family, zi_beta = FALSE) {
   # indicate if family is for a zero inflated model
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
   # zi_beta is technically a hurdle model
-  family %in% c("zero_inflated_poisson", "zero_inflated_negbinomial",
-                "zero_inflated_binomial", if (zi_beta) "zero_inflated_beta")
+  isTRUE(family %in% c("zero_inflated_poisson", "zero_inflated_negbinomial",
+                       "zero_inflated_binomial", if (zi_beta) "zero_inflated_beta"))
 }
 
-is.2PL <- function(family) {
+is_2PL <- function(family) {
   # do not remove to provide an informative error message
   # why the special 2PL implementation is not supported anymore
   if (!is(family, "brmsfamily")) {
@@ -497,23 +609,22 @@ is.2PL <- function(family) {
     out <- family$family %in% "bernoulli" && identical(family$type, "2PL")
   }
   if (out) {
-    stop("The special implementation of 2PL models has been removed.\n",
-         "You can now use argument 'nonlinear' to fit such models.",
-         call. = FALSE)
+    stop2("The special implementation of 2PL models has been removed.\n",
+         "You can now use argument 'nonlinear' to fit such models.")
   }
   out
 }
 
-is.forked <- function(family) {
+is_forked <- function(family) {
   # indicate if family has two separate model parts
-  is.hurdle(family) || is.zero_inflated(family) || is.2PL(family)
+  is_hurdle(family) || is_zero_inflated(family) || is_2PL(family)
 }
 
-is.mv <- function(family, response = NULL) {
+is_mv <- function(family, response = NULL) {
   # indicate if the model uses multiple responses
   nresp <- length(response)
-  is_mv <- nresp > 1L && is.linear(family) || is.categorical(family) || 
-           nresp == 2L && is.forked(family)
+  is_mv <- nresp > 1L && is_linear(family) || is_categorical(family) || 
+           nresp == 2L && is_forked(family)
   if (nresp > 1L && !is_mv) {
     stop2("Invalid multivariate model")
   }
@@ -522,99 +633,100 @@ is.mv <- function(family, response = NULL) {
 
 use_real <- function(family) {
   # indicate if family uses real responses
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  is.linear(family) || is.skewed(family) || 
-    family %in% c("lognormal", "exgaussian", "inverse.gaussian", "beta", 
-                  "von_mises", "zero_inflated_beta", "hurdle_gamma", 
-                  "hurdle_lognormal", "wiener")
+  is_linear(family) || is_skewed(family) || 
+    isTRUE(family %in% c("lognormal", "exgaussian", "inverse.gaussian", "beta", 
+                         "von_mises", "zero_inflated_beta", "hurdle_gamma", 
+                         "hurdle_lognormal", "wiener", "asym_laplace"))
 }
 
 use_int <- function(family) {
   # indicate if family uses integer responses
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  is.binary(family) || has_cat(family) || 
-    is.count(family) || is.zero_inflated(family) || 
-    family %in% c("hurdle_poisson", "hurdle_negbinomial")
+  is_binary(family) || has_cat(family) || 
+    is_count(family) || is_zero_inflated(family) || 
+    isTRUE(family %in% c("hurdle_poisson", "hurdle_negbinomial"))
 }
 
 has_trials <- function(family) {
   # indicate if family makes use of argument trials
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("binomial", "zero_inflated_binomial")
+  isTRUE(family %in% c("binomial", "zero_inflated_binomial"))
 }
 
 has_cat <- function(family) {
   # indicate if family makes use of argument cat
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  is.categorical(family) || is.ordinal(family)
+  is_categorical(family) || is_ordinal(family)
 }
 
 has_shape <- function(family) {
   # indicate if family needs a shape parameter
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("gamma", "weibull", "inverse.gaussian", 
-                "negbinomial", "hurdle_negbinomial", 
-                "hurdle_gamma", "zero_inflated_negbinomial")
+  isTRUE(family %in% c("gamma", "weibull", "inverse.gaussian", 
+                       "negbinomial", "hurdle_negbinomial", 
+                       "hurdle_gamma", "zero_inflated_negbinomial"))
 }
 
 has_nu <- function(family) {
   # indicate if family needs a nu parameter
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("student")
+  isTRUE(family %in% c("student", "frechet"))
 }
 
 has_phi <- function(family) {
   # indicate if family needs a phi parameter
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("beta", "zero_inflated_beta")
+  isTRUE(family %in% c("beta", "zero_inflated_beta"))
 }
 
 has_kappa <- function(family) {
   # indicate if family needs a kappa parameter
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("von_mises")
+  isTRUE(family %in% c("von_mises"))
 }
 
 has_beta <- function(family) {
   # indicate if family needs a kappa parameter
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("exgaussian")
+  isTRUE(family %in% c("exgaussian"))
 }
 
-has_sigma <- function(family, effects = NULL, 
+has_sigma <- function(family, bterms = NULL, 
                       autocor = cor_arma(), incmv = FALSE) {
   # indicate if the model needs a sigma parameter
   # Args:
   #  family: model family
-  #  effects: list returned by extract_effects
+  #  bterms: object of class brmsterms
   #  autocor: object of class cor_arma
   #  incmv: should MV (linear) models be treated as having sigma? 
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  is_ln_eg <- family %in% c("lognormal", "hurdle_lognormal", "exgaussian")
-  if (is.formula(effects$se)) {
+  is_ln_eg <- isTRUE(family %in% c("lognormal", "hurdle_lognormal", 
+                                   "exgaussian", "asym_laplace"))
+  if (is.formula(bterms$se)) {
     # call .se without evaluating the x argument 
-    cl <- rhs(effects$se)[[2]]
-    cl[[1]] <- quote(.se_no_data)
+    cl <- rhs(bterms$se)[[2]]
+    cl[[1]] <- quote(resp_se_no_data)
     se_only <- isFALSE(attr(eval(cl), "sigma")) 
     if (se_only && use_cov(autocor)) {
       stop2("Please set argument 'sigma' of function 'se' ",  
@@ -623,10 +735,10 @@ has_sigma <- function(family, effects = NULL,
   } else {
     se_only <- FALSE
   }
-  out <- (is.linear(family) || is_ln_eg) && 
-           !se_only && !is(autocor, "cov_fixed")
+  out <- (is_linear(family) || is_ln_eg) && 
+          !se_only && !is(autocor, "cov_fixed")
   if (!incmv) {
-    is_multi <- is.linear(family) && length(effects$response) > 1L
+    is_multi <- is_linear(family) && length(bterms$response) > 1L
     out <- out && !is_multi
   }
   out
@@ -634,35 +746,35 @@ has_sigma <- function(family, effects = NULL,
 
 allows_cs <- function(family) {
   # checks if category specific effects are allowed
-  if (is(family, "family")) {
+  if (is.family(family)) {
     family <- family$family
   }
-  family %in% c("sratio", "cratio", "acat")
+  isTRUE(family %in% c("sratio", "cratio", "acat"))
 }
 
-is.old_lognormal <- function(family, link = "identity", nresp = 1,
+is_old_lognormal <- function(family, link = "identity", nresp = 1L,
                              version = utils::packageVersion("brms")) {
   # indicate transformation to lognormal models
   # Args:
   #   link: A character string; ignored if family is of class family
   #   nresp: number of response variables
   #   version: brms version with which the model was fitted
-  if (is(family, "family")) {
+  if (is.family(family)) {
     link <- family$link
     family <- family$family
   }
-  family %in% "gaussian" && link == "log" && nresp == 1 &&
+  isTRUE(family %in% "gaussian") && link == "log" && nresp == 1L &&
     (is.null(version) || version <= "0.9.1")
 }
 
-is.old_categorical <- function(x) {
+is_old_categorical <- function(x) {
   # indicate if the model is and old categorical model
-  stopifnot(is(x, "brmsfit"))
-  if (is(x$fit, "stanfit") && is.categorical(x$family)) {
+  stopifnot(is.brmsfit(x))
+  if (is(x$fit, "stanfit") && is_categorical(x$family)) {
     if ("bp" %in% x$fit@model_pars) {
       # fitted with brms <= 0.8.0
       out <- 1L
-    } else if (is.old_mv(x)) {
+    } else if (is_old_mv(x)) {
       # fitted with brms <= 1.0.0
       out <- 2L
     } else {
@@ -674,11 +786,11 @@ is.old_categorical <- function(x) {
   out
 }
 
-is.old_mv <- function(x) {
+is_old_mv <- function(x) {
   # indicate if the model uses the old multivariate syntax 
   # from brms < 1.0.0
-  stopifnot(is(x, "brmsfit"))
-  ee <- extract_effects(formula(x), family = family(x))
+  stopifnot(is.brmsfit(x))
+  bterms <- parse_bf(formula(x), family = family(x))
   (is.null(x$version) || x$version <= "0.10.0.9000") &&
-    (is.mv(family(x), ee$response) || is.forked(family(x)))
+    (is_mv(family(x), bterms$response) || is_forked(family(x)))
 }

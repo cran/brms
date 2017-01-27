@@ -4,16 +4,17 @@
 \alias{make_stancode}
 \title{Stan Code for \pkg{brms} Models}
 \usage{
-make_stancode(formula, data, family = gaussian(), prior = NULL,
-  autocor = NULL, nonlinear = NULL, threshold = c("flexible",
-  "equidistant"), sparse = FALSE, cov_ranef = NULL, sample_prior = FALSE,
+make_stancode(formula, data, family = NULL, prior = NULL, autocor = NULL,
+  nonlinear = NULL, threshold = c("flexible", "equidistant"),
+  sparse = FALSE, cov_ranef = NULL, sample_prior = FALSE,
   stan_funs = NULL, save_model = NULL, ...)
 }
 \arguments{
 \item{formula}{An object of class 
+\code{\link[stats:formula]{formula}} or
 \code{\link[brms:brmsformula]{brmsformula}}
-(or one that can be coerced to that class): 
-a symbolic description of the model to be fitted. 
+(or one that can be coerced to that classes): 
+A symbolic description of the model to be fitted. 
 The details of model specification are explained in 
 \code{\link[brms:brmsformula]{brmsformula}}.}
 
@@ -28,21 +29,23 @@ Every family function has a \code{link} argument allowing to specify
 the link function to be applied on the response variable.
 If not specified, default links are used.
 For details of supported families see 
-\code{\link[brms:brmsfamily]{brmsfamily}}.}
+\code{\link[brms:brmsfamily]{brmsfamily}}.
+By default, a linear \code{gaussian} model is applied.}
 
-\item{prior}{One or more \code{brmsprior} objects created by function 
-\code{\link[brms:set_prior]{set_prior}} and combined using the \code{c} method. 
-A single \code{brmsprior} object may be passed without \code{c()} surrounding it. 
+\item{prior}{One or more \code{brmsprior} objects created by
+\code{\link[brms:set_prior]{set_prior}} or related functions 
+and combined using the \code{c} method. A single \code{brmsprior} 
+object may be passed without \code{c()} surrounding it. 
 See also  \code{\link[brms:get_prior]{get_prior}} for more help.}
 
 \item{autocor}{An optional \code{\link{cor_brms}} object describing 
-the correlation structure 
-within the response variable (i.e. the 'autocorrelation'). 
+the correlation structure within the response variable 
+(i.e., the 'autocorrelation'). 
 See the documentation of \code{\link{cor_brms}} for a description 
-of the available correlation structures. Defaults to NULL, 
+of the available correlation structures. Defaults to \code{NULL}, 
 corresponding to no correlations.}
 
-\item{nonlinear}{An optional list of formulas, specifying 
+\item{nonlinear}{(Deprecated) An optional list of formulas, specifying 
 linear models for non-linear parameters. If \code{NULL} (the default)
 \code{formula} is treated as an ordinary formula. 
 If not \code{NULL}, \code{formula} is treated as a non-linear model
@@ -52,7 +55,8 @@ linear predictor on the right hand side.
 Alternatively, it can be a single formula with all non-linear
 parameters on the left hand side (separated by a \code{+}) and a
 common linear predictor on the right hand side.
-More information is given under 'Details'.}
+As of \pkg{brms} 1.4.0, we recommend specifying non-linear
+parameters directly within \code{formula}.}
 
 \item{threshold}{A character string indicating the type of thresholds 
 (i.e. intercepts) used in an ordinal model. 
@@ -66,13 +70,8 @@ For design matrices with many zeros, this can considerably
 reduce required memory. For univariate sparse models, it may be
 sensible to prevent the design matrix from being centered
 (see 'Details' for more information), as centering may
-reduce sparsity. 
-For all models using multivariate syntax 
-(i.e. multivariate linear models, zero-inflated and hurdle models 
-as well as categorical models), setting \code{sparse = TRUE}, 
-is generally worth a try to decrease memory requirements.
-However, sampling speed is currently not improved or even
-slightly decreased.}
+reduce sparsity. Sampling speed is currently not improved or 
+even slightly decreased.}
 
 \item{cov_ranef}{A list of matrices that are proportional to the 
 (within) covariance structure of the group-level effects. 
@@ -80,7 +79,8 @@ The names of the matrices should correspond to columns
 in \code{data} that are used as grouping factors. 
 All levels of the grouping factor should appear as rownames 
 of the corresponding matrix. This argument can be used,
-among others, to model pedigrees and phylogenetic effects.}
+among others to model pedigrees and phylogenetic effects.
+See \code{vignette("brms_phylogenetics")} for more details.}
 
 \item{sample_prior}{A flag to indicate if samples from all specified 
 proper priors should be drawn additionally to the posterior samples

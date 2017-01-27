@@ -12,7 +12,7 @@
 
 <meta name="author" content="Paul Bürkner" />
 
-<meta name="date" content="2016-12-21" />
+<meta name="date" content="2017-01-18" />
 
 <title>Estimating Non-Linear Models with brms</title>
 
@@ -70,9 +70,17 @@ code > span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Inf
 
 <h1 class="title toc-ignore">Estimating Non-Linear Models with brms</h1>
 <h4 class="author"><em>Paul Bürkner</em></h4>
-<h4 class="date"><em>2016-12-21</em></h4>
+<h4 class="date"><em>2017-01-18</em></h4>
 
 
+<div id="TOC">
+<ul>
+<li><a href="#introduction">Introduction</a></li>
+<li><a href="#a-simple-non-linear-model">A Simple Non-Linear Model</a></li>
+<li><a href="#a-real-world-non-linear-model">A Real-World Non-Linear model</a></li>
+<li><a href="#advanced-item-response-models">Advanced Item-Response Models</a></li>
+</ul>
+</div>
 
 <!--
 %\VignetteEngine{knitr::rmarkdown}
@@ -99,9 +107,9 @@ dat1 &lt;-<span class="st"> </span><span class="kw">data.frame</span>(x, y)</cod
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">library</span>(brms)
 prior1 &lt;-<span class="st"> </span><span class="kw">c</span>(<span class="kw">prior</span>(<span class="kw">normal</span>(<span class="dv">1</span>, <span class="dv">2</span>), <span class="dt">nlpar =</span> <span class="st">&quot;b1&quot;</span>),
             <span class="kw">prior</span>(<span class="kw">normal</span>(<span class="dv">0</span>, <span class="dv">2</span>), <span class="dt">nlpar =</span> <span class="st">&quot;b2&quot;</span>))
-fit1 &lt;-<span class="st"> </span><span class="kw">brm</span>(y ~<span class="st"> </span>b1 *<span class="st"> </span><span class="kw">exp</span>(b2 *<span class="st"> </span>x), <span class="dt">nonlinear =</span> b1 +<span class="st"> </span>b2 ~<span class="st"> </span><span class="dv">1</span>,
+fit1 &lt;-<span class="st"> </span><span class="kw">brm</span>(<span class="kw">bf</span>(y ~<span class="st"> </span>b1 *<span class="st"> </span><span class="kw">exp</span>(b2 *<span class="st"> </span>x), b1 +<span class="st"> </span>b2 ~<span class="st"> </span><span class="dv">1</span>, <span class="dt">nl =</span> <span class="ot">TRUE</span>),
             <span class="dt">data =</span> dat1, <span class="dt">prior =</span> prior1)</code></pre></div>
-<p>When looking at the above code, the first thing that becomes obvious is that we changed the <code>formula</code> syntax to display the non-linear formula including predictors (i.e., <code>x</code>) and parameters (i.e., <code>b1</code> and <code>b2</code>). This stands in contrast to classical <strong>R</strong> formulas, where only predictors are given and parameters are implicit. The <code>nonlinear</code> argument has two purposes. First, it provides information which variables in <code>formula</code> are parameters and which are data. Second, it specifies the linear predictor terms for each parameter. In fact, we should think of non-linear parameters as placeholders for linear predictor terms rather than as parameters themselves (see also the following examples). In the present case, we have no further variables to predict <code>b1</code> and <code>b2</code> and thus we just fit intercepts that represent our estimates of <span class="math inline">\(b_1\)</span> and <span class="math inline">\(b_2\)</span> in the model equation above. The formula <code>b1 + b2 ~ 1</code> is a short form of <code>list(b1 ~ 1, b2 ~ 1)</code> that can be used if all non-linear parameters share the same formula.</p>
+<p>When looking at the above code, the first thing that becomes obvious is that we changed the <code>formula</code> syntax to display the non-linear formula including predictors (i.e., <code>x</code>) and parameters (i.e., <code>b1</code> and <code>b2</code>) wrapped in a call to <code>bf</code>. This stands in contrast to classical <strong>R</strong> formulas, where only predictors are given and parameters are implicit. The argument <code>b1 + b2 ~ 1</code> serves two purposes. First, it provides information, which variables in <code>formula</code> are parameters, and second, it specifies the linear predictor terms for each parameter. In fact, we should think of non-linear parameters as placeholders for linear predictor terms rather than as parameters themselves (see also the following examples). In the present case, we have no further variables to predict <code>b1</code> and <code>b2</code> and thus we just fit intercepts that represent our estimates of <span class="math inline">\(b_1\)</span> and <span class="math inline">\(b_2\)</span> in the model equation above. The formula <code>b1 + b2 ~ 1</code> is a short form of <code>b1 ~ 1, b2 ~ 1</code> that can be used if multiple non-linear parameters share the same formula. Setting <code>nl = TRUE</code> tells <strong>brms</strong> that the formula should be treated as non-linear.</p>
 <p>In contrast to generalized linear models, priors on population-level parameters (i.e., ‘fixed effects’) are often mandatory to identify a non-linear model. Thus, <strong>brms</strong> requires the user to explicitely specify these priors. In the present example, we used a <code>normal(1, 2)</code> prior on (the population-level intercept of) <code>b1</code>, while we used a <code>normal(0, 2)</code> prior on (the population-level intercept of) <code>b2</code>. Setting priors is a non-trivial task in all kinds of models, especially in non-linear models, so you should always invest some time to think of appropriate priors. Quite often, you may be forced to change your priors after fitting a non-linear model for the first time, when you observe different MCMC chains converging to different posterior regions. This is a clear sign of an idenfication problem and one solution is to set stronger (i.e., more narrow) priors.</p>
 <p>To obtain summaries of the fitted model, we apply</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>(fit1)
@@ -109,8 +117,8 @@ fit1 &lt;-<span class="st"> </span><span class="kw">brm</span>(y ~<span class="s
 <span class="kw">plot</span>(<span class="kw">marginal_effects</span>(fit1), <span class="dt">points =</span> <span class="ot">TRUE</span>)</code></pre></div>
 <p>The <code>summary</code> method reveals that we were able to recover the true parameter values pretty nicely. According to the <code>plot</code> method, our MCMC chains have converged well and to the same posterior. The <code>marginal_effects</code> method visualizes the model-implied (non-linear) regression line.</p>
 <p>We might be also interested in comparing our non-linear model to a classical linear model.</p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit2 &lt;-<span class="st"> </span><span class="kw">brm</span>(y ~<span class="st"> </span>x, <span class="dt">data =</span> dat1)
-<span class="kw">summary</span>(fit2)</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit2 &lt;-<span class="st"> </span><span class="kw">brm</span>(y ~<span class="st"> </span>x, <span class="dt">data =</span> dat1)</code></pre></div>
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>(fit2)</code></pre></div>
 <p>To investigate and compare model fit, we can apply graphical posterior predictive checks, which make use of the <strong>bayesplot</strong> package on the backend.</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">pp_check</span>(fit1)
 <span class="kw">pp_check</span>(fit2)</code></pre></div>
@@ -122,19 +130,20 @@ fit1 &lt;-<span class="st"> </span><span class="kw">brm</span>(y ~<span class="s
 <h2>A Real-World Non-Linear model</h2>
 <p>On his blog, Markus Gesmann predicts the growth of cumulative insurance loss payments over time, originated from different origin years (see <a href="http://www.magesblog.com/2015/11/loss-developments-via-growth-curves-and.html" class="uri">http://www.magesblog.com/2015/11/loss-developments-via-growth-curves-and.html</a>). We will use a slightly simplified version of his model for demonstration purposes here. It looks as follows:</p>
 <p><span class="math display">\[cum_{AY, dev} \sim N(\mu_{AY, dev}, \sigma)\]</span> <span class="math display">\[\mu_{AY, dev} = ult_{AY} \left(1 - \exp\left(- \left( \frac{dev}{\theta} \right)^\omega \right) \right)\]</span></p>
-<p>The cumulative insurance payments <span class="math inline">\(cum\)</span> will grow over time, and we model this dependency using the variable <span class="math inline">\(dev\)</span>. Further, <span class="math inline">\(ult_{AY}\)</span> is the (to be estimated) ultimate loss of accient each year. It constitutes a non-linear parameter in our framework along with the parameters <span class="math inline">\(\theta\)</span> and <span class="math inline">\(\omega\)</span>, which are responsible for the growth of the cumulative loss and are assumed to be the same across years. We load the data</p>
+<p>The cumulative insurance payments <span class="math inline">\(cum\)</span> will grow over time, and we model this dependency using the variable <span class="math inline">\(dev\)</span>. Further, <span class="math inline">\(ult_{AY}\)</span> is the (to be estimated) ultimate loss of accident each year. It constitutes a non-linear parameter in our framework along with the parameters <span class="math inline">\(\theta\)</span> and <span class="math inline">\(\omega\)</span>, which are responsible for the growth of the cumulative loss and are assumed to be the same across years. We load the data</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">url &lt;-<span class="st"> &quot;https://raw.githubusercontent.com/mages/diesunddas/master/Data/ClarkTriangle.csv&quot;</span>
 loss &lt;-<span class="st"> </span><span class="kw">read.csv</span>(url)
 <span class="kw">head</span>(loss)</code></pre></div>
 <p>and translate the proposed model into a non-linear <strong>brms</strong> model.</p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit_loss &lt;-<span class="st"> </span><span class="kw">brm</span>(cum ~<span class="st"> </span>ult *<span class="st"> </span>(<span class="dv">1</span> -<span class="st"> </span><span class="kw">exp</span>(-(dev/theta)^omega)),
-                <span class="dt">nonlinear =</span> <span class="kw">list</span>(ult ~<span class="st"> </span><span class="dv">1</span> +<span class="st"> </span>(<span class="dv">1</span>|AY), omega ~<span class="st"> </span><span class="dv">1</span>, theta ~<span class="st"> </span><span class="dv">1</span>),
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit_loss &lt;-<span class="st"> </span><span class="kw">brm</span>(<span class="kw">bf</span>(cum ~<span class="st"> </span>ult *<span class="st"> </span>(<span class="dv">1</span> -<span class="st"> </span><span class="kw">exp</span>(-(dev/theta)^omega)),
+                   ult ~<span class="st"> </span><span class="dv">1</span> +<span class="st"> </span>(<span class="dv">1</span>|AY), omega ~<span class="st"> </span><span class="dv">1</span>, theta ~<span class="st"> </span><span class="dv">1</span>, 
+                   <span class="dt">nl =</span> <span class="ot">TRUE</span>),
                 <span class="dt">data =</span> loss, <span class="dt">family =</span> <span class="kw">gaussian</span>(),
                 <span class="dt">prior =</span> <span class="kw">c</span>(<span class="kw">prior</span>(<span class="kw">normal</span>(<span class="dv">5000</span>, <span class="dv">1000</span>), <span class="dt">nlpar =</span> <span class="st">&quot;ult&quot;</span>),
                           <span class="kw">prior</span>(<span class="kw">normal</span>(<span class="dv">1</span>, <span class="dv">2</span>), <span class="dt">nlpar =</span> <span class="st">&quot;omega&quot;</span>),
                           <span class="kw">prior</span>(<span class="kw">normal</span>(<span class="dv">45</span>, <span class="dv">10</span>), <span class="dt">nlpar =</span> <span class="st">&quot;theta&quot;</span>)),
                 <span class="dt">control =</span> <span class="kw">list</span>(<span class="dt">adapt_delta =</span> <span class="fl">0.9</span>))</code></pre></div>
-<p>As visible in the <code>nonlinear</code> argument, we estimate a group-level effect of accident year (variable <code>AY</code>) for the ultimate loss <code>ult</code>. This also shows nicely how a non-linear parameter is actually a placeholder for a linear predictor, which in case of <code>ult</code>, contains only an varying intercept over year. Again, priors on population-level effects are required and, for the present model, are actually mandatory to ensure identifiability. We summarize the model using well known methods.</p>
+<p>We estimate a group-level effect of accident year (variable <code>AY</code>) for the ultimate loss <code>ult</code>. This also shows nicely how a non-linear parameter is actually a placeholder for a linear predictor, which in case of <code>ult</code>, contains only an varying intercept over year. Again, priors on population-level effects are required and, for the present model, are actually mandatory to ensure identifiability. We summarize the model using well known methods.</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>(fit_loss)
 <span class="kw">plot</span>(fit_loss)
 <span class="kw">marginal_effects</span>(fit_loss)</code></pre></div>
@@ -160,8 +169,8 @@ dat_ir &lt;-<span class="st"> </span><span class="kw">data.frame</span>(ability,
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">summary</span>(fit_ir1)
 <span class="kw">plot</span>(<span class="kw">marginal_effects</span>(fit_ir1), <span class="dt">points =</span> <span class="ot">TRUE</span>)</code></pre></div>
 <p>A more sophisticated approach incorporating the guessing probability looks as follows:</p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit_ir2 &lt;-<span class="st"> </span><span class="kw">brm</span>(answer ~<span class="st"> </span><span class="fl">0.33</span> +<span class="st"> </span><span class="fl">0.67</span> *<span class="st"> </span><span class="kw">inv_logit</span>(eta), 
-               <span class="dt">nonlinear =</span> eta ~<span class="st"> </span>ability, 
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit_ir2 &lt;-<span class="st"> </span><span class="kw">brm</span>(<span class="kw">bf</span>(answer ~<span class="st"> </span><span class="fl">0.33</span> +<span class="st"> </span><span class="fl">0.67</span> *<span class="st"> </span><span class="kw">inv_logit</span>(eta),
+                  eta ~<span class="st"> </span>ability, <span class="dt">nl =</span> <span class="ot">TRUE</span>),
                <span class="dt">data =</span> dat_ir, <span class="dt">family =</span> <span class="kw">bernoulli</span>(<span class="st">&quot;identity&quot;</span>), 
                <span class="dt">prior =</span> <span class="kw">prior</span>(<span class="kw">normal</span>(<span class="dv">0</span>, <span class="dv">5</span>), <span class="dt">nlpar =</span> <span class="st">&quot;eta&quot;</span>))</code></pre></div>
 <p>It is very important to set the link function of the <code>bernoulli</code> family to <code>identity</code> or else we will apply two link functions. This is because our non-linear predictor term already contains the desired link function (<code>0.33 + 0.67 * inv_logit</code>), but the <code>bernoulli</code> family applies the default <code>logit</code> link on top of it. This will of course lead to strange and uninterpretable results. Thus, please make sure that you set the link function to <code>identity</code>, whenever your non-linear predictor term already contains the desired link function.</p>
@@ -170,8 +179,8 @@ dat_ir &lt;-<span class="st"> </span><span class="kw">data.frame</span>(ability,
 <p>Comparing model fit via leave-one-out cross-validation</p>
 <div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r"><span class="kw">LOO</span>(fit_ir1, fit_ir2)</code></pre></div>
 <p>shows that both model fit the data equally well, but remember that predictions of the first model might still be misleading as they may well be below the guessing probability for low ability values. Now, suppose that we don’t know the guessing probability and want to estimate it from the data. This can easily be done changing the previous model just a bit.</p>
-<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit_ir3 &lt;-<span class="st"> </span><span class="kw">brm</span>(answer ~<span class="st"> </span>guess +<span class="st"> </span>(<span class="dv">1</span> -<span class="st"> </span>guess) *<span class="st"> </span><span class="kw">inv_logit</span>(eta), 
-               <span class="dt">nonlinear =</span> <span class="kw">list</span>(eta ~<span class="st"> </span><span class="dv">0</span> +<span class="st"> </span>ability, guess ~<span class="st"> </span><span class="dv">1</span>),
+<div class="sourceCode"><pre class="sourceCode r"><code class="sourceCode r">fit_ir3 &lt;-<span class="st"> </span><span class="kw">brm</span>(<span class="kw">bf</span>(answer ~<span class="st"> </span>guess +<span class="st"> </span>(<span class="dv">1</span> -<span class="st"> </span>guess) *<span class="st"> </span><span class="kw">inv_logit</span>(eta), 
+                  eta ~<span class="st"> </span><span class="dv">0</span> +<span class="st"> </span>ability, guess ~<span class="st"> </span><span class="dv">1</span>, <span class="dt">nl =</span> <span class="ot">TRUE</span>),
                <span class="dt">data =</span> dat_ir, <span class="dt">family =</span> <span class="kw">bernoulli</span>(<span class="st">&quot;identity&quot;</span>), 
                <span class="dt">prior =</span> <span class="kw">c</span>(<span class="kw">prior</span>(<span class="kw">normal</span>(<span class="dv">0</span>, <span class="dv">5</span>), <span class="dt">nlpar =</span> <span class="st">&quot;eta&quot;</span>),
                          <span class="kw">prior</span>(<span class="kw">beta</span>(<span class="dv">1</span>, <span class="dv">1</span>), <span class="dt">nlpar =</span> <span class="st">&quot;guess&quot;</span>, <span class="dt">lb =</span> <span class="dv">0</span>, <span class="dt">ub =</span> <span class="dv">1</span>)))</code></pre></div>

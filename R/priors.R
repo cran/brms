@@ -3,9 +3,10 @@
 #' Define priors for specific parameters or classes of parameters
 #'
 #' @param prior A character string defining a distribution in \pkg{Stan} language
-#' @param class The parameter class. Defaults to \code{"b"} (fixed effects). 
+#' @param class The parameter class. Defaults to \code{"b"} 
+#'   (i.e. population-level effects). 
 #'   See 'Details' for other valid parameter classes. 
-#' @param coef Name of the (population- or group-level) parameter  
+#' @param coef Name of the (population- or group-level) parameter.  
 #' @param group Grouping factor of group-level parameters.
 #' @param nlpar Name of a non-linear / auxiliary parameter. 
 #'   Only used in non-linear / distributional models.
@@ -18,6 +19,10 @@
 #' @param ub Upper bound for parameter restriction. Currently only allowed
 #'   for classes \code{"b"}, \code{"ar"}, \code{"ma"}, and \code{"arr"}.
 #'   Defaults to \code{NULL}, that is no restriction.
+#' @param check Logical; Indicates whether priors
+#'   should be checked for validity (as far as possible).
+#'   Defaults to \code{TRUE}. If \code{FALSE}, \code{prior} is passed
+#'   to the Stan code as is, and all other arguments are ignored.
 #' @param ... Arguments passed to \code{set_prior}.
 #' 
 #' @return An object of class \code{brmsprior} to be used in the \code{prior}
@@ -25,9 +30,15 @@
 #' 
 #' @details 
 #'   \code{set_prior} is used to define prior distributions for parameters 
-#'   in \pkg{brms} models. The functions \code{prior} and \code{prior_string} 
-#'   are both aliases of \code{set_prior}, the former allowing to specify 
-#'   arguments without quotes \code{""} using non-standard evaluation.
+#'   in \pkg{brms} models. The functions \code{prior}, \code{prior_}, and
+#'   \code{prior_string} are aliases of \code{set_prior} each allowing
+#'   for a differnt kind of argument specification. 
+#'   \code{prior} allows specifying arguments as expression without
+#'   quotation marks using non-standard evaluation. 
+#'   \code{prior_} allows specifying arguments as one-sided formulas
+#'   or wrapped in \code{quote}.
+#'   \code{prior_string} allows specifying arguments as strings just
+#'   as \code{set_prior} itself.
 #'   
 #'   Below, we explain its usage and list some common 
 #'   prior distributions for parameters. 
@@ -309,22 +320,26 @@
 #'    \url{https://arxiv.org/pdf/1610.05559v1.pdf}
 #' 
 #' @examples
+#' ## use alias functions
+#' (prior1 <- prior(cauchy(0, 1), class = sd))
+#' (prior2 <- prior_(~cauchy(0, 1), class = ~sd))
+#' (prior3 <- prior_string("cauchy(0, 1)", class = "sd"))
+#' identical(prior1, prior2)
+#' identical(prior1, prior3)
+#' 
 #' ## check which parameters can have priors
 #' get_prior(rating ~ treat + period + carry + (1|subject),
-#'           data = inhaler, family = sratio(), 
-#'           threshold = "equidistant")
+#'           data = inhaler, family = cumulative())
 #'          
 #' ## define some priors          
-#' prior <- c(set_prior("normal(0,10)", class = "b"),
-#'            set_prior("normal(1,2)", class = "b", coef = "treat"),
-#'            set_prior("cauchy(0,2)", class = "sd", 
-#'                      group = "subject", coef = "Intercept"),
-#'            set_prior("uniform(-5,5)", class = "delta"))
+#' prior <- c(prior_string("normal(0,10)", class = "b"),
+#'            prior(normal(1,2), class = b, coef = treat),
+#'            prior_(~cauchy(0,2), class = ~sd, 
+#'                   group = ~subject, coef = ~Intercept))
 #'               
 #' ## verify that the priors indeed found their way into Stan's model code
-#' make_stancode(rating ~ period + carry + cs(treat) + (1|subject),
-#'               data = inhaler, family = sratio(), 
-#'               threshold = "equidistant",
+#' make_stancode(rating ~ treat + period + carry + (1|subject),
+#'               data = inhaler, family = cumulative(),
 #'               prior = prior)
 #'               
 #' ## use the horseshoe prior to model sparsity in population-level effects
@@ -336,15 +351,15 @@
 #' make_stancode(count ~ log_Age_c + log_Base4_c * Trt_c,
 #'               data = epilepsy, family = poisson(),
 #'               prior = set_prior("lasso(1)"))
-#'               
-#' ## use alias functions
-#' (prior1 <- prior_string("cauchy(0, 1)", class = "sd"))
-#' (prior2 <- prior(cauchy(0, 1), class = sd))
-#' identical(prior1, prior2)
+#' 
+#' ## pass priors to Stan without checking
+#' prior <- prior_string("target += normal_lpdf(b[1] | 0, 1)", check = FALSE)
+#' make_stancode(count ~ Trt_c, data = epilepsy, prior = prior)
 #'
 #' @export
 set_prior <- function(prior, class = "b", coef = "", group = "",
-                      nlpar = "", resp = NULL, lb = NULL, ub = NULL) {
+                      nlpar = "", resp = NULL, lb = NULL, ub = NULL,
+                      check = TRUE) {
   prior <- as.character(prior)
   class <- as.character(class)
   group <- as.character(group)
@@ -352,6 +367,7 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
   nlpar <- as.character(use_alias(nlpar, resp, warn = FALSE))
   lb <- as.numeric(lb)
   ub <- as.numeric(ub)
+  check <- as.logical(check)[1]
   if (length(prior) != 1 || length(class) != 1 || length(coef) != 1 || 
       length(group) != 1 || length(nlpar) != 1 || length(lb) > 1 || 
       length(ub) > 1) {
@@ -360,7 +376,7 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
     
   valid_classes <- c("Intercept", "b", "sd", "sds", "simplex", "cor", "L", 
                      "ar", "ma", "arr", "sigmaLL", "rescor", "Lrescor", 
-                     "delta", auxpars())
+                     "delta", auxpars(), if (!check) "")
   if (!class %in% valid_classes) {
     stop2("'", class, "' is not a valid parameter class.")
   }
@@ -401,27 +417,55 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
   } else {
     bound <- ""
   }
-  if (grepl("^increment_log_prob\\(", prior)) {
-    # increment_log_prob can be used to directly add a term 
-    # to the log posterior
-    class <- coef <- group <- nlpar <- ""
+  if (!check) {
+    # prior will be added to the log-posterior as is
+    class <- coef <- group <- nlpar <- bound <- ""
   }
   do.call(brmsprior, nlist(prior, class, coef, group, nlpar, bound))
 }
 
-#' @describeIn set_prior Alias of \code{set_prior}.
-#' @export
-prior_string <- function(prior, ...) {
-  set_prior(prior, ...)
-}
-
-#' @describeIn set_prior Alias of \code{set_prior} allowing to specify 
-#'   arguments without quotes \code{""} using non-standard evaluation.
+#' @describeIn set_prior Alias of \code{set_prior} allowing to 
+#'   specify arguments as expressions without quotation marks.
 #' @export
 prior <- function(prior, ...) {
   call <- as.list(match.call()[-1])
+  seval <- rmNULL(call[prior_seval_args()])
+  call[prior_seval_args()] <- NULL
   call <- lapply(call, deparse_no_string)
-  do.call(set_prior, call)
+  do.call(set_prior, c(call, seval))
+}
+
+#' @describeIn set_prior Alias of \code{set_prior} allowing to specify 
+#'   arguments as as one-sided formulas or wrapped in \code{quote}.
+#' @export
+prior_ <- function(prior, ...) {
+  call <- nlist(prior, ...)
+  seval <- rmNULL(call[prior_seval_args()])
+  call[prior_seval_args()] <- NULL
+  
+  as_string <- function(x) {
+    if (is.formula(x) && length(x) == 2) {
+      deparse_no_string(x[[2]])
+    } else if (is.call(x) || is.name(x) || is.atomic(x)) {
+      deparse_no_string(x)
+    } else {
+      stop2("Arguments must be one-sided formula, call, name, or constant.") 
+    }
+  }
+  call <- lapply(call, as_string)
+  do.call(set_prior, c(call, seval))
+}
+
+prior_seval_args <- function() {
+  # arguments for which to use standard evaluation
+  c("check")
+}
+
+#' @describeIn set_prior Alias of \code{set_prior} allowing to
+#'   specify arguments as strings.
+#' @export
+prior_string <- function(prior, ...) {
+  set_prior(prior, ...)
 }
 
 #' Overview on Priors for \pkg{brms} Models
@@ -458,24 +502,24 @@ prior <- function(prior, ...) {
 #'               prior = prior)
 #' 
 #' @export
-get_prior <- function(formula, data, family = gaussian(),
+get_prior <- function(formula, data, family = NULL,
                       autocor = NULL, nonlinear = NULL,
                       threshold = c("flexible", "equidistant"), 
                       internal = FALSE) {
   # note that default priors are stored in this function
-  family <- check_family(family) 
+  formula <- amend_formula(formula, data = data, family = family, 
+                           nonlinear = nonlinear)
+  family <- formula$family
   link <- family$link
-  formula <- update_formula(formula, data = data, family = family, 
-                            nonlinear = nonlinear)
   threshold <- match.arg(threshold)
   autocor <- check_autocor(autocor)
-  ee <- extract_effects(formula, family = family)
-  data <- update_data(data, family = family, effects = ee)
+  bterms <- parse_bf(formula, family = family)
+  data <- update_data(data, family = family, bterms = bterms)
   
   # ensure that RE and residual SDs only have a weakly informative prior by default
   Y <- unname(model.response(data))
   prior_scale <- 10
-  if (is.lognormal(family)) link <- "log"
+  if (is_lognormal(family)) link <- "log"
   if (link %in% c("identity", "log", "inverse", "sqrt", "1/mu^2")) {
     if (link %in% c("log", "inverse", "1/mu^2")) {
       Y <- ifelse(Y == 0, Y + 0.1, Y)  # avoid Inf in link(Y)
@@ -490,10 +534,10 @@ get_prior <- function(formula, data, family = gaussian(),
   # initialize output
   prior <- empty_brmsprior()
   # priors for primary regression effects
-  if (length(ee$nonlinear)) {
-    nlpars <- names(ee$nonlinear)
+  if (length(bterms$nlpars)) {
+    nlpars <- names(bterms$nlpars)
     for (i in seq_along(nlpars)) {
-      prior_eff <- get_prior_effects(ee$nonlinear[[i]], data = data, 
+      prior_eff <- get_prior_effects(bterms$nlpars[[i]], data = data, 
                                      autocor = autocor, nlpar = nlpars[i],
                                      spec_intercept = FALSE,
                                      def_scale_prior = def_scale_prior,
@@ -501,18 +545,18 @@ get_prior <- function(formula, data, family = gaussian(),
       prior <- rbind(prior, prior_eff)
     }
   } else {
-    if (length(ee$response) > 1L) {
+    if (length(bterms$response) > 1L) {
       # priors for effects in multivariate models
-      for (r in c("", ee$response)) {
+      for (r in c("", bterms$response)) {
         # r = "" adds global priors affecting parameters of all responses
-        prior_eff <- get_prior_effects(ee, data = data, autocor = autocor,
+        prior_eff <- get_prior_effects(bterms, data = data, autocor = autocor,
                                        def_scale_prior = def_scale_prior,
                                        internal = internal, nlpar = r)
         prior <- rbind(prior, prior_eff)
       }
     } else {
       # priors for effects in univariate models
-      prior_eff <- get_prior_effects(ee, data = data, autocor = autocor,
+      prior_eff <- get_prior_effects(bterms, data = data, autocor = autocor,
                                      def_scale_prior = def_scale_prior,
                                      internal = internal)
       prior <- rbind(prior, prior_eff)
@@ -525,10 +569,10 @@ get_prior <- function(formula, data, family = gaussian(),
                     zi = "beta(1, 1)", hu = "beta(1, 1)", 
                     bs = "gamma(1, 1)", ndt = "uniform(0, min_Y)", 
                     bias = "beta(1, 1)", disc = NA)
-  valid_auxpars <- valid_auxpars(family, effects = ee, autocor = autocor)
+  valid_auxpars <- valid_auxpars(family, bterms = bterms, autocor = autocor)
   for (ap in valid_auxpars) {
-    if (!is.null(ee[[ap]])) {
-      auxprior <- get_prior_effects(ee[[ap]], data = data,
+    if (!is.null(bterms$auxpars[[ap]])) {
+      auxprior <- get_prior_effects(bterms$auxpars[[ap]], data = data,
                                     autocor = autocor, nlpar = ap,
                                     spec_intercept = FALSE,
                                     def_scale_prior = def_scale_prior,
@@ -541,20 +585,20 @@ get_prior <- function(formula, data, family = gaussian(),
     prior <- rbind(prior, auxprior)
   }
   # priors of group-level parameters
-  ranef <- tidy_ranef(ee, data)
+  ranef <- tidy_ranef(bterms, data)
   prior_ranef <- get_prior_ranef(ranef, def_scale_prior = def_scale_prior,
-                                 global_sd = length(ee$response) > 1L,
+                                 global_sd = length(bterms$response) > 1L,
                                  internal = internal)
   prior <- rbind(prior, prior_ranef)
   
   # prior for the delta parameter for equidistant thresholds
-  if (is.ordinal(family) && threshold == "equidistant") {
+  if (is_ordinal(family) && threshold == "equidistant") {
     prior <- rbind(prior, brmsprior(class = "delta"))
   }
   # priors for auxiliary parameters of multivariate models
-  if (is.linear(family) && length(ee$response) > 1L) {
-    sigma_coef <- c("", ee$response)
-    sigma_prior <- c(def_scale_prior, rep("", length(ee$response)))
+  if (is_linear(family) && length(bterms$response) > 1L) {
+    sigma_coef <- c("", bterms$response)
+    sigma_prior <- c(def_scale_prior, rep("", length(bterms$response)))
     sigma_prior <- brmsprior(class = "sigma", coef = sigma_coef,
                              prior = sigma_prior)
     prior <- rbind(prior, sigma_prior)
@@ -586,7 +630,7 @@ get_prior <- function(formula, data, family = gaussian(),
   structure(prior, class = c("brmsprior", "data.frame"))
 }
 
-get_prior_effects <- function(effects, data, autocor = cor_arma(), 
+get_prior_effects <- function(bterms, data, autocor = cor_arma(), 
                               nlpar = "", spec_intercept = TRUE,
                               def_scale_prior = "", internal = FALSE) {
   # wrapper function to get priors for various kinds of effects
@@ -595,17 +639,17 @@ get_prior_effects <- function(effects, data, autocor = cor_arma(),
   # group-level priors are prepared separately
   # Args:
   #   spec_intercept: special parameter class for the FE Intercept? 
-  fixef <- colnames(data_fixef(effects, data, autocor = autocor)$X)
-  spec_intercept <- has_intercept(effects$fixed) && spec_intercept
+  fixef <- colnames(data_fixef(bterms, data, autocor = autocor)$X)
+  spec_intercept <- has_intercept(bterms$fixed) && spec_intercept
   prior_fixef <- get_prior_fixef(fixef, spec_intercept = spec_intercept,
                                  nlpar = nlpar, internal = internal)
-  monef <- all_terms(effects$mo)
+  monef <- all_terms(bterms$mo)
   prior_monef <- get_prior_monef(monef, fixef = fixef, nlpar = nlpar)
-  splines <- get_spline_labels(effects)
+  splines <- get_spline_labels(bterms)
   prior_splines <- get_prior_splines(splines, def_scale_prior, nlpar = nlpar)
-  csef <- colnames(get_model_matrix(effects$cs, data = data))
+  csef <- colnames(get_model_matrix(bterms$cs, data = data))
   prior_csef <- get_prior_csef(csef, fixef = fixef)
-  prior_meef <- get_prior_meef(get_me_labels(effects, data))
+  prior_meef <- get_prior_meef(get_me_labels(bterms, data))
   rbind(prior_fixef, prior_monef, prior_splines, prior_csef, prior_meef)
 }
 
@@ -777,7 +821,6 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
   # check prior input and amend it if needed
   # Args:
   #   same as the respective parameters in brm
-  #   (nonlinear is expected to be an attribute of formula)
   #   check_rows: if not NULL, check only the rows given in check_rows
   #   warn: passed to check_prior_content
   # Returns:
@@ -789,8 +832,8 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
     attr(prior, "prior_only") <- prior_only
     return(prior)
   }
-  stopifnot(is(formula, "brmsformula"))
-  ee <- extract_effects(formula, family = family)  
+  formula <- bf(formula)
+  bterms <- parse_bf(formula, family = family)  
   all_priors <- get_prior(formula = formula, data = data, 
                           family = family, autocor = autocor, 
                           threshold = threshold, internal = TRUE)
@@ -798,9 +841,9 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
     prior <- all_priors  
   }
   # exclude priors using increment_log_prob to readd them at the end
-  has_incr_lp <- grepl("^increment_log_prob\\(", prior$prior)
-  prior_incr_lp <- prior[has_incr_lp, ]
-  prior <- prior[!has_incr_lp, ]
+  no_checks <- !nzchar(prior$class)
+  prior_no_checks <- prior[no_checks, ]
+  prior <- prior[!no_checks, ]
   # check for duplicated priors
   prior$class <- rename(prior$class, symbols = c("^cor$", "^rescor$"), 
                         subs = c("L", "Lrescor"), fixed = FALSE)
@@ -809,7 +852,7 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
     stop2("Duplicated prior specifications are not allowed.")
   }
   # handle special priors that are not explictly coded as functions in Stan
-  has_specef <- is.formula(ee[["mo"]]) || is.formula(ee[["cs"]])
+  has_specef <- is.formula(bterms[["mo"]]) || is.formula(bterms[["cs"]])
   prior <- handle_special_priors(prior, has_specef = has_specef)  
   # check if parameters in prior are valid
   if (nrow(prior)) {
@@ -848,7 +891,7 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
     rows2remove <- c(rows2remove, int_index, bint_index)
   }
   # prepare priors of monotonic effects
-  mo_forms <- get_effect(ee, "mo")
+  mo_forms <- get_effect(bterms, "mo")
   for (k in seq_along(mo_forms)) {
     monef <- colnames(get_model_matrix(mo_forms[[k]], data = data))
     for (i in seq_along(monef)) {
@@ -863,8 +906,8 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
     }
   }
   # check if priors for non-linear parameters are defined
-  if (length(ee$nonlinear)) {
-    nlpars <- names(ee$nonlinear)
+  if (length(bterms$nlpars)) {
+    nlpars <- names(bterms$nlpars)
     for (nlp in nlpars) {
       nlp_prior <- prior$prior[with(prior, nlpar == nlp & class == "b")]
       if (!any(as.logical(nchar(nlp_prior)))) {
@@ -878,7 +921,7 @@ check_prior <- function(prior, formula, data = NULL, family = gaussian(),
     prior <- prior[-rows2remove, ]
   }
   prior <- prior[with(prior, order(nlpar, class, group, coef)), ]
-  prior <- rbind(prior, prior_incr_lp)
+  prior <- rbind(prior, prior_no_checks)
   rownames(prior) <- seq_len(nrow(prior))
   attr(prior, "prior_only") <- prior_only
   attr(prior, "checked") <- TRUE
@@ -894,7 +937,7 @@ check_prior_content <- function(prior, family = gaussian(), warn = TRUE) {
   if (!is(prior, "brmsprior")) {
     return(invisible(NULL))
   }
-  stopifnot(is(family, "family"))
+  stopifnot(is.family(family))
   family <- family$family
   if (nrow(prior)) {
     lb_priors <- c("lognormal", "chi_square", "inv_chi_square",
@@ -951,14 +994,14 @@ check_prior_content <- function(prior, family = gaussian(), warn = TRUE) {
       }
     }  # end for  
     if (nchar(lb_warning) && warn) {
-      warning2("It appears that you have specified a lower bounded ", 
+      warning2("It appears as if you have specified a lower bounded ", 
                "prior on a parameter that has no natural lower bound.",
                "\nIf this is really what you want, please specify ",
                "argument 'lb' of 'set_prior' appropriately.",
                "\nWarning occurred for prior \n", lb_warning)
     }
     if (nchar(ub_warning) && warn) {
-      warning2("It appears that you have specified an upper bounded ", 
+      warning2("It appears as if you have specified an upper bounded ", 
                "prior on a parameter that has no natural upper bound.",
                "\nIf this is really what you want, please specify ",
                "argument 'ub' of 'set_prior' appropriately.",
@@ -1049,6 +1092,15 @@ empty_brmsprior <- function() {
   brmsprior(prior = character(0), class = character(0), 
             coef = character(0), group = character(0),
             nlpar = character(0), bound = character(0))
+}
+
+#' Checks if argument is a \code{brmsprior} object
+#' 
+#' @param x An \R object
+#' 
+#' @export
+is.brmsprior <- function(x) {
+  inherits(x, "brmsprior")
 }
 
 #' Print method for \code{brmsprior} objects

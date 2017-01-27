@@ -1,6 +1,20 @@
+params <-
+structure(list(EVAL = FALSE), .Names = "EVAL")
+
 ## ---- SETTINGS-knitr, include=FALSE--------------------------------------
 stopifnot(require(knitr))
-opts_chunk$set(eval = FALSE)
+opts_chunk$set(
+  comment = NA,
+  message = FALSE,
+  warning = FALSE,
+  eval = params$EVAL,
+  dev = "png",
+  dpi = 150,
+  fig.asp = 0.8,
+  fig.width = 5,
+  out.width = "60%",
+  fig.align = "center"
+  )
 
 ## ------------------------------------------------------------------------
 #  b <- c(2, 0.75)
@@ -8,11 +22,11 @@ opts_chunk$set(eval = FALSE)
 #  y <- rnorm(100, mean = b[1] * exp(b[2] * x))
 #  dat1 <- data.frame(x, y)
 
-## ------------------------------------------------------------------------
+## ---- results='hide'-----------------------------------------------------
 #  library(brms)
 #  prior1 <- c(prior(normal(1, 2), nlpar = "b1"),
 #              prior(normal(0, 2), nlpar = "b2"))
-#  fit1 <- brm(y ~ b1 * exp(b2 * x), nonlinear = b1 + b2 ~ 1,
+#  fit1 <- brm(bf(y ~ b1 * exp(b2 * x), b1 + b2 ~ 1, nl = TRUE),
 #              data = dat1, prior = prior1)
 
 ## ------------------------------------------------------------------------
@@ -20,8 +34,10 @@ opts_chunk$set(eval = FALSE)
 #  plot(fit1)
 #  plot(marginal_effects(fit1), points = TRUE)
 
-## ------------------------------------------------------------------------
+## ---- results='hide'-----------------------------------------------------
 #  fit2 <- brm(y ~ x, data = dat1)
+
+## ------------------------------------------------------------------------
 #  summary(fit2)
 
 ## ------------------------------------------------------------------------
@@ -36,9 +52,10 @@ opts_chunk$set(eval = FALSE)
 #  loss <- read.csv(url)
 #  head(loss)
 
-## ------------------------------------------------------------------------
-#  fit_loss <- brm(cum ~ ult * (1 - exp(-(dev/theta)^omega)),
-#                  nonlinear = list(ult ~ 1 + (1|AY), omega ~ 1, theta ~ 1),
+## ---- results='hide'-----------------------------------------------------
+#  fit_loss <- brm(bf(cum ~ ult * (1 - exp(-(dev/theta)^omega)),
+#                     ult ~ 1 + (1|AY), omega ~ 1, theta ~ 1,
+#                     nl = TRUE),
 #                  data = loss, family = gaussian(),
 #                  prior = c(prior(normal(5000, 1000), nlpar = "ult"),
 #                            prior(normal(1, 2), nlpar = "omega"),
@@ -64,16 +81,16 @@ opts_chunk$set(eval = FALSE)
 #  answer <- ifelse(runif(300, 0, 1) < p, 1, 0)
 #  dat_ir <- data.frame(ability, answer)
 
-## ------------------------------------------------------------------------
+## ---- results='hide'-----------------------------------------------------
 #  fit_ir1 <- brm(answer ~ ability, data = dat_ir, family = bernoulli())
 
 ## ------------------------------------------------------------------------
 #  summary(fit_ir1)
 #  plot(marginal_effects(fit_ir1), points = TRUE)
 
-## ------------------------------------------------------------------------
-#  fit_ir2 <- brm(answer ~ 0.33 + 0.67 * inv_logit(eta),
-#                 nonlinear = eta ~ ability,
+## ---- results='hide'-----------------------------------------------------
+#  fit_ir2 <- brm(bf(answer ~ 0.33 + 0.67 * inv_logit(eta),
+#                    eta ~ ability, nl = TRUE),
 #                 data = dat_ir, family = bernoulli("identity"),
 #                 prior = prior(normal(0, 5), nlpar = "eta"))
 
@@ -84,9 +101,9 @@ opts_chunk$set(eval = FALSE)
 ## ------------------------------------------------------------------------
 #  LOO(fit_ir1, fit_ir2)
 
-## ------------------------------------------------------------------------
-#  fit_ir3 <- brm(answer ~ guess + (1 - guess) * inv_logit(eta),
-#                 nonlinear = list(eta ~ 0 + ability, guess ~ 1),
+## ---- results='hide'-----------------------------------------------------
+#  fit_ir3 <- brm(bf(answer ~ guess + (1 - guess) * inv_logit(eta),
+#                    eta ~ 0 + ability, guess ~ 1, nl = TRUE),
 #                 data = dat_ir, family = bernoulli("identity"),
 #                 prior = c(prior(normal(0, 5), nlpar = "eta"),
 #                           prior(beta(1, 1), nlpar = "guess", lb = 0, ub = 1)))

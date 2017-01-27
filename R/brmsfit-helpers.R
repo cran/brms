@@ -17,28 +17,6 @@ array2list <- function(x) {
   l
 }
 
-Nsamples <- function(x, subset = NULL) {
-  # compute the number of posterior samples
-  # Args:
-  #   x: a brmsfit object
-  #   subset: a vector defining a subset of samples to be considered
-  if (!is(x$fit, "stanfit") || !length(x$fit@sim)) {
-    out <- 0
-  } else {
-    ntsamples <- ceiling((x$fit@sim$iter - x$fit@sim$warmup) /
-                          x$fit@sim$thin * x$fit@sim$chains)
-    if (length(subset)) {
-      out <- length(subset)
-      if (out > ntsamples || max(subset) > ntsamples) {
-        stop2("Argument 'subset' is invalid.")
-      }
-    } else {
-      out <- ntsamples
-    }
-  }
-  out
-}
-
 contains_samples <- function(x) {
   if (!is(x$fit, "stanfit") || !length(x$fit@sim)) {
     stop2("The model does not contain posterior samples.")
@@ -47,7 +25,7 @@ contains_samples <- function(x) {
 }
 
 algorithm <- function(x) {
-  stopifnot(is(x, "brmsfit"))
+  stopifnot(is.brmsfit(x))
   if (is.null(x$algorithm)) "sampling"
   else x$algorithm
 }
@@ -57,54 +35,62 @@ restructure <- function(x, rstr_summary = FALSE) {
   # Args:
   #   x: a brmsfit object
   #   rstr_summary: restructure cached summary?
-  stopifnot(is(x, "brmsfit"))
+  stopifnot(is.brmsfit(x))
   if (isTRUE(attr(x, "restructured"))) {
     return(x)  # already restructured
   }
-  if (isTRUE(x$version < utils::packageVersion("brms"))) {
+  if (is.null(x$version)) {
+    # this is the latest version without saving the version number
+    x$version <- package_version("0.9.1")
+  }
+  if (x$version < utils::packageVersion("brms")) {
     # element 'nonlinear' deprecated as of brms > 0.9.1
     # element 'partial' deprecated as of brms > 0.8.0
-    x$formula <- SW(update_formula(x$formula, partial = x$partial, 
-                                   nonlinear = x$nonlinear))
+    x$formula <- SW(amend_formula(formula(x), data = model.frame(x),
+                                  family = family(x), partial = x$partial,
+                                  nonlinear = x$nonlinear))
     x$nonlinear <- x$partial <- NULL
-    ee <- extract_effects(formula(x), family = family(x))
-    x$ranef <- tidy_ranef(ee, model.frame(x))
+    x$formula[["old_mv"]] <- is_old_mv(x)
+    bterms <- parse_bf(formula(x), family = family(x))
+    x$ranef <- tidy_ranef(bterms, model.frame(x))
     if ("prior_frame" %in% class(x$prior)) {
       class(x$prior) <- c("brmsprior", "data.frame") 
     }
-    if (is(x$autocor, "cor_fixed")) {
-      # deprecated as of brms 1.0.0
-      class(x$autocor) <- "cov_fixed"
+    if (is(x$autocor, "cov_fixed")) {
+      # deprecated as of brms 1.4.0
+      class(x$autocor) <- "cor_fixed"
     }
-    change <- list()
-    if (isTRUE(x$version <= "0.10.0.9000")) {
-      attr(x$formula, "old_mv") <- is.old_mv(x)
-      if (length(ee$nonlinear)) {
-        # nlpar and group have changed positions
-        change <- c(change,
-          change_old_ranef(x$ranef, pars = parnames(x),
-                           dims = x$fit@sim$dims_oi))
+    if (x$version <= "0.9.1") {
+      # update gaussian("log") to lognormal() family
+      nresp <- length(bterms$response)
+      if (is_old_lognormal(x$family, nresp = nresp, version = x$version)) {
+        object$family <- object$formula$family <- lognormal()
       }
-    } else if (isTRUE(x$version < "1.0.0")) {
-      # I added double underscores in group-level parameters
-      # right before the release of brms 1.0.0
-      change <- c(change,
-        change_old_ranef2(x$ranef, pars = parnames(x),
-                          dims = x$fit@sim$dims_oi))
     }
-    if (isTRUE(x$version <= "1.0.1")) {
+    if (x$version <= "0.10.0.9000") {
+      if (length(bterms$nlpars)) {
+        # nlpar and group have changed positions
+        change <- change_old_ranef(x$ranef, pars = parnames(x),
+                                   dims = x$fit@sim$dims_oi)
+        x <- do_renaming(x, change)
+      }
+    }
+    if (x$version < "1.0.0") {
+      # double underscores were added to group-level parameters
+      change <- change_old_ranef2(x$ranef, pars = parnames(x),
+                                  dims = x$fit@sim$dims_oi)
+      x <- do_renaming(x, change)
+    }
+    if (x$version <= "1.0.1") {
       # names of spline parameters had to be changed after
       # allowing for multiple covariates in one spline term
-      change <- c(change,
-        change_old_splines(ee, pars = parnames(x),
-                           dims = x$fit@sim$dims_oi))
+      change <- change_old_splines(bterms, pars = parnames(x),
+                                   dims = x$fit@sim$dims_oi)
+      x <- do_renaming(x, change)
     }
-    if (isTRUE(x$version <= "1.2.0")) {
+    if (x$version <= "1.2.0") {
       x$ranef$type[x$ranef$type == "mono"] <- "mo"
       x$ranef$type[x$ranef$type == "cse"] <- "cs"
-    }
-    for (i in seq_along(change)) {
-      x <- do_renaming(change = change[[i]], x = x)
     }
     stan_env <- attributes(x$fit)$.MISC
     if (rstr_summary && exists("summary", stan_env)) {
@@ -121,7 +107,7 @@ restructure <- function(x, rstr_summary = FALSE) {
       }
     }
   }
-  structure(x, "restructured" = TRUE)
+  structure(x, restructured = TRUE)
 }
 
 first_greater <- function(A, target, i = 1) {
@@ -143,11 +129,21 @@ link <- function(x, link) {
   #   link: a character string defining the link
   # Returns:
   #   an array of dimension dim(x) on which the link function was applied
-  switch(link, "identity" = x, "log" = log(x), "inverse" = 1 / x,
-         "sqrt" = sqrt(x), "1/mu^2" = 1 / x^2, "tan_half" = tan(x / 2),
-         "logit" = logit(x), "probit" = qnorm(x), "cauchit" = qcauchy(x),
-         "cloglog" = cloglog(x), "probit_approx" = qnorm(x),
-         stop2("Link '", link, "' not supported."))
+  switch(link, 
+    "identity" = x, 
+    "log" = log(x), 
+    "logm1" = logm1(x), 
+    "inverse" = 1 / x,
+    "sqrt" = sqrt(x), 
+    "1/mu^2" = 1 / x^2, 
+    "tan_half" = tan(x / 2),
+    "logit" = logit(x), 
+    "probit" = qnorm(x), 
+    "cauchit" = qcauchy(x),
+    "cloglog" = cloglog(x), 
+    "probit_approx" = qnorm(x),
+    stop2("Link '", link, "' not supported.")
+  )
 }
 
 ilink <- function(x, link) {
@@ -157,42 +153,54 @@ ilink <- function(x, link) {
   #   link: a character string defining the link
   # Returns:
   #   an array of dimension dim(x) on which the inverse link function was applied
-  switch(link, "identity" = x, "log" = exp(x), "inverse" = 1 / x,
-         "sqrt" = x^2, "1/mu^2" = 1 / sqrt(x), "tan_half" = 2 * atan(x),
-         "logit" = inv_logit(x), "probit" = pnorm(x), "cauchit" = pcauchy(x),
-         "cloglog" = inv_cloglog(x), "probit_approx" = pnorm(x),
-         stop2("Link '", link, "' not supported."))
+  switch(link, 
+    "identity" = x, 
+    "log" = exp(x),
+    "logm1" = expp1(x),
+    "inverse" = 1 / x,
+    "sqrt" = x^2, 
+    "1/mu^2" = 1 / sqrt(x), 
+    "tan_half" = 2 * atan(x),
+    "logit" = inv_logit(x), 
+    "probit" = pnorm(x), 
+    "cauchit" = pcauchy(x),
+    "cloglog" = inv_cloglog(x), 
+    "probit_approx" = pnorm(x),
+    stop2("Link '", link, "' not supported.")
+  )
 }
 
-prepare_conditions <- function(x, conditions = NULL, effects = NULL, 
-                               re_formula = NA) {
+prepare_conditions <- function(x, conditions = NULL, effects = NULL,
+                               re_formula = NA, rsv_vars = NULL) {
   # prepare marginal conditions
   # Args:
   #   x: an object of class 'brmsfit'
   #   conditions: optional data.frame containing user defined conditions
+  #   effects: see marginal_effects
   #   re_formula: see marginal_effects
+  #   rsv_vars: names of reserved variables
   # Returns:
   #   A data.frame with (possibly updated) conditions
   mf <- model.frame(x)
   new_formula <- update_re_terms(formula(x), re_formula = re_formula)
-  ee <- extract_effects(new_formula, family = family(x))
-  int_effects <- c(get_effect(ee, "mo"), rmNULL(ee[c("trials", "cat")]))
+  bterms <- parse_bf(new_formula, family = family(x))
+  int_effects <- c(get_effect(bterms, "mo"), 
+                   rmNULL(bterms[c("trials", "cat")]))
   int_vars <- unique(ulapply(int_effects, all.vars))
   if (is.null(conditions)) {
-    if (!is.null(ee$trials)) {
+    if (!is.null(bterms$trials)) {
       message("Using the median number of trials by default")
     }
     # list all required variables
-    random <- get_random(ee)
-    req_vars <- c(lapply(get_effect(ee), rhs), 
-                  random$form, 
+    random <- get_random(bterms)
+    req_vars <- c(lapply(get_effect(bterms), rhs), random$form, 
                   lapply(random$gcall, "[[", "weightvars"),
-                  lapply(get_effect(ee, "mo"), rhs),
-                  lapply(get_effect(ee, "me"), rhs),
-                  lapply(get_effect(ee, "gam"), rhs), 
-                  ee[c("cs", "se", "disp", "trials", "cat")])
+                  lapply(get_effect(bterms, "mo"), rhs),
+                  lapply(get_effect(bterms, "me"), rhs),
+                  lapply(get_effect(bterms, "gam"), rhs), 
+                  bterms[c("cs", "se", "disp", "trials", "cat")])
     req_vars <- unique(ulapply(req_vars, all.vars))
-    req_vars <- setdiff(req_vars, c(rsv_vars, names(ee$nonlinear)))
+    req_vars <- setdiff(req_vars, c(rsv_vars, names(bterms$nlpars)))
     conditions <- as.data.frame(as.list(rep(NA, length(req_vars))))
     names(conditions) <- req_vars
     for (v in req_vars) {
@@ -235,13 +243,13 @@ prepare_conditions <- function(x, conditions = NULL, effects = NULL,
 }
 
 prepare_marg_data <- function(data, conditions, int_vars = NULL,
-                              contour = FALSE, resolution = 100) {
+                              surface = FALSE, resolution = 100) {
   # prepare data to be used in marginal_effects
   # Args:
   #  data: data.frame containing only data of the predictors of interest
   #  conditions: see argument 'conditions' of marginal_effects
   #  int_vars: names of variables being treated as integers
-  #  contour: generate contour plots later on?
+  #  surface: generate surface plots later on?
   #  resolution: number of distinct points at which to evaluate
   #              the predictors of interest
   effects <- names(data)
@@ -265,7 +273,7 @@ prepare_marg_data <- function(data, conditions, int_vars = NULL,
     if (pred_types[1] == "numeric") {
       values <- setNames(list(values, NA), effects)
       if (pred_types[2] == "numeric") {
-        if (contour) {
+        if (surface) {
           min2 <- min(data[, effects[2]])
           max2 <- max(data[, effects[2]])
           if (mono[2]) {
@@ -336,12 +344,6 @@ get_cornames <- function(names, type = "cor", brackets = TRUE, sep = "__") {
   cornames
 }
 
-get_nlpar <- function(x, suffix = "") {
-  # extract name of a non-linear parameter
-  nlpar <- attr(x, "nlpar")
-  if (length(nlpar) && nchar(nlpar)) paste0(nlpar, suffix) else ""
-}
-
 get_estimate <- function(coef, samples, margin = 2, to.array = FALSE, ...) {
   # calculate estimates over posterior samples 
   # Args:
@@ -407,10 +409,9 @@ get_table <- function(samples, levels = sort(unique(as.numeric(samples)))) {
   # compute absolute frequencies for each column
   # Args:
   #   samples: a S x N matrix
-  #   levels: all possible values in \code{samples}
+  #   levels: all possible values in samples
   # Returns:
-  #    a N x \code{levels} matrix containing relative frequencies
-  #    in each column seperately
+  #    a N x levels matrix containing relative frequencies of each level
   stopifnot(is.matrix(samples))
   out <- do.call(rbind, lapply(seq_len(ncol(samples)), 
     function(n) table(factor(samples[, n], levels = levels))))
@@ -460,16 +461,17 @@ get_cov_matrix <- function(sd, cor = NULL) {
   list(cor = cor_matrix, cov = cov_matrix)
 }
 
-get_cov_matrix_ar1 <- function(ar, sigma, nrows, se2 = 0) {
+get_cov_matrix_ar1 <- function(ar, sigma, nrows, se2 = NULL) {
   # compute the covariance matrix for an AR1 process
   # Args: 
   #   ar: AR1 autocorrelation samples
   #   sigma: standard deviation samples of the AR1 process
-  #   se2: square of user defined standard errors (may be 0)
+  #   se2: optional square of user defined standard errors
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows AR1 covariance array (!)
   sigma <- as.matrix(sigma)
+  if (!length(se2)) se2 <- 0
   mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
   mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2_adjusted <- sigma^2 / (1 - ar^2)
@@ -485,16 +487,17 @@ get_cov_matrix_ar1 <- function(ar, sigma, nrows, se2 = 0) {
   mat
 }
 
-get_cov_matrix_ma1 <- function(ma, sigma, nrows, se2 = 0) {
+get_cov_matrix_ma1 <- function(ma, sigma, nrows, se2 = NULL) {
   # compute the covariance matrix for an MA1 process
   # Args: 
   #   ma: MA1 autocorrelation samples
   #   sigma: standard deviation samples of the AR1 process
-  #   se2: square of user defined standard errors (may be 0)
+  #   se2: optional square of user defined standard errors
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows MA1 covariance array (!)
   sigma <- as.matrix(sigma)
+  if (!length(se2)) se2 <- 0
   mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
   mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2 <- sigma^2
@@ -512,17 +515,18 @@ get_cov_matrix_ma1 <- function(ma, sigma, nrows, se2 = 0) {
   mat 
 }
 
-get_cov_matrix_arma1 <- function(ar, ma, sigma, nrows, se2 = 0) {
+get_cov_matrix_arma1 <- function(ar, ma, sigma, nrows, se2 = NULL) {
   # compute the covariance matrix for an AR1 process
   # Args: 
   #   ar: AR1 autocorrelation sample
   #   ma: MA1 autocorrelation sample
   #   sigma: standard deviation samples of the AR1 process
-  #   se2: square of user defined standard errors (may be 0)
+  #   se2: optional square of user defined standard errors
   #   nrows: number of rows of the covariance matrix
   # Returns:
   #   An nsamples x nrows x nrows ARMA1 covariance array (!)
   sigma <- as.matrix(sigma)
+  if (!length(se2)) se2 <- 0
   mat <- array(diag(se2, nrows), dim = c(nrows, nrows, nrow(sigma)))
   mat <- aperm(mat, perm = c(3, 1, 2))
   sigma2_adjusted <- sigma^2 / (1 - ar^2)
@@ -641,10 +645,6 @@ get_se <- function(data, i = NULL, dim = NULL) {
   # extract user-defined standard errors
   # Args: see get_auxpar
   se <- data[["se"]]
-  if (is.null(se)) {
-    # for backwards compatibility with brms <= 0.5.0
-    se <- data[["sigma"]]
-  }
   if (!is.null(se)) {
     if (!is.null(i)) {
       se <- se[i]
@@ -665,13 +665,18 @@ mult_disp <- function(x, data, i = NULL, dim = NULL) {
     if (!is.null(i)) {
       x <- x * data$disp[i]
     } else {
-      # results in a Nsamples x Nobs matrix
+      # results in a nsamples x Nobs matrix
       if (is.matrix(x)) {
         stopifnot(!is.null(dim))
         disp <- matrix(disp, nrow = dim[1], ncol = dim[2], byrow = TRUE)
         x <- x * disp
       } else {
-        x <- x %*% matrix(data$disp, nrow = 1) 
+        disp <- matrix(data$disp, nrow = 1) 
+        if (length(x) == 1L) {
+          x <- x * disp
+        } else {
+          x <- x %*% disp 
+        }
       }
     }
   }
@@ -681,18 +686,45 @@ mult_disp <- function(x, data, i = NULL, dim = NULL) {
 prepare_family <- function(x) {
   # prepare for calling family specific log_lik / predict functions
   family <- family(x)
-  nresp <- length(extract_effects(x$formula, family = family,
-                                  nonlinear = x$nonlinear)$response)
-  if (is.old_lognormal(family, nresp = nresp, version = x$version)) {
+  nresp <- length(parse_bf(x$formula, family = family)$response)
+  if (is_old_lognormal(family, nresp = nresp, version = x$version)) {
     family <- lognormal()
-  } else if (is.linear(family) && nresp > 1L) {
+  } else if (is_linear(family) && nresp > 1L) {
     family$family <- paste0(family$family, "_mv")
   } else if (use_cov(x$autocor) && sum(x$autocor$p, x$autocor$q) > 0) {
     family$family <- paste0(family$family, "_cov")
-  } else if (is(x$autocor, "cov_fixed")) {
+  } else if (is.cor_fixed(x$autocor)) {
     family$family <- paste0(family$family, "_fixed")
   }
   family
+}
+
+reorder_obs <- function(eta, old_order = NULL, sort = FALSE) {
+  # reorder observations to be in the initial user-defined order
+  # currently only relevant for autocorrelation models 
+  # Args:
+  #   eta: Nsamples x Nobs matrix
+  #   old_order: optional vector to retrieve the initial data order
+  #   sort: keep the new order as defined by the time-series?
+  # Returns:
+  #   eta with possibly reordered columns
+  if (!is.null(old_order) && !sort) {
+    N <- length(old_order)
+    if (ncol(eta) %% N != 0) {
+      # for compatibility with MV models fitted before brms 1.0.0
+      stopifnot(N %% ncol(eta) == 0)
+      old_order <- old_order[seq_len(ncol(eta))]
+    }
+    if (N < ncol(eta)) {
+      # should occur for multivariate models only
+      nresp <- ncol(eta) / N
+      old_order <- rep(old_order, nresp)
+      old_order <- old_order + rep(0:(nresp - 1) * N, each = N)
+    }
+    eta <- eta[, old_order, drop = FALSE]  
+    colnames(eta) <- NULL
+  }
+  eta
 }
 
 fixef_pars <- function() {
@@ -704,7 +736,7 @@ default_plot_pars <- function() {
   # list all parameter classes to be included in plots by default
   c(fixef_pars(), "^sd_", "^cor_", "^sigma_", "^rescor_", 
     paste0("^", auxpars(), "$"), "^delta$", "^ar", "^ma", 
-    "^arr", "^sigmaLL", "^simplex_", "^sds_")
+    "^arr", "^sigmaLL", "^sds_")
 }
 
 extract_pars <- function(pars, all_pars, exact_match = FALSE,
@@ -749,7 +781,7 @@ compute_ic <- function(x, ic = c("waic", "loo"), ll_args = list(), ...) {
     args$args$draws <- attr(args$x, "draws")
     args$args$data <- data.frame()
     args$args$N <- attr(args$x, "N")
-    args$args$S <- Nsamples(x, subset = ll_args$subset)
+    args$args$S <- nsamples(x, subset = ll_args$subset)
     attr(args$x, "draws") <- NULL
   }
   if (ic == "loo") {
@@ -757,10 +789,48 @@ compute_ic <- function(x, ic = c("waic", "loo"), ll_args = list(), ...) {
   }
   IC <- do.call(eval(parse(text = paste0("loo::", ic))), args)
   class(IC) <- c("ic", "loo")
-  return(IC)
+  IC
 }
 
-compare_ic <- function(x, ic = c("waic", "loo")) {
+#' Compare Information Criteria of Different Models
+#'
+#' Compare information criteria of different models fitted
+#' with \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.
+#' 
+#' @param ... At least two objects returned by 
+#'   \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.
+#' @param x A list of at least two objects returned by
+#'   \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.
+#'   This argument can be used as an alternative to specifying the 
+#'   models in \code{...}.
+#'   
+#' @return An object of class \code{iclist}.
+#' 
+#' @details For more details see \code{\link[loo:compare]{compare}}.
+#' 
+#' @seealso 
+#'   \code{\link[brms:WAIC]{WAIC}}, 
+#'   \code{\link[brms:LOO]{LOO}},
+#'   \code{\link[loo:compare]{compare}}
+#'   
+#' @examples 
+#' \dontrun{
+#' # model with population-level effects only
+#' fit1 <- brm(rating ~ treat + period + carry,
+#'             data = inhaler, family = "gaussian")
+#' w1 <- WAIC(fit1)
+#' 
+#' # model with an additional varying intercept for subjects
+#' fit2 <- brm(rating ~ treat + period + carry + (1|subject),
+#'             data = inhaler, family = "gaussian")
+#' w2 <- WAIC(fit2)
+#' 
+#' # compare both models
+#' compare_ic(w1, w2)
+#' }
+#' 
+#' @export
+compare_ic <- function(..., x = NULL) {
   # compare information criteria of different models
   # Args:
   #   x: A list containing loo objects
@@ -768,7 +838,22 @@ compare_ic <- function(x, ic = c("waic", "loo")) {
   # Returns:
   #   A matrix with differences in the ICs 
   #   as well as corresponding standard errors
-  ic <- match.arg(ic)
+  if (!(is.null(x) || is.list(x))) {
+    stop2("Argument 'x' should be a list.")
+  }
+  x$ic_diffs__ <- NULL
+  x <- c(list(...), x)
+  if (!all(sapply(x, inherits, "ic"))) {
+    stop2("All inputs should have class 'ic'.")
+  }
+  if (length(x) < 2L) {
+    stop2("Expecting at least two objects.")
+  }
+  ics <- unname(sapply(x, function(y) names(y)[3]))
+  if (!all(sapply(ics, identical, ics[1]))) {
+    stop2("All inputs should be from the the same criterion.")
+  }
+  names(x) <- ulapply(x, "[[", "model_name")
   n_models <- length(x)
   ic_diffs <- matrix(0, nrow = n_models * (n_models - 1) / 2, ncol = 2)
   rnames <- rep("", nrow(ic_diffs))
@@ -783,26 +868,10 @@ compare_ic <- function(x, ic = c("waic", "loo")) {
     }
   }
   rownames(ic_diffs) <- rnames
-  colnames(ic_diffs) <- c(toupper(ic), "SE")
-  # compare all models at once to obtain weights
-  all_compare <- do.call(loo::compare, x)
-  if (n_models == 2L) {
-    # weights are named differently when comparing only 2 models
-    weights <- unname(all_compare[c("weight1", "weight2")])
-  } else {
-    # weights must be resorted as loo::compare sorts models after weights
-    get_input_names <- function(...) {
-      # mimic the way loo::compare defines model names
-      as.character(match.call())[-1L]
-    }
-    if ("weights" %in% colnames(all_compare)) {
-      weights <- unname(all_compare[do.call(get_input_names, x), "weights"])
-    } else {
-      # weights have been temporarily removed in loo 0.1.5
-      weights <- rep(NA, n_models)
-    }
-  }
-  nlist(ic_diffs, weights)
+  colnames(ic_diffs) <- c(toupper(ics[1]), "SE")
+  x$ic_diffs__ <- ic_diffs
+  class(x) <- c("iclist", "list")
+  x
 }
 
 set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+08) {
@@ -814,7 +883,7 @@ set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+08) {
   #   thres: threshold above which pointwise is set to TRUE
   # Returns:
   #   TRUE or FALSE
-  nsamples <- Nsamples(x, subset = subset)
+  nsamples <- nsamples(x, subset = subset)
   if (is.data.frame(newdata)) {
     nobs <- nrow(newdata)
   } else {
@@ -838,12 +907,13 @@ match_response <- function(models) {
   if (length(models) <= 1L) {
     out <- TRUE  
   } else {
+    add_funs <- lsp("brms", what = "exports", pattern = "^resp_")
+    match_vars <- c("Y", sub("^resp_", "", add_funs))
     .match_fun <- function(x, y) {
       # checks if all relevant parts of the response are the same 
       # Args:
       #   x, y: named lists as returned by standata
-      to_match <- c("Y", "se", "weights", "cens", "trunc", "disp")
-      all(ulapply(to_match, function(v) {
+      all(ulapply(match_vars, function(v) {
         a <- if (is.null(attr(x, "old_order"))) as.vector(x[[v]])
              else as.vector(x[[v]])[attr(x, "old_order")]
         b <- if (is.null(attr(y, "old_order"))) as.vector(y[[v]])
@@ -851,13 +921,13 @@ match_response <- function(models) {
         is_equal(a, b)
       }))
     }
-    standatas <- lapply(models, standata, control = list(save_order = TRUE))
-    matches <- ulapply(standatas[-1], .match_fun, y = standatas[[1]]) 
+    sdatas <- lapply(models, standata, control = list(save_order = TRUE))
+    matches <- ulapply(sdatas[-1], .match_fun, y = sdatas[[1]]) 
     if (all(matches)) {
       out <- TRUE
     } else {
       out <- FALSE
-      warning2("Model comparisons are most likely invalid as the response ", 
+      warning2("Model comparisons are likely invalid as the response ", 
                "parts of at least two models do not match.")
     }
   }
@@ -978,7 +1048,7 @@ make_point_frame <- function(mf, effects, conditions, groups, family) {
   }
   if (!is.numeric(points$resp__)) {
     points$resp__ <- as.numeric(as.factor(points$resp__))
-    if (is.binary(family)) {
+    if (is_binary(family)) {
       points$resp__ <- points$resp__ - 1
     }
   }
@@ -995,7 +1065,8 @@ add_samples <- function(x, newpar, dim = numeric(0), dist = "norm", ...) {
   #   dim: dimension of the new parameter
   # Returns:
   #   a brmsfit object with samples of a new parameter
-  stopifnot(is(x, "brmsfit"), identical(dim, numeric(0)))
+  stopifnot(is.brmsfit(x))
+  stopifnot(identical(dim, numeric(0)))
   for (i in seq_along(x$fit@sim$samples)) {
     x$fit@sim$samples[[i]][[newpar]] <- 
       do.call(paste0("r", dist), list(x$fit@sim$iter, ...))

@@ -172,8 +172,7 @@ predict_cauchy_fixed <- function(i, draws, ...) {
 }
 
 predict_binomial <- function(i, draws, ntrys = 5, ...) {
-  trials <- ifelse(length(draws$data$max_obs) > 1, 
-                   draws$data$max_obs[i], draws$data$max_obs) 
+  trials <- draws$data$trials[i]
   args <- list(size = trials, prob = ilink(get_eta(draws, i), draws$f$link))
   rng_discrete(nrng = draws$nsamples, dist = "binom", args = args, 
                lb = draws$data$lb[i], ub = draws$data$ub[i], 
@@ -224,9 +223,17 @@ predict_gamma <- function(i, draws, ...) {
 
 predict_weibull <- function(i, draws, ...) {
   shape <- get_shape(draws$shape, data = draws$data, i = i)
-  args <- list(shape = shape, 
-               scale = ilink(get_eta(draws, i) / shape, draws$f$link))
+  scale <- ilink(get_eta(draws, i) / shape, draws$f$link)
+  args <- list(shape = shape, scale = scale)
   rng_continuous(nrng = draws$nsamples, dist = "weibull", args = args, 
+                 lb = draws$data$lb[i], ub = draws$data$ub[i])
+}
+
+predict_frechet <- function(i, draws, ...) {
+  nu <- get_auxpar(draws$nu, i = i)
+  scale <- ilink(get_eta(draws, i), draws$f$link) / gamma(1 - 1 / nu)
+  args <- list(scale = scale, shape = nu)
+  rng_continuous(nrng = draws$nsamples, dist = "frechet", args = args, 
                  lb = draws$data$lb[i], ub = draws$data$ub[i])
 }
 
@@ -267,6 +274,14 @@ predict_von_mises <- function(i, draws, ...) {
   args <- list(mu = ilink(get_eta(draws, i), draws$f$link), 
                kappa = get_auxpar(draws$kappa, i = i))
   rng_continuous(nrng = draws$nsamples, dist = "von_mises", args = args,
+                 lb = draws$data$lb[i], ub = draws$data$ub[i])
+}
+
+predict_asym_laplace <- function(i, draws, ...) {
+  args <- list(mu = ilink(get_eta(draws, i), draws$f$link), 
+               sigma = get_sigma(draws$sigma, data = draws$data, i = i),
+               quantile = get_auxpar(draws$quantile, i = i))
+  rng_continuous(nrng = draws$nsamples, dist = "asym_laplace", args = args, 
                  lb = draws$data$lb[i], ub = draws$data$ub[i])
 }
 
@@ -354,8 +369,7 @@ predict_zero_inflated_negbinomial <- function(i, draws, ...) {
 predict_zero_inflated_binomial <- function(i, draws, ...) {
   # theta is the bernoulii zero-inflation parameter
   theta <- get_theta(draws, i, par = "zi")
-  trials <- ifelse(length(draws$data$max_obs) > 1, 
-                   draws$data$max_obs[i], draws$data$max_obs)
+  trials <- draws$data$trials[i]
   prob <- ilink(get_eta(draws, i), draws$f$link)
   ndraws <- draws$nsamples
   # compare with theta to incorporate the zero-inflation process
@@ -364,8 +378,7 @@ predict_zero_inflated_binomial <- function(i, draws, ...) {
 }
 
 predict_categorical <- function(i, draws, ...) {
-  ncat <- ifelse(length(draws$data$max_obs) > 1, 
-                 draws$data$max_obs[i], draws$data$max_obs) 
+  ncat <- draws$data$ncat
   p <- pcategorical(1:ncat, eta = get_eta(draws, i)[, 1, ], 
                     ncat = ncat, link = draws$f$link)
   first_greater(p, target = runif(draws$nsamples, min = 0, max = 1))
@@ -388,8 +401,7 @@ predict_acat <- function(i, draws, ...) {
 }  
 
 predict_ordinal <- function(i, draws, family, ...) {
-  ncat <- ifelse(length(draws$data$max_obs) > 1, 
-                 draws$data$max_obs[i], draws$data$max_obs)
+  ncat <- draws$data$ncat
   disc <- get_disc(draws, i, ncat)
   eta <- (disc * get_eta(draws, i))[, 1, ]
   p <- pordinal(1:ncat, eta = eta, ncat = ncat, 

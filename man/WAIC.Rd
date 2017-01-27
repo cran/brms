@@ -18,19 +18,21 @@ WAIC(x, ...)
 
 \item{...}{Optionally more fitted model objects.}
 
-\item{compare}{A flag indicating if the WAICs 
-of the models should be compared to each other.}
+\item{compare}{A flag indicating if the information criteria
+of the models should be compared to each other
+via \code{\link[brms:compare_ic]{compare_ic}}.}
 
 \item{newdata}{An optional data.frame for which to evaluate predictions.
 If \code{NULL} (default), the orginal data of the model is used.}
 
-\item{re_formula}{formula containing random effects 
+\item{re_formula}{formula containing group-level effects 
 to be considered in the prediction. 
-If \code{NULL} (default), include all random effects; 
-if \code{NA}, include no random effects.}
+If \code{NULL} (default), include all group-level effects; 
+if \code{NA}, include no group-level effects.}
 
 \item{allow_new_levels}{A flag indicating if new
-levels of random effects are allowed (defaults to \code{FALSE}). 
+levels of group-level effects are allowed 
+(defaults to \code{FALSE}). 
 Only relevant if \code{newdata} is provided.}
 
 \item{subset}{A numeric vector specifying
@@ -55,7 +57,7 @@ If just one object is provided, an object of class \code{ic}.
  If multiple objects are provided, an object of class \code{iclist}.
 }
 \description{
-Compute the Watanabe-Akaike Information Criterion 
+Compute the widely applicable information criterion (WAIC)
 based on the posterior likelihood using the \pkg{loo} package.
 }
 \details{
@@ -69,12 +71,12 @@ When comparing models fitted to the same data,
 }}
 \examples{
 \dontrun{
-# model with fixed effects only
+# model with population-level effects only
 fit1 <- brm(rating ~ treat + period + carry,
             data = inhaler, family = "gaussian")
 WAIC(fit1)
 
-# model with an additional random intercept for subjects
+# model with an additional varying intercept for subjects
 fit2 <- brm(rating ~ treat + period + carry + (1|subject),
             data = inhaler, family = "gaussian")
 # compare both models
@@ -86,9 +88,9 @@ WAIC(fit1, fit2)
 Paul-Christian Buerkner \email{paul.buerkner@gmail.com}
 }
 \references{
-Vehtari, A., Gelman, A., and Gabry, J. (2015). 
-Efficient implementation of leave-one-out cross-validation 
-and WAIC for evaluating fitted Bayesian models.
+Vehtari, A., Gelman, A., & Gabry J. (2016). Practical Bayesian model
+evaluation using leave-one-out cross-validation and WAIC. In Statistics 
+and Computing, doi:10.1007/s11222-016-9696-4. arXiv preprint arXiv:1507.04544.
 
 Gelman, A., Hwang, J., & Vehtari, A. (2014). 
 Understanding predictive information criteria for Bayesian models. 

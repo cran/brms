@@ -8,20 +8,20 @@ test_that("all S3 methods have reasonable ouputs", {
   # as.data.frame
   ps <- as.data.frame(fit1)
   expect_true(is(ps, "data.frame"))
-  expect_equal(dim(ps), c(Nsamples(fit1), length(parnames(fit1))))
+  expect_equal(dim(ps), c(nsamples(fit1), length(parnames(fit1))))
   
   # as.matrix
   ps <- as.matrix(fit1)
   expect_true(is(ps, "matrix"))
-  expect_equal(dim(ps), c(Nsamples(fit1), length(parnames(fit1))))
+  expect_equal(dim(ps), c(nsamples(fit1), length(parnames(fit1))))
   
   # as.mcmc
   chains <- fit1$fit@sim$chains
   mc <- as.mcmc(fit1)
   expect_equal(length(mc), chains)
-  expect_equal(dim(mc[[1]]), c(Nsamples(fit1) / chains, length(parnames(fit1))))
+  expect_equal(dim(mc[[1]]), c(nsamples(fit1) / chains, length(parnames(fit1))))
   mc <- as.mcmc(fit1, combine_chains = TRUE)
-  expect_equal(dim(mc), c(Nsamples(fit1), length(parnames(fit1))))
+  expect_equal(dim(mc), c(nsamples(fit1), length(parnames(fit1))))
   # test assumes thin = 1
   expect_equal(dim(as.mcmc(fit1, inc_warmup = TRUE)[[1]]), 
                c(fit1$fit@sim$iter, length(parnames(fit1))))
@@ -76,7 +76,7 @@ test_that("all S3 methods have reasonable ouputs", {
                     c("median", "5%", "95%")))
   
   # formula
-  expect_equal(formula(fit1), 
+  expect_equal(formula(fit1)$formula, 
     count ~ Trt * Age + mono(Exp) + s(Age) + offset(Age) + (1 + Trt | visit))
   
   # hypothesis
@@ -95,8 +95,8 @@ test_that("all S3 methods have reasonable ouputs", {
   # omit launch_shiny
   
   # log_lik
-  expect_equal(dim(log_lik(fit1)), c(Nsamples(fit1), nobs(fit1)))
-  expect_equal(dim(log_lik(fit2)), c(Nsamples(fit2), nobs(fit2)))
+  expect_equal(dim(log_lik(fit1)), c(nsamples(fit1), nobs(fit1)))
+  expect_equal(dim(log_lik(fit2)), c(nsamples(fit2), nobs(fit2)))
   expect_equal(log_lik(fit1), logLik(fit1))
   
   # LOO
@@ -107,14 +107,13 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(loo1, SW(loo(fit1, cores = 1)))
   
   loo_compare1 <- SW(LOO(fit1, fit1, cores = 1))
-  expect_equal(length(loo_compare1), 2)
-  expect_equal(dim(attr(loo_compare1, "compare")), c(1, 2))
+  expect_equal(length(loo_compare1), 3)
+  expect_equal(dim(loo_compare1$ic_diffs__), c(1, 2))
   expect_output(print(loo_compare1), "fit1 - fit1")
   
   loo_compare2 <- SW(LOO(fit1, fit1, fit1, cores = 1))
-  expect_equal(length(loo_compare2), 3)
-  expect_equal(dim(attr(loo_compare2, "compare")), c(3, 2))
-  # expect_output(print(loo_compare3), "Weights")
+  expect_equal(length(loo_compare2), 4)
+  expect_equal(dim(loo_compare2$ic_diffs__), c(3, 2))
   
   loo2 <- SW(LOO(fit2, cores = 1))
   expect_true(is.numeric(loo2[["looic"]]))
@@ -127,8 +126,20 @@ test_that("all S3 methods have reasonable ouputs", {
   loo4 <- SW(LOO(fit4, cores = 1))
   expect_true(is.numeric(loo4[["looic"]]))
   
-  # marginal_effects (the related plot method is tested in tests.plots)
-  expect_equal(nrow(marginal_effects(fit1)[[2]]), 100)
+  # marginal_effects
+  me <- marginal_effects(fit1)
+  expect_equal(nrow(me[[2]]), 100)
+  meplot <- plot(me, points = TRUE, rug = TRUE, 
+                 ask = FALSE, plot = FALSE)
+  expect_true(is(meplot[[1]], "ggplot"))
+  
+  me <- marginal_effects(fit1, "Trt:Age", surface = TRUE, 
+                         resolution = 15, too_far = 0.2)
+  meplot <- plot(me, plot = FALSE)
+  expect_true(is(meplot[[1]], "ggplot"))
+  meplot <- plot(me, stype = "raster", plot = FALSE)
+  expect_true(is(meplot[[1]], "ggplot"))
+  
   mdata = data.frame(Age = c(-0.3, 0, 0.3), count = c(10, 20, 30), 
                      visit = 1:3, patient = 1, Trt = 0, Exp = c(1,3,5))
   exp_nrow <- nrow(mdata) * 100
@@ -172,6 +183,11 @@ test_that("all S3 methods have reasonable ouputs", {
   # nobs
   expect_equal(nobs(fit1), nrow(epilepsy))
   
+  # nsamples
+  expect_equal(nsamples(fit1), 100)
+  expect_equal(nsamples(fit1, subset = 10:1), 10)
+  expect_equal(nsamples(fit1, incl_warmup = TRUE), 400)
+  
   # parnames 
   expect_equal(parnames(fit1)[c(1, 8, 9, 13, 15, 17, 27, 35, 38, 46)],
                c("b_Intercept", "bmo_Exp", "ar[1]", "cor_visit__Intercept__Trt", 
@@ -187,7 +203,7 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # posterior_samples
   ps <- posterior_samples(fit1)
-  expect_equal(dim(ps), c(Nsamples(fit1), length(parnames(fit1))))
+  expect_equal(dim(ps), c(nsamples(fit1), length(parnames(fit1))))
   expect_equal(names(ps), parnames(fit1))
   expect_equal(names(posterior_samples(fit1, pars = "^b_")),
                c("b_Intercept", "b_Trt", "b_Age", "b_Trt:Age", 
@@ -195,7 +211,7 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # posterior_predict
   expect_equal(dim(posterior_predict(fit1)), 
-               c(Nsamples(fit1), nobs(fit1)))
+               c(nsamples(fit1), nobs(fit1)))
   
   # pp_check
   expect_true(is(pp_check(fit1), "ggplot"))
@@ -217,8 +233,8 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(pred), c(nobs(fit1), 4))
   expect_equal(colnames(pred), 
                c("Estimate", "Est.Error", "2.5%ile", "97.5%ile"))
-  expect_equal(dim(predict(fit1, nsamples = 10, probs = 0.5)), 
-               c(nobs(fit1), 3))
+  pred <- predict(fit1, nsamples = 10, probs = c(0.2, 0.5, 0.8))
+  expect_equal(dim(pred), c(nobs(fit1), 5))
   
   newdata <- data.frame(Age = c(0, -0.2), visit = c(1, 4),
                         Trt = c(-0.2, 0.5), count = c(2, 10),
@@ -240,6 +256,7 @@ test_that("all S3 methods have reasonable ouputs", {
   
   pred <- predict(fit4)
   expect_equal(dim(pred), c(nobs(fit4), 4))
+  expect_equal(colnames(pred), paste0("P(Y = ", 1:4, ")"))
   # check if grouping factors with a single level are accepted
   newdata$patient <- factor(2)
   pred <- predict(fit2, newdata = newdata)
@@ -247,7 +264,7 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # predictive error
   expect_equal(dim(predictive_error(fit1)), 
-               c(Nsamples(fit1), nobs(fit1)))
+               c(nsamples(fit1), nobs(fit1)))
   
   # print
   expect_output(SW(print(fit1)), "Group-Level Effects:")
@@ -257,10 +274,10 @@ test_that("all S3 methods have reasonable ouputs", {
   prior_names <- c("sds_sAge_1", "nu", "sd_visit", "b", "bmo", 
                    paste0("simplex_Exp[", 1:4, "]"), "cor_visit")
   expect_equal(dimnames(prs1),
-               list(as.character(1:Nsamples(fit1)), prior_names))
+               list(as.character(1:nsamples(fit1)), prior_names))
   
   prs2 <- prior_samples(fit1, pars = "b_Trt")
-  expect_equal(dimnames(prs2), list(as.character(1:Nsamples(fit1)), "b_Trt"))
+  expect_equal(dimnames(prs2), list(as.character(1:nsamples(fit1)), "b_Trt"))
   expect_equal(sort(prs1$b), sort(prs2$b_Trt))
   
   # prior_summary
@@ -350,10 +367,14 @@ test_that("all S3 methods have reasonable ouputs", {
                "New variables found: wrong_var")
   up <- update(fit2, algorithm = "fullrank", testmode = TRUE)
   expect_equal(up$algorithm, "fullrank")
-  up <- update(fit2, formula. = bf(. ~ ., nonlinear = a + b ~ 1), 
+  up <- update(fit2, formula. = bf(. ~ ., a + b ~ 1, nl = TRUE), 
                testmode = TRUE)
   expect_true(is(up, "brmsfit"))
   up <- update(fit2, formula. = count ~ a + b, testmode = TRUE)
+  expect_true(is(up, "brmsfit"))
+  up <- update(fit3, family = acat(), testmode = TRUE)
+  expect_true(is(up, "brmsfit"))
+  up <- update(fit3, bf(~., family = acat()), testmode = TRUE)
   expect_true(is(up, "brmsfit"))
   
   # VarCorr
@@ -383,13 +404,13 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(waic1, SW(waic(fit1)))
   
   waic_compare <- SW(WAIC(fit1, fit1))
-  expect_equal(length(waic_compare), 2)
-  expect_equal(dim(attr(waic_compare, "compare")), c(1,2))
+  expect_equal(length(waic_compare), 3)
+  expect_equal(dim(waic_compare$ic_diffs__), c(1, 2))
   waic2 <- SW(WAIC(fit2))
   expect_true(is.numeric(waic2[["waic"]]))
   waic_pointwise <- SW(WAIC(fit2, pointwise = TRUE))
   expect_equal(waic2, waic_pointwise)
-  expect_warning(WAIC(fit1, fit2), "Model comparisons are most likely invalid")
+  expect_warning(WAIC(fit1, fit2), "Model comparisons are likely invalid")
   waic4 <- SW(WAIC(fit4))
   expect_true(is.numeric(waic4[["waic"]]))
   
