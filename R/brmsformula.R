@@ -571,14 +571,14 @@ prepare_auxformula <- function(formula, par = NULL, rsv_pars = NULL) {
 
 auxpars <- function() {
   # names of auxiliary parameters
-  c("sigma", "shape", "nu", "phi", "kappa", "beta", 
+  c("mu", "sigma", "shape", "nu", "phi", "kappa", "beta", "xi",
     "zi", "hu", "disc", "bs", "ndt", "bias", "quantile")
 }
 
-links_auxpars <- function(ap = NULL) {
+links_auxpars <- function(ap) {
   # link functions for auxiliary parameters
-  stopifnot(length(ap) <= 1L)
-  link <- list(
+  switch(ap,
+    mu = "identity",
     sigma = "log", 
     shape = "log", 
     nu = "logm1", 
@@ -591,44 +591,34 @@ links_auxpars <- function(ap = NULL) {
     bs = "log", 
     ndt = "log", 
     bias = "logit",
-    quantile = "logit"
+    quantile = "logit",
+    xi = "log1p",
+    stop2("Parameter '", ap, "' is not supported.")
   )
-  if (length(ap)) {
-    link <- link[[ap]]
-  }
-  link
 }
 
-ilink_auxpars <- function(ap = NULL, stan = FALSE) {
-  # helper function to store inverse links of auxiliary parameters
-  if (stan) {
-    ilink <- c(sigma = "exp", shape = "exp", nu = "expp1", phi = "exp", 
-               kappa = "exp", beta = "exp", zi = "", hu = "", 
-               bs = "exp", ndt = "exp", bias = "inv_logit", disc = "exp",
-               quantile = "inv_logit") 
-  } else {
-    ilink <- c(sigma = "exp", shape = "exp", nu = "expp1", phi = "exp", 
-               kappa = "exp", beta = "exp", zi = "inv_logit", 
-               hu = "inv_logit", bs = "exp", ndt = "exp", 
-               bias = "inv_logit", disc = "exp", quantile = "inv_logit")
-  }
-  if (length(ap)) {
-    ilink <- ilink[ap]
-  }
-  ilink
-}
-
-valid_auxpars <- function(family, bterms = list(), autocor = cor_arma()) {
+valid_auxpars <- function(family, bterms = NULL) {
   # convenience function to find relevant auxiliary parameters
-  x <- c(sigma = has_sigma(family, bterms = bterms, autocor = autocor),
-         shape = has_shape(family), nu = has_nu(family), 
-         phi = has_phi(family), kappa = has_kappa(family),
-         beta = has_beta(family),
-         zi = is_zero_inflated(family, zi_beta = TRUE), 
-         hu = is_hurdle(family, zi_beta = FALSE),
-         bs = is_wiener(family), ndt = is_wiener(family), 
-         bias = is_wiener(family), disc = is_ordinal(family),
-         quantile = is_asym_laplace(family))
+  if (missing(family) && !is.null(bterms$family)) {
+    family <- bterms$family
+  } 
+  x <- c(
+    mu = TRUE,
+    sigma = has_sigma(family, bterms = bterms),
+    shape = has_shape(family), 
+    nu = has_nu(family), 
+    phi = has_phi(family),
+    kappa = has_kappa(family),
+    beta = has_beta(family),
+    zi = is_zero_inflated(family, zi_beta = TRUE), 
+    hu = is_hurdle(family, zi_beta = FALSE),
+    bs = is_wiener(family), 
+    ndt = is_wiener(family), 
+    bias = is_wiener(family), 
+    disc = is_ordinal(family),
+    quantile = is_asym_laplace(family),
+    xi = has_xi(family)
+  )
   names(x)[x]
 }
 
@@ -640,6 +630,55 @@ pforms <- function(x, ...) {
 pfix <- function(x, ...) {
   # extract fixed values of additional parameters
   bf(x, ...)[["pfix"]]
+}
+
+amend_formula <- function(formula, data = NULL, family = NULL,
+                          nonlinear = NULL, partial = NULL) {
+  # incorporate additional arguments into formula
+  # Args:
+  #   formula: object of class 'formula' of 'brmsformula'
+  #   data: optional data.frame
+  #   family: optional object of class 'family'
+  #   nonlinear, partial: deprecated arguments of brm
+  # Returns:
+  #   a brmsformula object compatible with the current version of brms
+  out <- bf(formula, family = family, nonlinear = nonlinear)
+  fnew <- ". ~ ."
+  if (!is.null(partial)) {
+    warning2("Argument 'partial' is deprecated. Please use the 'cs' ", 
+             "function inside the model formula instead.")
+    partial <- formula2str(partial, rm = 1)
+    fnew <- paste(fnew, "+ cs(", partial, ")")
+  }
+  # to allow the '.' symbol in formula
+  try_terms <- try(terms(out$formula, data = data), silent = TRUE)
+  if (!is(try_terms, "try-error")) {
+    out$formula <- formula(try_terms)
+  }
+  if (fnew != ". ~ .") {
+    out$formula <- update.formula(out$formula, formula(fnew))
+  }
+  if (is.null(out$family)) {
+    out$family <- check_family(gaussian())
+  }
+  if (is_ordinal(out$family)) {
+    # fix discrimination to 1 by default
+    if (!"disc" %in% c(names(pforms(out)), names(pfix(out)))) {
+      out <- bf(out, disc = 1)
+    }
+  }
+  if (is_categorical(out$family) && is.null(out[["response"]])) {
+    respform <- parse_bf(out)$respform
+    model_response <- model.response(model.frame(respform, data = data))
+    response <- levels(factor(model_response))
+    if (length(response) <= 2L) {
+      stop2("At least 3 response categories are required for family ", 
+            "'categorical'.\nPlease use family 'bernoulli' instead.")
+    }
+    # the first level will serve as the reference category
+    out[["response"]] <- response[-1]
+  }
+  out
 }
 
 #' @export

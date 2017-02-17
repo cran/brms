@@ -1,292 +1,10 @@
-stan_llh <- function(family, bterms, data = NULL, 
-                     autocor = cor_arma()) {
-  # Likelihood in Stan language
-  # Args:
-  #   family: the model family
-  #   bterms: object of class brmsterms
-  #   autocor: object of classe cor_brms
-  stopifnot(is.family(family))
-  stopifnot(is.brmsterms(bterms))
-  link <- family$link
-  family <- family$family
-  is_categorical <- is_categorical(family)
-  is_ordinal <- is_ordinal(family)
-  is_hurdle <- is_hurdle(family)
-  is_zero_inflated <- is_zero_inflated(family)
-  is_forked <- is_forked(family)
-  is_mv <- is_linear(family) && length(bterms$response) > 1L
-  
-  has_sigma <- has_sigma(family, bterms, autocor)
-  has_se <- is.formula(bterms$se)
-  has_weights <- is.formula(bterms$weights)
-  has_cens <- has_cens(bterms$cens, data = data)
-  has_disp <- is.formula(bterms$disp)
-  has_cs <- has_cs(bterms)
-  bounds <- get_bounds(bterms$trunc, data = data)
-  has_trunc <- any(bounds$lb > -Inf) || any(bounds$ub < Inf)
-  llh_adj <- stan_llh_adj(bterms)
-
-  if (is_mv) {
-    # prepare for use of a multivariate likelihood
-    family <- paste0(family, "_mv")
-  } else if (use_cov(autocor)) {
-    # ARMA effects in covariance matrix formulation
-    if (llh_adj) {
-      stop2("Invalid addition arguments for this model.")
-    }
-    family <- paste0(family, "_cov")
-  } else if (is.cor_fixed(autocor)) {
-    if (has_se || llh_adj) {
-      stop2("Invalid addition arguments for this model.")
-    }
-    family <- paste0(family, "_fixed")
-  }
-  
-  auxpars <- names(bterms$auxpars)
-  reqn <- llh_adj || is_categorical || is_ordinal || 
-          is_hurdle || is_zero_inflated || is_wiener(family) ||
-          is_exgaussian(family) || is_asym_laplace(family) ||
-          has_sigma && has_se && !use_cov(autocor) ||
-          any(c("phi", "kappa") %in% auxpars)
-  n <- ifelse(reqn, "[n]", "")
-  # prepare auxiliary parameters
-  p <- named_list(auxpars())
-  p$sigma <- stan_llh_sigma(family, bterms, autocor)
-  p$shape <- stan_llh_shape(family, bterms)
-  for (ap in setdiff(auxpars(), c("sigma", "shape"))) {
-    p[[ap]] <- paste0(ap, if (reqn && ap %in% auxpars) "[n]")
-  }
-  .logit <- ifelse(any(c("zi", "hu") %in% auxpars), "_logit", "")
-  trials <- ifelse(llh_adj || is_zero_inflated, "trials[n]", "trials")
-
-  simplify <- stan_has_built_in_fun(family, link) &&
-              !has_trunc && !has_cens && !"disc" %in% auxpars
-  eta <- paste0(ifelse(is_mv, "Eta", "eta"), n)
-  ord_args <- paste0("eta[n], ", if (has_cs) "etacs[n], ", 
-                     "temp_Intercept, ", p$disc)
-  inv_gauss_fun <- paste0("inv_gaussian", if (!reqn) "_vector")
-  inv_gauss_args <- paste0(eta, ", shape, ", if (!reqn) "sum_", 
-                           "log_Y", n, ", sqrt_Y", n)
-  if (simplify) { 
-    llh_pre <- switch(family,
-      poisson = c("poisson_log", eta), 
-      negbinomial = c("neg_binomial_2_log", paste0(eta, ", ", p$shape)),
-      geometric = c("neg_binomial_2_log", paste0(eta, ", 1")),
-      cumulative = c("ordered_logistic", "eta[n], temp_Intercept"),
-      categorical = c("categorical_logit", "append_row(zero, Eta[n])"),
-      binomial = c("binomial_logit", paste0(trials, ", ", eta)), 
-      bernoulli = c("bernoulli_logit", eta))
-  } else {
-    llh_pre <- switch(family,
-      gaussian = c("normal", paste0(eta, ", ", p$sigma)),
-      gaussian_cov = c("normal_cov", paste0(eta,", se2, N_tg, ", 
-                       "begin_tg, end_tg, nobs_tg, res_cov_matrix")),
-      gaussian_mv = c("multi_normal_cholesky", paste0(eta, ", LSigma")),
-      gaussian_fixed = c("multi_normal_cholesky", paste0(eta, ", LV")),
-      student = c("student_t",  paste0(p$nu, ", ", eta, ", ", p$sigma)),
-      student_cov = c("student_t_cov", paste0(p$nu, ", ", eta, ", se2, N_tg, ", 
-                      "begin_tg, end_tg, nobs_tg, res_cov_matrix")),
-      student_mv = c("multi_student_t", paste0(p$nu, ", ", eta, ", Sigma")),
-      student_fixed = c("multi_student_t", paste0(p$nu, ", ", eta, ", V")),
-      asym_laplace = c("asym_laplace", 
-                      paste0(eta, ", ", p$sigma, ", ", p$quantile)),
-      lognormal = c("lognormal", paste0(eta, ", ", p$sigma)),
-      poisson = c("poisson", eta),
-      negbinomial = c("neg_binomial_2", paste0(eta, ", ", p$shape)),
-      geometric = c("neg_binomial_2", paste0(eta, ", 1")),
-      binomial = c("binomial", paste0(trials, ", ", eta)),
-      bernoulli = c("bernoulli", eta),
-      gamma = c("gamma", paste0(p$shape, ", ", eta)), 
-      exponential = c("exponential", eta),
-      weibull = c("weibull", paste0(p$shape, ", ", eta)), 
-      frechet = c("frechet", paste0(p$nu, ", ", eta)),
-      exgaussian = c("exgaussian", paste0(eta, ", ", p$sigma, ", ", p$beta)),
-      inverse.gaussian = c(inv_gauss_fun, inv_gauss_args),
-      wiener = c("wiener_diffusion", 
-        paste0("dec[n], ", p$bs, ", ", p$ndt, ", ", p$bias, ", ", eta)),
-      beta = c("beta", paste0(eta, " * ", p$phi, ", (1 - ", eta, ") * ", p$phi)),
-      von_mises = c(paste0("von_mises_", ifelse(reqn, "real", "vector")), 
-                           paste0(eta, ", ", p$kappa)),
-      cumulative = c("cumulative", ord_args),
-      sratio = c("sratio", ord_args),
-      cratio = c("cratio", ord_args),
-      acat = c("acat", ord_args),
-      hurdle_poisson = c(paste0("hurdle_poisson", .logit), 
-                         paste0(eta, ", ", p$hu)),
-      hurdle_negbinomial = c(paste0("hurdle_neg_binomial", .logit), 
-                             paste0(eta, ", ", p$hu, ", ", p$shape)),
-      hurdle_gamma = c(paste0("hurdle_gamma", .logit), 
-                       paste0(p$shape, ", ", eta, ", ", p$hu)),
-      hurdle_lognormal = c(paste0("hurdle_lognormal", .logit), 
-                           paste0(eta, ", ", p$hu, ", ", p$sigma)),
-      zero_inflated_poisson = c(paste0("zero_inflated_poisson", .logit), 
-                                paste0(eta, ", ", p$zi)),
-      zero_inflated_negbinomial = 
-        c(paste0("zero_inflated_neg_binomial", .logit),
-          paste0(eta, ", ", p$zi, ", ", p$shape)),
-      zero_inflated_binomial = c(paste0("zero_inflated_binomial", .logit), 
-                                 paste0(trials, ", ", eta, ", ", p$zi)),
-      zero_inflated_beta = c(paste0("zero_inflated_beta", .logit), 
-                             paste0(eta, ", ", p$zi, ", ", p$phi)))
-  }
-  
-  # write likelihood code
-  interval <- isTRUE(attr(has_cens, "interval"))
-  type <- c("cens", "weights")[match(TRUE, c(has_cens, has_weights))]
-  if (is.na(type)) type <- "general"
-  llh <- switch(type, 
-    cens = stan_llh_cens(llh_pre, family, interval, has_weights, bounds),
-    weights = stan_llh_weights(llh_pre, family, bounds),
-    general = stan_llh_general(llh_pre, reqn, bounds)) 
-  if (reqn) {
-    # loop over likelihood if it cannot be vectorized
-    llh <- paste0("  for (n in 1:N) { \n    ", llh, "    } \n")
-  }
-  llh
-}
-
-stan_llh_general <- function(llh_pre, reqn = FALSE, bounds = NULL) {
-  # default likelihood in Stan language
-  # Args:
-  #   reqn: does Y require the index 'n'?
-  #   bounds: a list containing elements lb and ub
-  stopifnot(length(llh_pre) == 2L)
-  tr <- stan_llh_trunc(llh_pre, bounds = bounds)
-  paste0("  Y", ifelse(reqn, "[n]", ""), " ~ ", llh_pre[1], 
-         "(", llh_pre[2], ")", tr, "; \n")
-}
-
-stan_llh_cens <- function(llh_pre, family, interval = FALSE, 
-                          weights = FALSE, bounds = NULL) {
-  # censored likelihood in Stan language
-  # Args: 
-  #   interval: are there interval censored responses present?
-  #   weights: is the model additionally weighted?
-  stopifnot(length(llh_pre) == 2L)
-  s <- collapse(rep(" ", 6))
-  tp <- "  target += "
-  lpdf <- ifelse(use_int(family), "lpmf", "lpdf")
-  w <- ifelse(weights, "weights[n] * ", "")
-  tr <- stan_llh_trunc(llh_pre, bounds = bounds, general = FALSE)
-  if (interval) {
-    int_cens <- paste0(
-      s, "} else if (cens[n] == 2) { \n",
-      s, tp, w, "log_diff_exp(", 
-      llh_pre[1], "_lcdf(rcens[n] | ", llh_pre[2], "), \n",
-      collapse(rep(" ", 31)),
-      llh_pre[1], "_lcdf(Y[n] | ", llh_pre[2], "))", tr, "; \n"
-    )
-  } else {
-    int_cens <- ""
-  }
-  paste0("  // special treatment of censored data \n",
-    s, "if (cens[n] == 0) {\n", 
-    s, tp, w, llh_pre[1], "_", lpdf, "(Y[n] | ", llh_pre[2], ")", tr, ";\n",
-    s, "} else if (cens[n] == 1) {\n",         
-    s, tp, w, llh_pre[1], "_lccdf(Y[n] | ", llh_pre[2], ")", tr, ";\n",
-    s, "} else if (cens[n] == -1) {\n",
-    s, tp, w, llh_pre[1], "_lcdf(Y[n] | ", llh_pre[2], ")", tr, ";\n",
-    int_cens, s, "} \n"
-  )
-}
-
-stan_llh_weights <- function(llh_pre, family, bounds = NULL) {
-  # weighted likelihood in Stan language
-  stopifnot(length(llh_pre) == 2L)
-  tr <- stan_llh_trunc(llh_pre, bounds = bounds, general = FALSE)
-  lpdf <- ifelse(use_int(family), "lpmf", "lpdf")
-  paste0("  lp_pre[n] = ", llh_pre[1], "_", lpdf, 
-         "(Y[n] | ", llh_pre[2],")", tr, "; \n")
-}
-
-stan_llh_trunc <- function(llh_pre, bounds, general = TRUE) {
-  # truncated part of the likelihood
-  # Args:
-  #   general: use the T[, ] syntax?
-  if (general) {
-    if (any(bounds$lb > -Inf) || any(bounds$ub < Inf)) {
-      # truncation using T[, ] syntax
-      lb <- ifelse(any(bounds$lb > -Inf), "lb[n]", "")
-      ub <- ifelse(any(bounds$ub < Inf), "ub[n]", "")
-      tr <- paste0(" T[", lb, ", ", ub, "]")
-    } else {
-      tr <- ""
-    }
-  } else {
-    # truncation making use of _lcdf functions
-    ms <- paste0(" - \n", collapse(rep(" ", 18)))
-    if (any(bounds$lb > -Inf) && !any(bounds$ub < Inf)) {
-      tr <- paste0(ms, llh_pre[1], "_lccdf(lb[n] | ", llh_pre[2], ")")
-    } else if (!any(bounds$lb > -Inf) && any(bounds$ub < Inf)) {
-      tr <- paste0(ms, llh_pre[1], "_lcdf(ub[n] | ", llh_pre[2], ")")
-    } else if (any(bounds$lb > -Inf) && any(bounds$ub < Inf)) {
-      trr <- paste0(llh_pre[1], "_lcdf(ub[n] | ", llh_pre[2], ")")
-      trl <- paste0(llh_pre[1], "_lcdf(lb[n] | ", llh_pre[2], ")")
-      tr <- paste0(ms, "log_diff_exp(", trr, ", \n",
-                   collapse(rep(" ", 31)), trl, ")")
-    } else {
-      tr <- ""
-    }
-  }
-  tr
-}
-
-stan_llh_sigma <- function(family, bterms = NULL, autocor = cor_arma()) {
-  # prepare the code for 'sigma' in the likelihood statement
-  has_sigma <- has_sigma(family, bterms, autocor)
-  has_se <- is.formula(bterms$se)
-  has_disp <- is.formula(bterms$disp)
-  llh_adj <- stan_llh_adj(bterms)
-  auxpars <- names(bterms$auxpars)
-  nsigma <- (llh_adj || has_se || is_exgaussian(family)) && 
-            (has_disp || "sigma" %in% auxpars)
-  nsigma <- if (nsigma) "[n]"
-  nse <- if (llh_adj) "[n]"
-  if (has_sigma) {
-    if (has_se) {
-      out <- paste0("sqrt(sigma", nsigma, "^2 + se2[n])")
-    } else {
-      out <- paste0(if (has_disp) "disp_", "sigma", nsigma) 
-    }
-  } else {
-    if (has_se) {
-      out <- paste0("se", nse) 
-    } else {
-      out <- NULL
-    }
-  }
-  out
-}
-
-stan_llh_shape <- function(family, bterms) {
-  # prepare the code for 'shape' in the likelihood statement
-  has_disp <- is.formula(bterms$disp)
-  llh_adj <- stan_llh_adj(bterms)
-  auxpars <- names(bterms$auxpars)
-  nshape <- (llh_adj || is_forked(family)) &&
-            (has_disp || "shape" %in% auxpars)
-  nshape <- if (nshape) "[n]"
-  paste0(if (has_disp) "disp_", "shape", nshape)
-}
-
-stan_llh_adj <- function(bterms, adds = c("weights", "cens", "trunc")) {
-  # checks if certain 'adds' are present so that the LL has to be adjusted
-  # Args:
-  #   bterms: object of class brmsterms
-  #   adds: vector of addition argument names
-  stopifnot(all(adds %in% c("weights", "cens", "trunc")))
-  any(ulapply(bterms[adds], is.formula))
-}
-
-stan_autocor <- function(autocor, bterms, family = gaussian(),
-                         prior = brmsprior()) {
+stan_autocor <- function(autocor, bterms, family, prior) {
   # Stan code related to autocorrelation structures
   # Args:
-  #   autocor: autocorrelation structure; object of class cor_brms
+  #   autocor: object of class cor_brms
   #   bterms: object of class brmsterms
   #   family: the model family
-  #   prior: a data.frame containing user defined priors 
-  #          as returned by check_prior
+  #   prior: object of class brmsprior
   stopifnot(is.family(family))
   stopifnot(is.brmsterms(bterms))
   is_linear <- is_linear(family)
@@ -308,14 +26,16 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
     if (Kar) {
       ar_bound <- with(prior, bound[class == "ar"])
       out$par <- paste0(out$par, 
-        "  vector", ar_bound, "[Kar] ar;  // autoregressive effects \n")
-      out$prior <- paste0(out$prior, stan_prior(class = "ar", prior = prior))
+        "  vector", ar_bound, "[Kar] ar;  // autoregressive effects \n"
+      )
+      out$prior <- paste0(out$prior, stan_prior(prior, class = "ar"))
     }
     if (Kma) {
       ma_bound <- with(prior, bound[class == "ma"])
       out$par <- paste0(out$par, 
-        "  vector", ma_bound, "[Kma] ma;  // moving-average effects \n")
-      out$prior <- paste0(out$prior, stan_prior(class = "ma", prior = prior))
+        "  vector", ma_bound, "[Kma] ma;  // moving-average effects \n"
+      )
+      out$prior <- paste0(out$prior, stan_prior(prior, class = "ma"))
     }
     
     if (use_cov(autocor)) {
@@ -325,14 +45,14 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
       if (is_mv) {
         stop2(err_msg, " in multivariate models.")
       }
-      if (is.formula(bterms$disp)) {
+      if (is.formula(bterms$adforms$disp)) {
         stop2(err_msg, " when specifying 'disp'.")
       }
-      if ("sigma" %in% names(bterms)) {
+      if ("sigma" %in% names(bterms$auxpars)) {
         stop2(err_msg, " when predicting 'sigma'.")
       }
       out$data <- paste0(out$data, "  #include 'data_arma_cov.stan' \n")
-      if (!is.formula(bterms$se)) {
+      if (!is.formula(bterms$adforms$se)) {
         out$tdataD <- "  vector[N] se2; \n"
         out$tdataC <- "  se2 = rep_vector(0, N); \n"
       }
@@ -347,9 +67,11 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
         cov_mat_fun <- "arma1"
         cov_mat_args <- "ar[1], ma[1]"
       }
-      out$transC1 <- paste0("  // compute residual covariance matrix \n",
-                            "  res_cov_matrix = cov_matrix_", cov_mat_fun, 
-                            "(", cov_mat_args, ", sigma, max(nobs_tg)); \n")
+      out$transC1 <- paste0(
+        "  // compute residual covariance matrix \n",
+        "  res_cov_matrix = cov_matrix_", cov_mat_fun, 
+        "(", cov_mat_args, ", sigma, max(nobs_tg)); \n"
+      )
       # defined selfmade functions for the functions block
       if (family$family == "gaussian") {
         out$fun <- paste0(out$fun, "  #include 'fun_normal_cov.stan' \n")
@@ -365,10 +87,10 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
       }
     } else {
       err_msg <- "Please set cov = TRUE in cor_arma / cor_ar / cor_ma"
-      if (is.formula(bterms$se)) {
+      if (is.formula(bterms$adforms$se)) {
         stop2(err_msg, " when specifying 'se'.")
       }
-      if (length(bterms$nlpars)) {
+      if (length(bterms$auxpars[["mu"]]$nlpars)) {
         stop2(err_msg, " for non-linear models.")
       }
       if (is_mv) {
@@ -380,18 +102,26 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
       }
       out$modelD <- paste0(
         "  // objects storing residuals \n",
-        collapse("  matrix[N, Karma] E", rs, "; \n",
-                 "  vector[N] e", rs, "; \n"))
-      out$modelC1 <- collapse("  E", rs, " = rep_matrix(0.0, N, Karma); \n")
+        collapse(
+          "  matrix[N, Karma] E", rs, "; \n",
+          "  vector[N] e", rs, "; \n"
+        )
+      )
+      out$modelC1 <- collapse(
+        "  E", rs, " = rep_matrix(0.0, N, Karma); \n"
+      )
       out$modelC2 <- paste0(
         "    // computation of ARMA effects \n",
-        collapse("    e", rs, "[n] = ", link, "(Y[", index, "])", 
-                 " - eta", rs, "[n]", "; \n"),
+        collapse(
+          "    e", rs, "[n] = ", link, "(Y[", index, "])", 
+          " - mu", rs, "[n]", "; \n"
+        ),
         "    for (i in 1:Karma) { \n", 
         "      if (n + 1 - i > 0 && n < N && tg[n + 1] == tg[n + 1 - i]) { \n",
         collapse("        E", rs, "[n + 1, i] = e", rs, "[n + 1 - i]; \n"),
         "      } \n",
-        "    } \n")
+        "    } \n"
+      )
     } 
   }
   if (Karr) {
@@ -399,11 +129,13 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
     out$data <- paste0(out$data,
       "  // data needed for ARR effects \n",
       "  int<lower=1> Karr; \n",
-      "  matrix[N, Karr] Yarr;  // ARR design matrix \n")
+      "  matrix[N, Karr] Yarr;  // ARR design matrix \n"
+    )
     out$par <- paste0(out$par,
       "  vector", with(prior, bound[class == "arr"]), "[Karr] arr;",
-      "  // autoregressive effects of the response \n")
-    out$prior <- paste0(out$prior, stan_prior(class = "arr", prior = prior))
+      "  // autoregressive effects of the response \n"
+    )
+    out$prior <- paste0(out$prior, stan_prior(prior, class = "arr"))
   }
   if (is.cor_fixed(autocor)) {
     if (!is_linear) {
@@ -420,12 +152,14 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
     if (is_mv || family$family %in% c("bernoulli", "categorical")) {
       stop2("The bsts structure is not yet implemented for this family.")
     }
-    if (length(bterms$nlpars)) {
+    if (length(bterms$auxpars[["mu"]]$nlpars)) {
       stop2("The bsts structure is not yet implemented for non-linear models.")
     }
     out$data <- "  vector[N] tg;  // indicates independent groups \n"
-    out$par <- paste0("  vector[N] loclev;  // local level terms \n",
-                      "  real<lower=0> sigmaLL;  // SD of local level terms \n")
+    out$par <- paste0(
+      "  vector[N] loclev;  // local level terms \n",
+      "  real<lower=0> sigmaLL;  // SD of local level terms \n"
+    )
     if (is_linear && !is_mv) {
       # this often helps with convergence
       center <- paste0(link, "(Y[", c("1", "n"), "])")
@@ -433,7 +167,7 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
       center <- c("0", "0")
     }
     out$prior <- paste0(out$prior, 
-      stan_prior(class = "sigmaLL", prior = prior),
+      stan_prior(prior, class = "sigmaLL"),
       "  loclev[1] ~ normal(", center[1], ", sigmaLL); \n",
       "  for (n in 2:N) { \n",
       "    if (tg[n] == tg[n - 1]) { \n",
@@ -441,12 +175,13 @@ stan_autocor <- function(autocor, bterms, family = gaussian(),
       "    } else { \n",
       "      loclev[n] ~ normal(", center[2], ", sigmaLL); \n",
       "    } \n",
-      "  } \n")
+      "  } \n"
+    )
   }
   out
 }
 
-stan_mv <- function(family, response, prior = brmsprior()) {
+stan_mv <- function(family, response, prior) {
   # some Stan code for multivariate models
   # Args:
   #   family: model family
@@ -464,30 +199,37 @@ stan_mv <- function(family, response, prior = brmsprior()) {
       out$par <- paste0(
         "  // parameters for multivariate linear models \n",
         "  vector<lower=0>[nresp] sigma; \n",
-        "  cholesky_factor_corr[nresp] Lrescor; \n")
+        "  cholesky_factor_corr[nresp] Lrescor; \n"
+      )
       out$prior <- paste0(
-        stan_prior(class = "sigma", coef = response, prior = prior),
-        stan_prior(class = "Lrescor", prior = prior))
+        stan_prior(prior, class = "sigma", coef = response),
+        stan_prior(prior, class = "Lrescor")
+      )
       if (family$family == "gaussian") {
         out$transD <- "  cholesky_factor_cov[nresp] LSigma; \n"
         out$transC1 <- paste0(
           "  // compute cholesky factor of residual covariance matrix \n",
-          "  LSigma = diag_pre_multiply(sigma, Lrescor); \n")
+          "  LSigma = diag_pre_multiply(sigma, Lrescor); \n"
+        )
       } else if (family$family == "student") {
         out$transD <- "  cov_matrix[nresp] Sigma; \n"
         out$transC1 <- paste0(
           "  // compute residual covariance matrix \n",
           "  Sigma = multiply_lower_tri_self_transpose(", 
-          "diag_pre_multiply(sigma, Lrescor)); \n")
+          "diag_pre_multiply(sigma, Lrescor)); \n"
+        )
       }
       out$genD <- paste0(
         "  matrix[nresp, nresp] Rescor; \n",
-        "  vector<lower=-1,upper=1>[nrescor] rescor; \n")
+        "  vector<lower=-1,upper=1>[nrescor] rescor; \n"
+      )
       out$genC <- paste0(
         "  // take only relevant parts of residual correlation matrix \n",
         "  Rescor = multiply_lower_tri_self_transpose(Lrescor); \n",
         collapse(ulapply(2:nresp, function(i) lapply(1:(i-1), function(j)
-          paste0("  rescor[",(i-1)*(i-2)/2+j,"] = Rescor[",j,", ",i,"]; \n")))))
+          paste0("  rescor[",(i-1)*(i-2)/2+j,"] = Rescor[",j,", ",i,"]; \n")
+        )))
+      )
     } else if (!is_categorical(family)) {
       stop2("Multivariate models are not yet implemented ", 
             "for family '", family$family, "'.")
@@ -496,14 +238,11 @@ stan_mv <- function(family, response, prior = brmsprior()) {
   out
 }
 
-stan_ordinal <- function(family, prior = brmsprior(), 
-                         cs = FALSE, disc = FALSE, 
-                         threshold = "flexible") {
+stan_ordinal <- function(family, prior, cs, disc, threshold) {
   # Ordinal effects in Stan
   # Args:
   #   family: the model family
-  #   prior: a data.frame containing user defined priors 
-  #          as returned by check_prior
+  #   prior: object of class brmsprior
   #   cs: logical; are there category specific effects?
   #   disc: logical; discrimination parameter used?
   #   threshold: either "flexible" or "equidistant" 
@@ -517,11 +256,11 @@ stan_ordinal <- function(family, prior = brmsprior(),
     th <- function(k, fam = family) {
       # helper function generating stan code inside ilink(.)
       sign <- ifelse(fam %in% c("cumulative", "sratio"), " - ", " + ")
-      ptl <- ifelse(cs, paste0(sign, "etacs[k]"), "") 
+      ptl <- ifelse(cs, paste0(sign, "mucs[k]"), "") 
       if (sign == " - ") {
-        out <- paste0("thres[", k, "]", ptl, " - eta")
+        out <- paste0("thres[", k, "]", ptl, " - mu")
       } else {
-        out <- paste0("eta", ptl, " - thres[", k, "]")
+        out <- paste0("mu", ptl, " - thres[", k, "]")
       }
       paste0("disc * (", out, ")")
     }
@@ -529,102 +268,116 @@ stan_ordinal <- function(family, prior = brmsprior(),
     family <- family$family
     ilink <- stan_ilink(link)
     type <- ifelse(family == "cumulative", "ordered", "vector")
-    intercept <- paste0("  ", type, "[ncat-1] temp_Intercept;",
-                        "  // temporary thresholds \n")
+    intercept <- paste0(
+      "  ", type, "[ncat-1] temp_Intercept;",
+      "  // temporary thresholds \n"
+    )
     if (threshold == "flexible") {
       out$par <- intercept
-      out$prior <- stan_prior("temp_Intercept", prior = prior) 
+      out$prior <- stan_prior(prior, class = "temp_Intercept") 
     } else if (threshold == "equidistant") {
-      out$par <- paste0("  real temp_Intercept1;  // threshold 1 \n",
-                        "  real", if (family == "cumulative") "<lower=0>",
-                        " delta;  // distance between thresholds \n")
+      out$par <- paste0(
+        "  real temp_Intercept1;  // threshold 1 \n",
+        "  real", if (family == "cumulative") "<lower=0>",
+        " delta;  // distance between thresholds \n"
+      )
       out$transD <- intercept
       out$transC1 <- paste0(
         "  // compute equidistant thresholds \n",
         "  for (k in 1:(ncat - 1)) { \n",
         "    temp_Intercept[k] = temp_Intercept1 + (k - 1.0) * delta; \n",
-        "  } \n")
-      out$prior <- paste0(stan_prior(class = "temp_Intercept1", prior = prior), 
-                          stan_prior(class = "delta", prior = prior))
+        "  } \n"
+      )
+      out$prior <- paste0(
+        stan_prior(prior, class = "temp_Intercept1"), 
+        stan_prior(prior, class = "delta")
+      )
     }
     
     # generate Stan code specific for each ordinal model
     if (!(family == "cumulative" && ilink == "inv_logit") || disc) {
-      cs_arg <- ifelse(!cs, "", "row_vector etacs, ")
+      cs_arg <- ifelse(!cs, "", "row_vector mucs, ")
       out$fun <- paste0(
         "  /* ", family, " log-PDF for a single response \n",
         "   * Args: \n",
         "   *   y: response category \n",
-        "   *   eta: linear predictor \n",
-        "   *   etacs: optional predictor for category specific effects \n",
+        "   *   mu: linear predictor \n",
+        "   *   mucs: optional predictor for category specific effects \n",
         "   *   thres: ordinal thresholds \n",
         "   *   disc: discrimination parameter \n",
         "   * Returns: \n", 
         "   *   a scalar to be added to the log posterior \n",
         "   */ \n",
-        "   real ", family, "_lpmf(int y, real eta, ", cs_arg, 
+        "   real ", family, "_lpmf(int y, real mu, ", cs_arg, 
                                   "vector thres, real disc) { \n",
         "     int ncat; \n",
         "     vector[num_elements(thres) + 1] p; \n",
         if (family != "cumulative") 
           "     vector[num_elements(thres)] q; \n",
-        "     ncat = num_elements(thres) + 1; \n")
+        "     ncat = num_elements(thres) + 1; \n"
+      )
       
       # define actual function content
       if (family == "cumulative") {
         out$fun <- paste0(out$fun,
-        "     p[1] = ", ilink, "(", th(1), "); \n",
-        "     for (k in 2:(ncat - 1)) { \n", 
-        "       p[k] = ", ilink, "(", th("k"), ") - \n",
-        "              ", ilink, "(", th("k - 1"), "); \n", 
-        "     } \n",
-        "     p[ncat] = 1 - ",ilink, "(", th("ncat - 1"), "); \n")
+          "     p[1] = ", ilink, "(", th(1), "); \n",
+          "     for (k in 2:(ncat - 1)) { \n", 
+          "       p[k] = ", ilink, "(", th("k"), ") - \n",
+          "              ", ilink, "(", th("k - 1"), "); \n", 
+          "     } \n",
+          "     p[ncat] = 1 - ",ilink, "(", th("ncat - 1"), "); \n"
+        )
       } else if (family %in% c("sratio", "cratio")) {
         sc <- ifelse(family == "sratio", "1 - ", "")
         out$fun <- paste0(out$fun,
-        "     for (k in 1:(ncat - 1)) { \n",
-        "       q[k] = ", sc, ilink, "(", th("k"), "); \n",
-        "       p[k] = 1 - q[k]; \n",
-        "       for (kk in 1:(k - 1)) p[k] = p[k] * q[kk]; \n", 
-        "     } \n",
-        "     p[ncat] = prod(q); \n")
+          "     for (k in 1:(ncat - 1)) { \n",
+          "       q[k] = ", sc, ilink, "(", th("k"), "); \n",
+          "       p[k] = 1 - q[k]; \n",
+          "       for (kk in 1:(k - 1)) p[k] = p[k] * q[kk]; \n", 
+          "     } \n",
+          "     p[ncat] = prod(q); \n"
+        )
       } else if (family == "acat") {
         if (ilink == "inv_logit") {
           out$fun <- paste0(out$fun,
-          "     p[1] = 1.0; \n",
-          "     for (k in 1:(ncat - 1)) { \n",
-          "       q[k] = ", th("k"), "; \n",
-          "       p[k + 1] = q[1]; \n",
-          "       for (kk in 2:k) p[k + 1] = p[k + 1] + q[kk]; \n",
-          "       p[k + 1] = exp(p[k + 1]); \n",
-          "     } \n",
-          "     p = p / sum(p); \n")
+            "     p[1] = 1.0; \n",
+            "     for (k in 1:(ncat - 1)) { \n",
+            "       q[k] = ", th("k"), "; \n",
+            "       p[k + 1] = q[1]; \n",
+            "       for (kk in 2:k) p[k + 1] = p[k + 1] + q[kk]; \n",
+            "       p[k + 1] = exp(p[k + 1]); \n",
+            "     } \n",
+            "     p = p / sum(p); \n"
+          )
         } else {
           out$fun <- paste0(out$fun,    
-          "     for (k in 1:(ncat - 1)) \n",
-          "       q[k] = ", ilink, "(", th("k"), "); \n",
-          "     for (k in 1:ncat) { \n",     
-          "       p[k] = 1.0; \n",
-          "       for (kk in 1:(k - 1)) p[k] = p[k] * q[kk]; \n",
-          "       for (kk in k:(ncat - 1)) p[k] = p[k] * (1 - q[kk]); \n",      
-          "     } \n",
-          "     p = p / sum(p); \n")
+            "     for (k in 1:(ncat - 1)) \n",
+            "       q[k] = ", ilink, "(", th("k"), "); \n",
+            "     for (k in 1:ncat) { \n",     
+            "       p[k] = 1.0; \n",
+            "       for (kk in 1:(k - 1)) p[k] = p[k] * q[kk]; \n",
+            "       for (kk in k:(ncat - 1)) p[k] = p[k] * (1 - q[kk]); \n",   
+            "     } \n",
+            "     p = p / sum(p); \n"
+          )
         }
       }
       out$fun <- paste(out$fun, 
-        "    return categorical_lpmf(y | p); \n   } \n")
+        "    return categorical_lpmf(y | p); \n   } \n"
+      )
     }
   }
   out
 }
 
-stan_families <- function(family) {
+stan_families <- function(family, bterms) {
   # include .stan files of certain response distributions
   # Args:
   #   family: the model family
+  #   bterms: object of class brmsterms
   # Returns:
   #   a list of character strings
-  stopifnot(is.family(family))
+  stopifnot(is.family(family), is.brmsterms(bterms))
   family <- family$family
   out <- list()
   if (family == "categorical") {
@@ -654,14 +407,28 @@ stan_families <- function(family) {
     out$tdataD <- "  #include 'tdataD_inv_gaussian.stan' \n"
     out$tdataC <- "  #include 'tdataC_inv_gaussian.stan' \n"
   } else if (family == "von_mises") {
-    out$fun <- paste0("  #include 'fun_tan_half.stan' \n",
-                      "  #include 'fun_von_mises.stan' \n")
+    out$fun <- paste0(
+      "  #include 'fun_tan_half.stan' \n",
+      "  #include 'fun_von_mises.stan' \n"
+    )
   } else if (family == "wiener") {
     out$fun <- "  #include 'fun_wiener_diffusion.stan' \n"
     out$tdataD <- "  real min_Y; \n"
     out$tdataC <- "  min_Y = min(Y); \n"
   } else if (family == "asym_laplace") {
     out$fun <- "  #include 'fun_asym_laplace.stan' \n"
+  } else if (family == "gen_extreme_value") {
+    out$fun <- paste0(
+      "  #include 'fun_gen_extreme_value.stan' \n",
+      "  #include 'fun_scale_xi.stan' \n"
+    )
+    if (!"xi" %in% c(names(bterms$auxpars), names(bterms$fauxpars))) {
+      out$modelD <- "  real xi;  // scaled shape parameter \n"
+      v <- ifelse("sigma" %in% names(bterms$auxpars), "_vector", "")
+      out$modelC <- paste0(
+        "  xi = scale_xi", v, "(temp_xi, Y, mu, sigma); \n"
+      )
+    }
   }
   out
 }
@@ -676,29 +443,32 @@ stan_se <- function(se) {
   out
 }
 
-stan_cens <- function(cens, family = gaussian()) {
+stan_cens <- function(cens, family) {
   out <- list()
   if (cens) {
     stopifnot(is.family(family))
     out$data <- paste0(
       "  int<lower=-1,upper=2> cens[N];  // indicates censoring \n",
       if (isTRUE(attr(cens, "interval"))) {
-        paste0(ifelse(use_int(family), " int rcens[N];", "  vector[N] rcens;"),
-               "  // right censor points for interval censoring \n")
-      })
+        paste0(
+          ifelse(use_int(family), " int rcens[N];", "  vector[N] rcens;"),
+          "  // right censor points for interval censoring \n"
+        )
+      }
+    )
   }
   out
 }
 
-stan_disp <- function(bterms, family = gaussian()) {
+stan_disp <- function(bterms, family) {
   # stan code for models with addition argument 'disp'
   # Args:
-  #   disp: logical; are dispersion factors specified?
+  #   bterms: object of class brmsterms
   #   family: the model family
   stopifnot(is.brmsterms(bterms))
   stopifnot(is.family(family))
   out <- list()
-  if (is(bterms$disp, "formula")) {
+  if (is.formula(bterms$adforms$disp)) {
     par <- if (has_sigma(family)) "sigma"
            else if (has_shape(family)) "shape"
     if (!is.null(bterms[[par]])) {
@@ -714,14 +484,18 @@ stan_disp <- function(bterms, family = gaussian()) {
 stan_monotonic <- function(x) {
   # add the monotonic function to Stan's functions block
   if (grepl("[^[:alnum:]]monotonic\\(", collapse(x))) {
-    "  #include fun_monotonic.stan \n"
-  } else NULL
+    out <- "  #include fun_monotonic.stan \n"
+  } else {
+    out <- ""
+  }
+  out
 }
 
-stan_misc_functions <- function(family = gaussian(), kronecker = FALSE) {
+stan_misc_functions <- function(family, prior, kronecker) {
   # stan code for user defined functions
   # Args:
   #   family: the model family
+  #   prior: object of class brmsprior
   #   kronecker: logical; is the kronecker product needed?
   # Returns:
   #   a string containing defined functions in stan code
@@ -735,24 +509,30 @@ stan_misc_functions <- function(family = gaussian(), kronecker = FALSE) {
   if (family$family %in% c("student", "frechet")) {
     out <- paste0(out, "  #include 'fun_logm1.stan' \n")
   }
+  if (!is.null(attr(prior, "hs_df"))) {
+    out <- paste0(out, "  #include 'fun_horseshoe.stan' \n")
+  }
   if (kronecker) {
-    out <- paste0(out, "  #include 'fun_as_matrix.stan' \n",
-                  "  #include 'fun_kronecker.stan' \n")
+    out <- paste0(out, 
+      "  #include 'fun_as_matrix.stan' \n",
+      "  #include 'fun_kronecker.stan' \n"
+    )
   }
   out
 }
 
-stan_prior <- function(class, coef = "", group = "", nlpar = "", suffix = "", 
-                       prior = brmsprior(), wsp = 2, matrix = FALSE) {
+stan_prior <- function(prior, class, coef = "", group = "", 
+                       nlpar = "", prefix = "", suffix = "",
+                       wsp = 2, matrix = FALSE) {
   # Define priors for parameters in Stan language
   # Args:
+  #   prior: an object of class 'brmsprior'
   #   class: the parameter class
   #   coef: the coefficients of this class
   #   group: the name of a grouping factor
   #   nlpar: the name of a non-linear parameter
+  #   prefix: a prefix to put at the parameter class
   #   suffix: a suffix to put at the parameter class
-  #   prior: a data.frame containing user defined priors 
-  #          as returned by check_prior
   #   matrix: logical; corresponds the class to a parameter matrix?
   #   wsp: an integer >= 0 defining the number of spaces 
   #        in front of the output string
@@ -818,7 +598,7 @@ stan_prior <- function(class, coef = "", group = "", nlpar = "", suffix = "",
   }
   
   # generate stan prior statements
-  class <- paste0(class, suffix)
+  class <- paste0(prefix, class, suffix)
   if (any(with(prior, nchar(coef) & nchar(prior)))) {
     # generate a prior for each coefficient
     out <- sapply(seq_along(coef), individual_prior, 
@@ -836,13 +616,22 @@ stan_prior <- function(class, coef = "", group = "", nlpar = "", suffix = "",
     att <- attributes(prior)
     special_priors <- NULL
     if (!is.null(att$hs_df)) {
+      local_args <- paste("0.5 *", att$hs_df)
+      local_args <- sargs(local_args, local_args)
+      global_args <- paste("0.5 *", att$hs_df_global)
+      global_args <- sargs(global_args, global_args)
       special_priors <- paste0(special_priors,
-        "  hs_local ~ student_t(", att$hs_df, ", 0, 1); \n",
-        "  hs_global ~ cauchy(0, ", att$hs_scale_global, "); \n")
+        "  zb ~ normal(0, 1); \n",
+        "  hs_local[1] ~ normal(0, 1); \n",
+        "  hs_local[2] ~ inv_gamma(", local_args, "); \n",
+        "  hs_global[1] ~ normal(0, 1); \n",
+        "  hs_global[2] ~ inv_gamma(", global_args, "); \n"
+      )
     }
     if (!is.null(att$lasso_df)) {
       special_priors <- paste0(special_priors,
-        "  lasso_inv_lambda ~ chi_square(", att$lasso_df, "); \n")
+        "  lasso_inv_lambda ~ chi_square(", att$lasso_df, "); \n"
+      )
     }
     out <- c(special_priors, out) 
   }
@@ -880,8 +669,8 @@ stan_base_prior <- function(prior) {
   base_prior
 }
 
-stan_rngprior <- function(sample_prior, prior, par_declars = "",
-                          family = gaussian(), prior_attr = list()) {
+stan_rngprior <- function(sample_prior, prior, par_declars,
+                          family, prior_attr) {
   # stan code to sample from priors seperately
   # Args:
   #   sample_prior: take samples from priors?
@@ -899,7 +688,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
     prior <- gsub(" ", "", paste0("\n", prior))
     pars <- get_matches("\\\n[^~]+", prior)
     pars <- gsub("\\\n|to_vector\\(|\\)", "", pars)
-    regex <- "^(z|zs|Xme)_|^increment_log_prob\\(|^target ?(\\+=)"
+    regex <- "^(z|zs|zb|Xme)_?|^increment_log_prob\\(|^target ?(\\+=)"
     take <- !grepl(regex, pars)
     pars <- rename(pars[take], symbols = c("^L_", "^Lrescor"), 
                    subs = c("cor_", "rescor"), fixed = FALSE)
@@ -916,9 +705,11 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
     })
     
     # special treatment of lkj_corr_cholesky priors
-    args <- ifelse(grepl("corr_cholesky$", dis), 
-                   paste0("(2,", substr(args, 2, nchar(args)-1), "[1, 2];"), 
-                   args)
+    args <- ifelse(
+      grepl("corr_cholesky$", dis), 
+      paste0("(2,", substr(args, 2, nchar(args)-1), "[1, 2];"),
+      args
+    )
     dis <- sub("corr_cholesky$", "corr", dis)
     
     # extract information from the initial parameter definition
@@ -948,13 +739,17 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
       # bounded parameters have to be sampled in the model block
       out$par <- paste0(
         "  // parameters to store prior samples\n",
-        collapse("  real", bounds[has_bounds], 
-                 " prior_", pars[has_bounds], ";\n")
+        collapse(
+          "  real", bounds[has_bounds], 
+          " prior_", pars[has_bounds], ";\n"
+        )
       )
       out$model <- paste0(
         "  // additionally draw samples from priors\n",
-        collapse("  prior_", pars[has_bounds] ," ~ ",
-                 dis[has_bounds], args[has_bounds], "\n")
+        collapse(
+          "  prior_", pars[has_bounds] ," ~ ",
+          dis[has_bounds], args[has_bounds], "\n"
+        )
       )
     }
     no_bounds <- !has_bounds
@@ -973,11 +768,15 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
       }
       # unbounded parameters can be sampled in the generatated quantities block
       out$genD <- collapse(
-        "  ", types[no_bounds], " prior_", pars[no_bounds], "; \n")
+        "  ", types[no_bounds], " prior_", pars[no_bounds], "; \n"
+      )
       out$genC <- paste0(
         "  // additionally draw samples from priors \n",
-        collapse("  prior_", pars[no_bounds], " = ",
-                 dis[no_bounds], "_rng", args[no_bounds], " \n"))
+        collapse(
+          "  prior_", pars[no_bounds], " = ",
+          dis[no_bounds], "_rng", args[no_bounds], " \n"
+        )
+      )
     }
     # compute priors for the actual population-level intercepts
     is_temp_intercept <- grepl("^temp.*_Intercept", pars)
@@ -986,13 +785,19 @@ stan_rngprior <- function(sample_prior, prior, par_declars = "",
       p <- gsub("^temp|_Intercept$", "", temp_intercepts)
       intercepts <- paste0("b", p, "_Intercept")
       use_plus <- family$family %in% c("cumulative", "sratio")
-      sub_X_means <- paste0(ifelse(use_plus, " + ", " - "), 
-                            "dot_product(means_X", p, ", b", p, ")")
+      sub_X_means <- paste0(
+        ifelse(use_plus, " + ", " - "), 
+        "dot_product(means_X", p, ", b", p, ")"
+      )
       out$genD <- paste0(out$genD, 
-        collapse("  real prior_", intercepts, "; \n"))
+        collapse("  real prior_", intercepts, "; \n")
+      )
       out$genC <- paste0(out$genC, 
-        collapse("  prior_", intercepts, " = ",
-                 "prior_", temp_intercepts, sub_X_means, "; \n"))
+        collapse(
+          "  prior_", intercepts, " = ",
+          "prior_", temp_intercepts, sub_X_means, "; \n"
+        )
+      )
     }
   }
   out
@@ -1014,7 +819,8 @@ stan_link <- function(link) {
     probit_approx = "inv_Phi", 
     cloglog = "cloglog", 
     cauchit = "cauchit",
-    tan_half = "tan_half"
+    tan_half = "tan_half",
+    log1p = "log1p"
   )
 }
 
@@ -1034,15 +840,25 @@ stan_ilink <- function(link) {
     probit_approx = "Phi_approx", 
     cloglog = "inv_cloglog",
     cauchit = "inv_cauchit",
-    tan_half = "inv_tan_half"
+    tan_half = "inv_tan_half",
+    log1p = "expm1"
   )
 }
 
-stan_has_built_in_fun <- function(family, link) {
+stan_has_built_in_fun <- function(family) {
   # indicates if a family-link combination has a build in 
   # function in Stan (such as binomial_logit)
-  (family %in% c("binomial", "bernoulli", "cumulative", "categorical")
-   && link == "logit" || is_count(family) && link == "log")
+  # Args:
+  #   family: a list with elements 'family' and 'link'
+  stopifnot(all(c("family", "link") %in% names(family)))
+  link <- family$link
+  family <- family$family
+  isTRUE(
+    is_count(family) && link == "log" ||
+    family %in% c("binomial", "bernoulli", "cumulative", "categorical") &&
+    link == "logit" ||
+    family %in% c("zi", "hu") && link == "logit"
+  )
 }
 
 stan_needs_kronecker <- function(ranef, names_cov_ranef) {

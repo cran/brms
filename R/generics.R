@@ -4,9 +4,12 @@ brmsfit <- function(formula = NULL, family = "", link = "", data.name = "",
                     threshold = "", cov_ranef = NULL, fit = NA, 
                     algorithm = "sampling") {
   # brmsfit class
+  version <- list(
+    brms = utils::packageVersion("brms"),
+    rstan = utils::packageVersion("rstan")
+  )
   x <- nlist(formula, family, link, data.name, data, model, exclude, prior, 
-             ranef, autocor, threshold, cov_ranef, fit, algorithm, 
-             version = utils::packageVersion("brms"))
+             ranef, autocor, threshold, cov_ranef, fit, algorithm, version)
   class(x) <- "brmsfit"
   x
 }
@@ -593,16 +596,16 @@ stanplot <- function(object, ...) {
 #'   via argument \code{stype} of the related plotting method.
 #' @param resolution Number of support points used to generate 
 #'   the plots. Higher resolution leads to smoother plots. 
-#'   Defaults to \code{100}. If \code{contour} is \code{TRUE},
+#'   Defaults to \code{100}. If \code{surface} is \code{TRUE},
 #'   this implies \code{10000} support points for interaction terms,
 #'   so it might be necessary to reduce \code{resolution} 
 #'   when only few RAM is available.
-#' @param too_far For contour plots only: Grid points that are too 
+#' @param too_far For surface plots only: Grid points that are too 
 #'   far away from the actual data points can be excluded from the plot. 
 #'   \code{too_far} determines what is too far. The grid is scaled into 
 #'   the unit square and then grid points more than \code{too_far} 
 #'   from the predictor variables are excluded. By default, all
-#'   grid points are used. Ignored for non-contour plots.
+#'   grid points are used. Ignored for non-surface plots.
 #' @param ncol Number of plots to display per column for each effect.
 #'   If \code{NULL} (default), \code{ncol} is computed internally based
 #'   on the number of rows of \code{data}.
@@ -700,7 +703,7 @@ marginal_effects <- function(x, ...) {
 #' more details and documentation of the related plotting function.
 #' 
 #' @details Two-dimensional smooth terms will be visualized using
-#'   contour plots.
+#'   either contour or raster plots.
 #'   
 #' @examples 
 #' \dontrun{
@@ -775,3 +778,45 @@ expose_functions <- function(x, ...) {
 #' head(neff_ratio(fit))
 #' }
 NULL
+
+
+# ----- internal generics -----
+get_re <- function(x, ...) {
+  # extract group-level terms
+  UseMethod("get_re")
+}
+
+get_effect <- function(x, ...) {
+  # extract various kind of effects
+  UseMethod("get_effect")
+}
+
+get_all_effects <- function(x, ...) {
+  # extract combinations of predictor variables
+  UseMethod("get_all_effects")
+}
+
+prior_effects <- function(x, ...) {
+  # generate priors various kind of effects 
+  UseMethod("prior_effects")
+}
+
+data_effects <- function(x, ...) {
+  # generate data for various kind of effects 
+  UseMethod("data_effects")
+}
+
+stan_effects <- function(x, ...) {
+  # generate stan code various kind of effects 
+  UseMethod("stan_effects")
+}
+
+change_effects <- function(x, ...) {
+  # helps in renaming parameters after model fitting
+  UseMethod("change_effects")
+}
+
+extract_draws <- function(x, ...) {
+  # extract data and posterior draws
+  UseMethod("extract_draws")
+}

@@ -1,4 +1,4 @@
-dstudent <- function(x, df = stop("df is required"), mu = 0, sigma = 1, log = FALSE) {
+dstudent <- function(x, df, mu = 0, sigma = 1, log = FALSE) {
   # density of student's distribution 
   # Args:
   #  x: the value(s) at which the density should be evaluated
@@ -13,7 +13,7 @@ dstudent <- function(x, df = stop("df is required"), mu = 0, sigma = 1, log = FA
   }
 }
 
-pstudent <- function(q, df = stop("df is required"), mu = 0, sigma = 1, 
+pstudent <- function(q, df, mu = 0, sigma = 1, 
                      lower.tail = TRUE, log.p = FALSE) {
   # distribution function of student's distribution
   # Args:
@@ -26,7 +26,7 @@ pstudent <- function(q, df = stop("df is required"), mu = 0, sigma = 1,
   pt((q - mu)/sigma, df = df, lower.tail = lower.tail, log.p = log.p)
 }
 
-qstudent <-  function(p, df = stop("df is required"), mu = 0, sigma = 1) {
+qstudent <-  function(p, df, mu = 0, sigma = 1) {
   # quantiles of student's distribution
   # Args:
   #  p: the probabilities to find quantiles for
@@ -36,7 +36,7 @@ qstudent <-  function(p, df = stop("df is required"), mu = 0, sigma = 1) {
   mu + sigma * qt(p, df = df)
 }
 
-rstudent <-  function(n, df = stop("df is required"), mu = 0, sigma = 1) {
+rstudent <-  function(n, df, mu = 0, sigma = 1) {
   # random values of student's distribution 
   #
   # Args:
@@ -62,21 +62,21 @@ dmulti_normal <- function(x, mu, Sigma, log = TRUE,
   p <- length(x)
   if (check) {
     if (length(mu) != p) {
-      stop("dimension of mu is incompatible")
+      stop2("Dimension of mu is incorrect.")
     }
     if (!all(dim(Sigma) == c(p, p))) {
-      stop("dimension of Sigma is incompatible")
+      stop2("Dimension of Sigma is incorrect.")
     }
-    if (!isSymmetric(Sigma, tol = sqrt(.Machine$double.eps), 
-                     check.attributes = FALSE)) {
-      stop("Sigma must be a symmetric matrix")
+    if (!is_symmetric(Sigma)) {
+      stop2("Sigma must be a symmetric matrix.")
     }
   }
   rooti <- backsolve(chol(Sigma), diag(p))
   quads <- colSums((crossprod(rooti, (x - mu)))^2)
   out <- -(p / 2) * log(2 * pi) + sum(log(diag(rooti))) - .5 * quads
-  if (!log) 
+  if (!log) {
     out <- exp(out)
+  }
   out
 }
 
@@ -92,14 +92,13 @@ rmulti_normal <- function(n, mu, Sigma, check = FALSE) {
   p <- length(mu)
   if (check) {
     if (!(is_wholenumber(n) && n > 0)) {
-      stop("n must be a positive integer")
+      stop2("n must be a positive integer.")
     }
     if (!all(dim(Sigma) == c(p, p))) {
-      stop("dimension of Sigma is incompatible")
+      stop2("Dimension of Sigma is incorrect.")
     }
-    if (!isSymmetric(Sigma, tol = sqrt(.Machine$double.eps), 
-                     check.attributes = FALSE)) {
-      stop("Sigma must be a symmetric matrix")
+    if (!is_symmetric(Sigma)) {
+      stop2("Sigma must be a symmetric matrix.")
     }
   }
   samples <- matrix(rnorm(n * p), nrow = n, ncol = p)
@@ -123,18 +122,17 @@ dmulti_student <- function(x, df, mu, Sigma, log = TRUE,
   }
   p <- ncol(x)
   if (check) {
-    if (df <= 0) {
-      stop("df must be greater zero")
+    if (any(df <= 0)) {
+      stop2("df must be greater than 0.")
     }
     if (length(mu) != p) {
-      stop("dimension of mu is incompatible")
+      stop2("Dimension of mu is incorrect.")
     }
     if (!all(dim(Sigma) == c(p, p))) {
-      stop("dimension of Sigma is incompatible")
+      stop2("Dimension of Sigma is incorrect.")
     }
-    if (!isSymmetric(Sigma, tol = sqrt(.Machine$double.eps), 
-                     check.attributes = FALSE)) {
-      stop("Sigma must be a symmetric matrix")
+    if (!is_symmetric(Sigma)) {
+      stop2("Sigma must be a symmetric matrix.")
     }
   }
   chol_Sigma <- chol(Sigma)
@@ -142,8 +140,9 @@ dmulti_student <- function(x, df, mu, Sigma, log = TRUE,
   quads <- colSums(rooti^2)
   out <- lgamma((p + df)/2) - (lgamma(df / 2) + sum(log(diag(chol_Sigma))) + 
          p / 2 * log(pi * df)) - 0.5 * (df + p) * log1p(quads / df)
-  if (!log) 
+  if (!log) {
     out <- exp(out)
+  }
   out
 }
 
@@ -159,13 +158,11 @@ rmulti_student <- function(n, df, mu, Sigma, log = TRUE,
   # Returns:
   #   n samples of multi_student distribution of dimension length(mu) 
   p <- length(mu)
-  if (check) {
-    if (df <= 0) {
-      stop("df must be greater zero")
-    }
+  if (any(df <= 0)) {
+    stop2("df must be greater than 0.")
   }
-  samples <- rmulti_normal(n, mu = rep(0, p), Sigma = Sigma, check = check) / 
-               sqrt(rchisq(n, df = df) / df)
+  samples <- rmulti_normal(n, mu = rep(0, p), Sigma = Sigma, check = check)
+  samples <- samples / sqrt(rchisq(n, df = df) / df)
   sweep(samples, 2, mu, "+")
 }
 
@@ -176,19 +173,74 @@ dvon_mises <- function(x, mu, kappa, log = FALSE) {
   # Args:
   #    mu: location parameter
   #    kappa: precision parameter
-  out <- CircStats::dvm(x + base::pi, mu + base::pi, kappa)
-  if (log) {
-    out <- log(out)
+  if (any(kappa < 0)) {
+    stop2("kappa must be non-negative")
+  }
+  be <- besselI(kappa, nu = 0, expon.scaled = TRUE)
+  out <- - log(2 * pi * be) + kappa * (cos(x - mu) - 1)
+  if (!log) {
+    out <- exp(out)
   }
   out
 }
 
 pvon_mises <- function(q, mu, kappa, lower.tail = TRUE, 
-                       log.p = FALSE, ...) {
+                       log.p = FALSE, acc = 1e-20, ...) {
   # distribution function of the von Mises distribution
-  q <- q + base::pi
-  mu <- mu + base::pi
-  out <- .pvon_mises(q, mu, kappa, ...)
+  # code basis taken from CircStats::pvm but improved 
+  # considerably with respect to speed and stability
+  if (any(kappa < 0)) {
+    stop2("kappa must be non-negative")
+  }
+  pi <- base::pi
+  pi2 <- 2 * pi
+  q <- (q + pi) %% pi2
+  mu <- (mu + pi) %% pi2
+  args <- expand(q, mu, kappa)
+  q <- args[[1]]
+  mu <- args[[2]]
+  kappa <- args[[3]]
+  
+  rec_sum <- function(q, kappa, acc, sum = 0, i = 1) {
+    # compute the sum of of besselI functions recursively
+    term <- (besselI(kappa, nu = i) * sin(i * q)) / i
+    sum <- sum + term
+    rd <- abs(term) >= acc
+    if (sum(rd)) {
+      sum[rd] <- rec_sum(
+        q[rd], kappa[rd], acc, sum = sum[rd], i = i + 1
+      ) 
+    }
+    sum
+  }
+  
+  .pvon_mises <- function(q, kappa, acc) {
+    sum <- rec_sum(q, kappa, acc)
+    q / pi2 + sum / (pi * besselI(kappa, nu = 0))
+  }
+  
+  out <- rep(NA, length(mu))
+  zero_mu <- mu == 0
+  if (sum(zero_mu)) {
+    out[zero_mu] <- .pvon_mises(q[zero_mu], kappa[zero_mu], acc)
+  }
+  lq_mu <- q <= mu
+  if (sum(lq_mu)) {
+    upper <- (q[lq_mu] - mu[lq_mu]) %% pi2
+    upper[upper == 0] <- pi2
+    lower <- (-mu[lq_mu]) %% pi2
+    out[lq_mu] <- 
+      .pvon_mises(upper, kappa[lq_mu], acc) -
+      .pvon_mises(lower, kappa[lq_mu], acc)
+  }
+  uq_mu <- q > mu
+  if (sum(uq_mu)) {
+    upper <- q[uq_mu] - mu[uq_mu]
+    lower <- mu[uq_mu] %% pi2
+    out[uq_mu] <- 
+      .pvon_mises(upper, kappa[uq_mu], acc) +
+      .pvon_mises(lower, kappa[uq_mu], acc)
+  }
   if (!lower.tail) {
     out <- 1 - out
   }
@@ -198,20 +250,63 @@ pvon_mises <- function(q, mu, kappa, lower.tail = TRUE,
   out
 }
 
-# vectorized version of CircStats::pvm
-.pvon_mises <- Vectorize(CircStats::pvm, c("theta", "mu", "kappa"))
-
 rvon_mises <- function(n, mu, kappa) {
   # sample random numbers from the von Mises distribution
-  stopifnot(n %in% c(1, max(length(mu), length(kappa))))
-  mu <- mu + base::pi
-  .rvon_mises(1, mu, kappa) - base::pi
+  # code basis taken from CircStats::rvm but improved 
+  # considerably with respect to speed and stability
+  if (any(kappa < 0)) {
+    stop2("kappa must be non-negative")
+  }
+  args <- expand(mu, kappa, length = n)
+  mu <- args[[1]]
+  kappa <- args[[2]]
+  pi <- base::pi
+  mu <- mu + pi
+  
+  rvon_mises_outer <- function(r, mu, kappa) {
+    n <- length(r)
+    U1 <- runif(n, 0, 1)
+    z <- cos(pi * U1)
+    f <- (1 + r * z) / (r + z)
+    c <- kappa * (r - f)
+    U2 <- runif(n, 0, 1)
+    outer <- is.na(f) | is.infinite(f) |
+      !(c * (2 - c) - U2 > 0 | log(c / U2) + 1 - c >= 0)
+    inner <- !outer
+    out <- rep(NA, n)
+    if (sum(inner)) {
+      out[inner] <- rvon_mises_inner(f[inner], mu[inner]) 
+    }
+    if (sum(outer)) {
+      # evaluate recursively until a valid sample is found
+      out[outer] <- rvon_mises_outer(r[outer], mu[outer], kappa[outer])      
+    }
+    out
+  }
+  
+  rvon_mises_inner <- function(f, mu) {
+    n <- length(f)
+    U3 <- runif(n, 0, 1)
+    (sign(U3 - 0.5) * acos(f) + mu) %% (2 * pi)
+  }
+  
+  a <- 1 + (1 + 4 * (kappa^2))^0.5
+  b <- (a - (2 * a)^0.5) / (2 * kappa)
+  r <- (1 + b^2) / (2 * b)
+  # indicates underflow due to kappa being close to zero
+  is_uf <- is.na(r) | is.infinite(r) 
+  not_uf <- !is_uf
+  out <- rep(NA, n)
+  if (sum(is_uf)) {
+    out[is_uf] <- runif(sum(is_uf), 0, 2 * pi) 
+  } 
+  if (sum(not_uf)) {
+    out[not_uf] <- rvon_mises_outer(r[not_uf], mu[not_uf], kappa[not_uf])
+  }
+  out - pi
 }
 
-# vectorized version of CircStats::rvm
-.rvon_mises <- Vectorize(CircStats::rvm, c("mean", "k"))
-
-dexgauss <- function (x, mu, sigma, beta, log = FALSE) {
+dexgaussian <- function(x, mu, sigma, beta, log = FALSE) {
   # PDF of the exponentially modified gaussian distribution
   # Args:
   #   mu: mean of the gaussian comoponent
@@ -225,7 +320,7 @@ dexgauss <- function (x, mu, sigma, beta, log = FALSE) {
   }
   z <- x - mu - sigma^2 / beta
   out <- ifelse(beta > 0.05 * sigma, 
-    -log(beta) - (z + sigma^2 / (2 * beta)) / beta + log(pnorm(z / sigma)), 
+    -log(beta) - (z + sigma^2 / (2 * beta)) / beta + log(pnorm(z / sigma)),
     dnorm(x, mean = mu, sd = sigma, log = TRUE))
   if (!log) {
     out <- exp(out)
@@ -233,8 +328,8 @@ dexgauss <- function (x, mu, sigma, beta, log = FALSE) {
   out
 }
 
-pexgauss <- function(q, mu, sigma, beta, 
-                     lower.tail = TRUE, log.p = FALSE) {
+pexgaussian <- function(q, mu, sigma, beta, 
+                        lower.tail = TRUE, log.p = FALSE) {
   # CDF of the exponentially modified gaussian distribution
   # Args:
   #   see dexgauss
@@ -259,7 +354,7 @@ pexgauss <- function(q, mu, sigma, beta,
   out
 }
 
-rexgauss <- function(n, mu, sigma, beta) {
+rexgaussian <- function(n, mu, sigma, beta) {
   # create random numbers of the exgaussian distribution
   # Args:
   #   see dexgauss
@@ -284,8 +379,78 @@ pfrechet <- function(q, loc = 0, scale = 1, shape = 1,
   out
 }
 
-dasym_laplace <- function(y, mu = 0, sigma = 1, quantile = 0.5, log = FALSE) {
-  # density of the asymmetric laplace distribution
+dgen_extreme_value <- function(x, mu = 0, sigma = 1, 
+                               xi = 0, log = FALSE) {
+  # pdf of the generalized extreme value distribution
+  # Args:
+  #   mu: location parameter
+  #   sigma: scale parameter
+  #   xi: shape parameter
+  if (any(sigma <= 0)) {
+    stop2("sigma bust be greater than 0.")
+  }
+  x <- (x - mu) / sigma
+  if (length(xi) == 1L) {
+    xi <- rep(xi, length(x))
+  }
+  t <- 1 + xi * x
+  out <- ifelse(
+    xi == 0, 
+    - log(sigma) - x - exp(-x),
+    - log(sigma) - (1 + 1 / xi) * log(t) - t^(-1 / xi)
+  )
+  if (!log) {
+    out <- exp(out)
+  } 
+  out
+}
+
+pgen_extreme_value <- function(q, mu = 0, sigma = 1, xi = 0,
+                               lower.tail = TRUE, log.p = FALSE) {
+  # cdf of the generalized extreme value distribution
+  if (any(sigma <= 0)) {
+    stop2("sigma bust be greater than 0.")
+  }
+  q <- (q - mu) / sigma
+  if (length(xi) == 1L) {
+    xi <- rep(xi, length(q))
+  }
+  out <- ifelse(
+    xi == 0, 
+    exp(-exp(-q)),
+    exp(-(1 + xi * q)^(-1 / xi))
+  )
+  if (!lower.tail) {
+    out <- 1 - out
+  }
+  if (log.p) {
+    out <- log(out)
+  }
+  out
+}
+
+rgen_extreme_value <- function(n, mu = 0, sigma = 1, xi = 0) {
+  # random numbers of the generalized extreme value distribution
+  if (any(sigma <= 0)) {
+    stop2("sigma bust be greater than 0.")
+  }
+  if (length(xi) == 1L) {
+    xi <- rep(xi, max(n, length(mu), length(sigma)))
+  }
+  ifelse(
+    xi == 0,
+    mu - sigma * log(rexp(n)),
+    mu + sigma * (rexp(n)^(-xi) - 1) / xi
+  )
+}
+
+dasym_laplace <- function(y, mu = 0, sigma = 1, quantile = 0.5, 
+                          log = FALSE) {
+  # pdf of the asymmetric laplace distribution
+  # Args:
+  #   mu: location parameter
+  #   sigma: scale parameter
+  #   quantile: quantile parameter
   out <- ifelse(y < mu, 
     yes = (quantile * (1 - quantile) / sigma) * 
            exp((1 - quantile) * (y - mu) / sigma),
@@ -300,7 +465,7 @@ dasym_laplace <- function(y, mu = 0, sigma = 1, quantile = 0.5, log = FALSE) {
 
 pasym_laplace <- function(q, mu = 0, sigma = 1, quantile = 0.5,
                           lower.tail = TRUE, log.p = FALSE) {
-  # distribution function of the asymmetric laplace distribution
+  # cdf of the asymmetric laplace distribution
   out <- ifelse(q < mu, 
     yes = quantile * exp((1 - quantile) * (q - mu) / sigma), 
     no = 1 - (1 - quantile) * exp(-quantile * (q - mu) / sigma)
@@ -349,12 +514,14 @@ dWiener <- function(x, alpha, tau, beta, delta, resp = 1, log = FALSE) {
   if (!is.character(resp)) {
     resp <- ifelse(resp, "upper", "lower") 
   }
+  # vectorized version of RWiener::dwiener
+  .dWiener <- Vectorize(
+    RWiener::dwiener, 
+    c("alpha", "tau", "beta", "delta")
+  )
   args <- nlist(q = x, alpha, tau, beta, delta, resp, give_log = log)
   do.call(.dWiener, args)
 }
-
-# vectorized version of RWiener::dwiener
-.dWiener <- Vectorize(RWiener::dwiener, c("alpha", "tau", "beta", "delta"))
 
 rWiener <- function(n, alpha, tau, beta, delta, col = NULL) {
   # create random numbers of the Wiener diffusion model
@@ -373,6 +540,16 @@ rWiener <- function(n, alpha, tau, beta, delta, col = NULL) {
     }
     n <- 1
   }
+  .rWiener <- function(...) {
+    # vectorized version of RWiener::rwiener
+    # returns a numeric vector
+    fun <- Vectorize(
+      rwiener_num, 
+      c("alpha", "tau", "beta", "delta"),
+      SIMPLIFY = FALSE
+    )
+    do.call(rbind, fun(...))
+  }
   args <- nlist(n, alpha, tau, beta, delta, col)
   do.call(.rWiener, args)
 }
@@ -390,14 +567,6 @@ rwiener_num <- function(n, alpha, tau, beta, delta, col = NULL) {
   out
 }
 
-.rWiener <- function(...) {
-  # vectorized version of RWiener::rwiener
-  # able to return data.frames correctly
-  fun <- Vectorize(rwiener_num, c("alpha", "tau", "beta", "delta"),
-                   SIMPLIFY = FALSE)
-  do.call(rbind, fun(...))
-}
-
 dcategorical <- function(x, eta, ncat, link = "logit") {
   # density of the categorical distribution
   # Args:
@@ -407,16 +576,19 @@ dcategorical <- function(x, eta, ncat, link = "logit") {
   #   link: the link function
   # Returns:
   #   probabilities P(X = x)
-  if (is.null(dim(eta))) 
+  if (is.null(dim(eta))) {
     eta <- matrix(eta, nrow = 1)
-  if (length(dim(eta)) != 2) 
-    stop("eta must be a numeric vector or matrix")
-  if (missing(ncat))
+  }
+  if (length(dim(eta)) != 2) {
+    stop2("eta must be a numeric vector or matrix.")
+  }
+  if (missing(ncat)) {
     ncat <- ncol(eta) + 1
+  }
   if (link == "logit") {
     p <- exp(cbind(rep(0, nrow(eta)), eta[, 1:(ncat - 1)]))
   } else {
-    stop(paste("Link", link, "not supported"))
+    stop2("Link ", link, " not supported.")
   }
   p <- p / rowSums(p)
   p[, x]
@@ -438,12 +610,15 @@ pcategorical <- function(q, eta, ncat, link = "logit") {
 dcumulative <- function(x, eta, ncat, link = "logit") {
   # density of the cumulative distribution
   # Args: same as dcategorical
-  if (is.null(dim(eta))) 
+  if (is.null(dim(eta))) {
     eta <- matrix(eta, nrow = 1)
-  if (length(dim(eta)) != 2) 
-    stop("eta must be a numeric vector or matrix")
-  if (missing(ncat)) 
+  }
+  if (length(dim(eta)) != 2) {
+    stop2("eta must be a numeric vector or matrix.")
+  }
+  if (missing(ncat)) {
     ncat <- ncol(eta) + 1
+  }
   mu <- ilink(eta, link)
   rows <- list(mu[, 1])
   if (ncat > 2) {
@@ -460,12 +635,15 @@ dcumulative <- function(x, eta, ncat, link = "logit") {
 dsratio <- function(x, eta, ncat, link = "logit") {
   # density of the sratio distribution
   # Args: same as dcategorical
-  if (is.null(dim(eta))) 
+  if (is.null(dim(eta))) {
     eta <- matrix(eta, nrow = 1)
-  if (length(dim(eta)) != 2) 
-    stop("eta must be a numeric vector or matrix")
-  if (missing(ncat)) 
+  }
+  if (length(dim(eta)) != 2) {
+    stop2("eta must be a numeric vector or matrix.")
+  }
+  if (missing(ncat)) {
     ncat <- ncol(eta) + 1
+  }
   mu <- ilink(eta, link)
   rows <- list(mu[, 1])
   if (ncat > 2) {
@@ -482,12 +660,15 @@ dsratio <- function(x, eta, ncat, link = "logit") {
 dcratio <- function(x, eta, ncat, link = "logit") {
   # density of the cratio distribution
   # Args: same as dcategorical
-  if (is.null(dim(eta))) 
+  if (is.null(dim(eta))) {
     eta <- matrix(eta, nrow = 1)
-  if (length(dim(eta)) != 2) 
-    stop("eta must be a numeric vector or matrix")
-  if (missing(ncat)) 
+  }
+  if (length(dim(eta)) != 2) {
+    stop2("eta must be a numeric vector or matrix.")
+  }
+  if (missing(ncat)) {
     ncat <- ncol(eta) + 1
+  }
   mu <- ilink(eta, link)
   rows <- list(1 - mu[, 1])
   if (ncat > 2) {
@@ -504,13 +685,17 @@ dcratio <- function(x, eta, ncat, link = "logit") {
 dacat <- function(x, eta, ncat, link = "logit") {
   # density of the acat distribution
   # Args: same as dcategorical
-  if (is.null(dim(eta))) 
+  if (is.null(dim(eta))) {
     eta <- matrix(eta, nrow = 1)
-  if (length(dim(eta)) != 2) 
-    stop("eta must be a numeric vector or matrix")
-  if (missing(ncat)) 
+  }
+  if (length(dim(eta)) != 2) {
+    stop2("eta must be a numeric vector or matrix.")
+  }
+  if (missing(ncat)) {
     ncat <- ncol(eta) + 1
-  if (link == "logit") { # faster evaluation in this case
+  }
+  if (link == "logit") { 
+    # faster evaluation in this case
     p <- cbind(rep(1, nrow(eta)), exp(eta[,1]), 
                matrix(NA, nrow = nrow(eta), ncol = ncat - 2))
     if (ncat > 2) {

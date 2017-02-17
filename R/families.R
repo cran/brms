@@ -39,6 +39,7 @@
 #' @param link_ndt Link of auxiliary parameter \code{ndt} if being predicted.
 #' @param link_bias Link of auxiliary parameter \code{bias} if being predicted.
 #' @param link_quantile Link of auxiliary parameter \code{quantile} if being predicted.
+#' @param link_xi Link of auxiliary parameter \code{xi} if being predicted.
 #' 
 #' @details 
 #'   Family \code{gaussian} with \code{identity} link leads to linear regression. 
@@ -54,6 +55,8 @@
 #'   leads to ordinal regression. Families \code{Gamma}, \code{weibull}, 
 #'   \code{exponential}, \code{lognormal}, \code{frechet}, and 
 #'   \code{inverse.gaussian} can be used (among others) for survival regression.
+#'   Families \code{weibull}, \code{frechet}, and \code{gen_extreme_value}
+#'   ('generalized extreme value') allow for modeling extremes.
 #'   Family \code{asym_laplace} allows for quantile regression when fixing
 #'   the auxiliary \code{quantile} parameter to the quantile of interest.
 #'   Family \code{exgaussian} ('exponentially modified Gaussian') is especially
@@ -73,9 +76,9 @@
 #'   models cannot be reasonably fitted for data containing zeros in the response.
 #'   
 #'   In the following, we list all possible links for each family.
-#'   The families \code{gaussian}, \code{student}, \code{exgaussian}. and
-#'   \code{asym_laplace} accept the links (as names) \code{identity}, 
-#'   \code{log}, and \code{inverse};
+#'   The families \code{gaussian}, \code{student}, \code{exgaussian},
+#'   \code{asym_laplace}, and \code{gen_extreme_value} accept the links 
+#'   (as names) \code{identity}, \code{log}, and \code{inverse};
 #'   families \code{poisson}, \code{negbinomial}, and \code{geometric} the links 
 #'   \code{log}, \code{identity}, and \code{sqrt}; 
 #'   families \code{binomial}, \code{bernoulli}, \code{Beta},
@@ -124,7 +127,8 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
                        link_beta = "log", link_zi = "logit", 
                        link_hu = "logit", link_disc = "log",
                        link_bs = "log", link_ndt = "log",
-                       link_bias = "logit", link_quantile = "logit") {
+                       link_bias = "logit", link_quantile = "logit",
+                       link_xi = "log1p") {
   slink <- substitute(link)
   .brmsfamily(family, link = link, slink = slink,
               link_sigma = link_sigma, link_shape = link_shape, 
@@ -133,7 +137,8 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
               link_zi = link_zi, link_hu = link_hu, 
               link_disc = link_disc, link_bs = link_bs, 
               link_ndt = link_ndt, link_bias = link_bias,
-              link_quantile = link_quantile)
+              link_quantile = link_quantile, 
+              link_xi = link_xi)
 }
 
 .brmsfamily <- function(family, link = NULL, slink = link, ...) {
@@ -159,8 +164,8 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
     "gaussian", "student", "lognormal", 
     "binomial", "bernoulli", "categorical", 
     "poisson", "negbinomial", "geometric", 
-    "gamma", "weibull", "exponential", 
-    "exgaussian", "frechet", "inverse.gaussian", 
+    "gamma", "weibull", "exponential", "exgaussian", 
+    "frechet", "gen_extreme_value", "inverse.gaussian", 
     "wiener", "beta", "von_mises", "asym_laplace",
     "cumulative", "cratio", "sratio", "acat",
     "hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
@@ -173,7 +178,8 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
   }
   
   # check validity of link
-  if (is_linear(family) || family %in% c("exgaussian", "asym_laplace")) {
+  as_lin <- family %in% c("exgaussian", "asym_laplace", "gen_extreme_value")
+  if (is_linear(family) || as_lin) {
     ok_links <- c("identity", "log", "inverse")
   } else if (family == "inverse.gaussian") {
     ok_links <- c("1/mu^2", "inverse", "identity", "log")
@@ -220,8 +226,10 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
          family, "'. \nSupported links are: ", 
          paste(ok_links, collapse = ", "), call. = FALSE) 
   }
-  out <- structure(list(family = family, link = slink), 
-                   class = c("brmsfamily", "family"))
+  out <- structure(
+    list(family = family, link = slink), 
+    class = c("brmsfamily", "family")
+  )
   for (ap in valid_auxpars(out$family)) {
     alink <- as.character(aux_links[[paste0("link_", ap)]])
     if (length(alink)) {
@@ -298,6 +306,15 @@ frechet <- function(link = "log", link_nu = "logm1") {
   slink <- substitute(link)
   .brmsfamily("frechet", link = link, slink = slink,
               link_nu = link_nu)
+}
+
+#' @rdname brmsfamily
+#' @export
+gen_extreme_value <- function(link = "identity", link_sigma = "log",
+                              link_xi = "log1p") {
+  slink <- substitute(link)
+  .brmsfamily("gen_extreme_value", link = link, slink = slink,
+              link_sigma = link_sigma, link_xi = link_xi)
 }
 
 #' @rdname brmsfamily
@@ -449,6 +466,32 @@ acat <- function(link = "logit", link_disc = "log") {
               link_disc = link_disc)
 }
 
+par_family <- function(par, link = NULL) {
+  # set up family objects for auxiliary parameters
+  # Args:
+  #   par: name of the auxiliary parameter
+  #   link: link function of the parameter
+  if (!isNA(par) && !isTRUE(par %in% auxpars())) {
+    stop2("Parameter '", par, "' is invalid.")
+  }
+  if (isNA(par)) {
+    link <- "identity"
+  } else {
+    links <- links_auxpars(par)
+    if (is.null(link)) {
+      link <- links[1]
+    } else {
+      if (!isTRUE(link %in% links)) {
+        stop2("Link '", link, "' is invalid for parameter '", par, "'.")
+      }
+    }
+  }
+  structure(
+    list(family = par, link = link),
+    class = c("brmsfamily", "family")
+  )
+}
+
 check_family <- function(family, link = NULL) {
   # checks and corrects validity of the model family
   # Args:
@@ -572,6 +615,14 @@ is_asym_laplace <- function(family) {
   isTRUE(family %in% c("asym_laplace"))
 }
 
+is_gev <- function(family) {
+  # indicates if family is generalized extreme value
+  if (is.family(family)) {
+    family <- family$family
+  }
+  isTRUE(family %in% c("gen_extreme_value"))
+}
+
 is_count <- function(family) {
   # indicate if family is for a count model
   if (is.family(family)) {
@@ -637,9 +688,12 @@ use_real <- function(family) {
     family <- family$family
   }
   is_linear(family) || is_skewed(family) || 
-    isTRUE(family %in% c("lognormal", "exgaussian", "inverse.gaussian", "beta", 
-                         "von_mises", "zero_inflated_beta", "hurdle_gamma", 
-                         "hurdle_lognormal", "wiener", "asym_laplace"))
+    isTRUE(family %in% 
+      c("lognormal", "exgaussian", "inverse.gaussian", "beta", 
+        "von_mises", "zero_inflated_beta", "hurdle_gamma", 
+        "hurdle_lognormal", "wiener", "asym_laplace", 
+        "gen_extreme_value")
+    )
 }
 
 use_int <- function(family) {
@@ -703,32 +757,40 @@ has_kappa <- function(family) {
 }
 
 has_beta <- function(family) {
-  # indicate if family needs a kappa parameter
+  # indicate if family needs a beta parameter
   if (is.family(family)) {
     family <- family$family
   }
   isTRUE(family %in% c("exgaussian"))
 }
 
-has_sigma <- function(family, bterms = NULL, 
-                      autocor = cor_arma(), incmv = FALSE) {
+has_xi <- function(family) {
+  # indicate if family needs a xi parameter
+  if (is.family(family)) {
+    family <- family$family
+  }
+  isTRUE(family %in% c("gen_extreme_value"))
+}
+
+has_sigma <- function(family, bterms = NULL, incmv = FALSE) {
   # indicate if the model needs a sigma parameter
   # Args:
   #  family: model family
   #  bterms: object of class brmsterms
-  #  autocor: object of class cor_arma
   #  incmv: should MV (linear) models be treated as having sigma? 
   if (is.family(family)) {
     family <- family$family
   }
-  is_ln_eg <- isTRUE(family %in% c("lognormal", "hurdle_lognormal", 
-                                   "exgaussian", "asym_laplace"))
-  if (is.formula(bterms$se)) {
+  is_ln_eg <- isTRUE(family %in% 
+    c("lognormal", "hurdle_lognormal", "exgaussian",
+      "asym_laplace", "gen_extreme_value")
+  )
+  if (is.formula(bterms$adforms$se)) {
     # call .se without evaluating the x argument 
-    cl <- rhs(bterms$se)[[2]]
+    cl <- rhs(bterms$adforms$se)[[2]]
     cl[[1]] <- quote(resp_se_no_data)
     se_only <- isFALSE(attr(eval(cl), "sigma")) 
-    if (se_only && use_cov(autocor)) {
+    if (se_only && use_cov(bterms$autocor)) {
       stop2("Please set argument 'sigma' of function 'se' ",  
             "to TRUE when modeling ARMA covariance matrices.")
     }
@@ -736,7 +798,7 @@ has_sigma <- function(family, bterms = NULL,
     se_only <- FALSE
   }
   out <- (is_linear(family) || is_ln_eg) && 
-          !se_only && !is(autocor, "cov_fixed")
+          !se_only && !is(bterms$autocor, "cov_fixed")
   if (!incmv) {
     is_multi <- is_linear(family) && length(bterms$response) > 1L
     out <- out && !is_multi
@@ -791,6 +853,9 @@ is_old_mv <- function(x) {
   # from brms < 1.0.0
   stopifnot(is.brmsfit(x))
   bterms <- parse_bf(formula(x), family = family(x))
-  (is.null(x$version) || x$version <= "0.10.0.9000") &&
+  if (is.package_version(x$version)) {
+    x$version <- list(brms = x$version)
+  }
+  (is.null(x$version) || x$version$brms <= "0.10.0.9000") &&
     (is_mv(family(x), bterms$response) || is_forked(family(x)))
 }

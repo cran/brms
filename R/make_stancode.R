@@ -30,16 +30,18 @@ make_stancode <- function(formula, data, family = NULL,
   save_model <- use_alias(save_model, dots$save.model)
   dots[c("cov.ranef", "sample.prior", "save.model")] <- NULL
   # some input checks
-  formula <- amend_formula(formula, data = data, family = family,
-                           nonlinear = nonlinear)
+  formula <- amend_formula(
+    formula, data = data, family = family, nonlinear = nonlinear
+  )
   family <- formula$family
   autocor <- check_autocor(autocor)
   threshold <- match.arg(threshold)
   bterms <- parse_bf(formula, family = family, autocor = autocor)
-  prior <- check_prior(prior, formula = formula, data = data,
-                       family = family, autocor = autocor,
-                       threshold = threshold, 
-                       warn = !isTRUE(dots$brm_call))
+  prior <- check_prior(
+    prior, formula = formula, data = data, family = family, 
+    autocor = autocor, threshold = threshold, 
+    warn = !isTRUE(dots$brm_call)
+  )
   prior_only <- identical(sample_prior, "only")
   sample_prior <- if (prior_only) FALSE else sample_prior
   data <- update_data(data, family = family, bterms = bterms)
@@ -48,60 +50,64 @@ make_stancode <- function(formula, data, family = NULL,
   is_categorical <- is_categorical(family)
   is_mv <- is_linear(family) && length(bterms$response) > 1L
   is_forked <- is_forked(family)
-  has_cens <- has_cens(bterms$cens, data = data)
-  bounds <- get_bounds(bterms$trunc, data = data)
+  has_cens <- has_cens(bterms$adforms$cens, data = data)
+  bounds <- get_bounds(bterms$adforms$trunc, data = data)
   
   ranef <- tidy_ranef(bterms, data = data)
-  if (length(bterms$nlpars)) {
-    text_pred <- stan_nonlinear(bterms, data = data, family = family, 
-                                ranef = ranef, prior = prior)
+  if (length(bterms$response) > 1L) {
+    text_effects_mv <- stan_effects_mv(
+      bterms, data = data, ranef = ranef, 
+      prior = prior, sparse = sparse
+    )
+    bterms$auxpars[["mu"]] <- NULL
   } else {
-    if (length(bterms$response) > 1L) {
-      text_pred <- stan_effects_mv(bterms, data = data, family = family,
-                                   prior = prior, ranef = ranef, 
-                                   autocor = autocor, sparse = sparse)
-    } else {
-      text_pred <- stan_effects(bterms, data = data, family = family,
-                                prior = prior, ranef = ranef, 
-                                autocor = autocor, sparse = sparse,
-                                threshold = threshold)
-    }
+    text_effects_mv <- list()
   }
-  text_auxpars <- stan_auxpars(bterms, data = data, family = family, 
-                               ranef = ranef, prior = prior, 
-                               autocor = autocor)
-  # due to the ID syntax, group-level effects are evaluated separately
-  text_ranef <- lapply(unique(ranef$id), stan_ranef, ranef = ranef, 
-                       prior = prior, cov_ranef = cov_ranef)
+  text_effects <- stan_effects(
+    bterms, data = data, ranef = ranef, 
+    prior = prior, sparse = sparse,
+    threshold = threshold
+  )
+  text_effects <- collapse_lists(list(text_effects, text_effects_mv))
+  # because of the ID syntax, group-level effects are evaluated separately
+  text_ranef <- lapply(
+    X = unique(ranef$id), FUN = stan_re,
+    ranef = ranef, prior = prior, cov_ranef = cov_ranef
+  )
   text_ranef <- collapse_lists(text_ranef)
   
   # generate Stan code of the likelihood
-  text_llh <- stan_llh(family, bterms = bterms, 
-                       data = data, autocor = autocor)
+  text_llh <- stan_llh(
+    family, bterms = bterms, data = data, autocor = autocor
+  )
   # generate Stan code specific to certain models
-  text_autocor <- stan_autocor(autocor, bterms = bterms, 
-                               family = family, prior = prior)
+  text_autocor <- stan_autocor(
+    autocor, bterms = bterms, family = family, prior = prior
+  )
   text_mv <- stan_mv(family, response = bterms$response, prior = prior)
-  disc <- "disc" %in% names(bterms$auxpars) || isTRUE(bterms$fauxpars$disc != 1)
-  text_ordinal <- stan_ordinal(family, prior = prior, cs = has_cs(bterms), 
-                               disc = disc, threshold = threshold)
-  text_families <- stan_families(family)
-  text_se <- stan_se(is.formula(bterms$se))
+  disc <- "disc" %in% names(bterms$auxpars) || 
+    isTRUE(bterms$fauxpars$disc != 1)
+  text_ordinal <- stan_ordinal(
+    family, prior = prior, cs = has_cs(bterms), 
+    disc = disc, threshold = threshold
+  )
+  text_families <- stan_families(family, bterms)
+  text_se <- stan_se(is.formula(bterms$adforms$se))
   text_cens <- stan_cens(has_cens, family = family)
   text_disp <- stan_disp(bterms, family = family)
-  kronecker <- stan_needs_kronecker(ranef, names_cov_ranef = names(cov_ranef))
-  text_misc_funs <- stan_misc_functions(family = family, kronecker = kronecker)
-  text_monotonic <- stan_monotonic(text_pred)
+  kron <- stan_needs_kronecker(ranef, names_cov_ranef = names(cov_ranef))
+  text_misc_funs <- stan_misc_functions(family, prior, kronecker = kron)
+  text_monotonic <- stan_monotonic(text_effects)
     
   # get priors for all parameters in the model
   text_prior <- paste0(
-    text_pred$prior,
-    text_auxpars$prior,
+    text_effects$prior,
     text_ranef$prior,
     text_ordinal$prior,
     text_autocor$prior,
     text_mv$prior,
-    stan_prior(class = "", prior = prior))
+    stan_prior(class = "", prior = prior)
+  )
   
   # generate functions block
   text_functions <- paste0(
@@ -113,7 +119,8 @@ make_stancode <- function(formula, data, family = NULL,
       text_ordinal$fun,
       text_families$fun,
       stan_funs,
-    "} \n")
+    "} \n"
+  )
   
   # generate data block
   rtype <- ifelse(use_int(family), "int", "real")
@@ -128,8 +135,7 @@ make_stancode <- function(formula, data, family = NULL,
     } else if (use_int(family)) {
       "  int Y[N];  // response variable \n"
     },
-    text_pred$data,
-    text_auxpars$data,
+    text_effects$data,
     text_ranef$data,
     text_ordinal$data,
     text_families$data,
@@ -139,75 +145,76 @@ make_stancode <- function(formula, data, family = NULL,
     text_se$data,
     if (has_trials(family))
       "  int trials[N];  // number of trials \n",
-    if (is.formula(bterms$weights))
+    if (is.formula(bterms$adforms$weights))
       "  vector<lower=0>[N] weights;  // model weights \n",
-    if (is.formula(bterms$dec))
+    if (is.formula(bterms$adforms$dec))
       "  int<lower=0,upper=1> dec[N];  // decisions \n",
     if (any(bounds$lb > -Inf))
       paste0("  ", rtype, " lb[N];  // lower truncation bounds; \n"),
     if (any(bounds$ub < Inf))
       paste0("  ", rtype, " ub[N];  // upper truncation bounds \n"),
     "  int prior_only;  // should the likelihood be ignored? \n",
-    "} \n")
+    "} \n"
+  )
   
   # generate transformed parameters block
   text_transformed_data <- paste0(
     "transformed data { \n",
        text_families$tdataD,
-       text_pred$tdataD,
-       text_auxpars$tdataD,
+       text_effects$tdataD,
        text_se$tdataD,
        text_autocor$tdataD,
        text_families$tdataC,
-       text_pred$tdataC,
-       text_auxpars$tdataC,
+       text_effects$tdataC,
        text_se$tdataC,
        text_autocor$tdataC,
-    "} \n")
+    "} \n"
+  )
   
   # generate parameters block
   text_parameters <- paste0(
-    text_pred$par,
-    text_auxpars$par,
+    text_effects$par,
     text_ranef$par,
     text_ordinal$par,
     text_autocor$par,
-    text_mv$par)
-  text_rngprior <- stan_rngprior(sample_prior = sample_prior, 
-                                 par_declars = text_parameters,
-                                 prior = text_prior, family = family,
-                                 prior_attr = attributes(prior))
+    text_mv$par
+  )
+  text_rngprior <- stan_rngprior(
+    sample_prior = sample_prior, 
+    par_declars = text_parameters,
+    prior = text_prior, family = family, 
+    prior_attr = attributes(prior)
+  )
   text_parameters <- paste0(
     "parameters { \n",
       text_parameters,
       text_rngprior$par,
-    "} \n")
+    "} \n"
+  )
   
   # generate transformed parameters block
   text_transformed_parameters <- paste0(
     "transformed parameters { \n",
-      text_pred$transD,
-      text_auxpars$transD,
+      text_effects$transD,
       text_ranef$transD,
       text_autocor$transD, 
       text_ordinal$transD,
       text_mv$transD,
-      text_pred$transC1,
-      text_auxpars$transC1,
+      text_effects$transC1,
       text_ranef$transC1,
       text_autocor$transC1, 
       text_ordinal$transC1, 
       text_mv$transC1,
-    "} \n")
+    "} \n"
+  )
   
   # generate model block
   # list auxpars before pred as part of fixing issue #124
   text_model_loop <- paste0(
-    text_auxpars$modelC2, 
-    text_pred$modelC2, 
+    text_effects$modelC2, 
     text_autocor$modelC2,
-    text_auxpars$modelC3,
-    text_pred$modelC3
+    text_effects$modelC3,
+    text_effects$modelC4
   )
   if (isTRUE(nzchar(text_model_loop))) {
     text_model_loop <- paste0(
@@ -215,7 +222,8 @@ make_stancode <- function(formula, data, family = NULL,
     )
   }
   text_lp_pre <- list()
-  if (is.formula(bterms$weights) && !is.formula(bterms$cens)) {
+  if (is.formula(bterms$adforms$weights) && 
+      !is.formula(bterms$adforms$cens)) {
     text_lp_pre <- list(
       modelD = "  vector[N] lp_pre; \n",
       modelC = "    target += dot_product(weights, lp_pre); \n"
@@ -223,16 +231,16 @@ make_stancode <- function(formula, data, family = NULL,
   }
   text_model <- paste0(
     "model { \n",
-      text_pred$modelD,
-      text_auxpars$modelD,
+      text_effects$modelD,
       text_disp$modelD,
       text_autocor$modelD,
+      text_families$modelD,
       text_lp_pre$modelD,
-      text_auxpars$modelC1,
-      text_pred$modelC1,
+      text_effects$modelC1,
       text_autocor$modelC1, 
       text_disp$modelC1,
       text_model_loop,
+      text_families$modelC,
       "  // prior specifications \n", 
       text_prior, 
       "  // likelihood contribution \n",
@@ -241,22 +249,22 @@ make_stancode <- function(formula, data, family = NULL,
       text_lp_pre$modelC,
       "  } \n", 
       text_rngprior$model,
-    "} \n")
+    "} \n"
+  )
   
   # generate generated quantities block
   text_generated_quantities <- paste0(
     "generated quantities { \n",
-      text_pred$genD,
-      text_auxpars$genD,
+      text_effects$genD,
       text_ranef$genD,
       text_mv$genD, 
       text_rngprior$genD,
-      text_pred$genC,
-      text_auxpars$genC,
+      text_effects$genC,
       text_ranef$genC,
       text_mv$genC, 
       text_rngprior$genC,
-    "} \n")
+    "} \n"
+  )
 
   # combine all elements into a complete Stan model
   complete_model <- paste0(
@@ -266,16 +274,18 @@ make_stancode <- function(formula, data, family = NULL,
     text_parameters,
     text_transformed_parameters,
     text_model,
-    text_generated_quantities)
+    text_generated_quantities
+  )
   
   # expand '#include' statements by calling rstan::stanc_builder
   if (!isTRUE(dots$testmode)) { 
     temp_file <- tempfile(fileext = ".stan")
     cat(complete_model, file = temp_file) 
     isystem <- system.file("chunks", package = "brms")
-    complete_model <- rstan::stanc_builder(file = temp_file, isystem = isystem,
-                                           obfuscate_model_name = TRUE)
-    complete_model$model_name <- model_name(family)
+    complete_model <- rstan::stanc_builder(
+      file = temp_file, isystem = isystem, obfuscate_model_name = TRUE
+    )
+    complete_model$model_name <- name_model(family)
     class(complete_model$model_code) <- c("character", "brmsmodel")
     if (is.character(save_model)) {
       cat(complete_model$model_code, file = save_model)

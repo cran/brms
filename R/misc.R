@@ -58,6 +58,18 @@ is_equal <- function(x, y, ...) {
   isTRUE(all.equal(x, y, ...))
 }
 
+expand <- function(..., length = NULL) {
+  # expand arguments of be of the same length
+  # Args:
+  #   ...: arguments to expand
+  #   length: optional expansion length
+  dots <- list(...)
+  if (is.null(length)) {
+    length <- max(sapply(dots, length))
+  }
+  lapply(dots, rep, length.out = length)
+}
+
 rmNum <- function(x) {
   # remove all numeric elements from an object
   x[sapply(x, Negate(is.numeric))]
@@ -101,11 +113,17 @@ subset_attr <- function(x, y) {
 is_wholenumber <- function(x, tol = .Machine$double.eps) {  
   # check if x is a whole number (integer)
   if (!is.numeric(x)) {
-    return(FALSE)
+    out <- FALSE
   } else {
-    return(abs(x - round(x)) < tol)
+    out <- abs(x - round(x)) < tol
   }
-} 
+  out
+}
+
+is_symmetric <- function(x, tol = sqrt(.Machine$double.eps)) {
+  # helper function to check symmetry of a matrix
+  isSymmetric(x, tol = tol, check.attributes = FALSE)
+}
 
 ulapply <- function(X, FUN, ...) {
   # short for unlist(lapply(.))
@@ -130,6 +148,47 @@ paste_colon <- function(..., collapse = NULL) {
 
 collapse_comma <- function(...) {
   paste0("'", ..., "'", collapse = ", ")
+}
+
+rename <- function(x, symbols = NULL, subs = NULL, 
+                   fixed = TRUE, check_dup = FALSE) {
+  # rename certain symbols in a character vector
+  # Args:
+  #   x: a character vector to be renamed
+  #   symbols: the regular expressions in x to be replaced
+  #   subs: the replacements
+  #   fixed: same as for sub, grepl etc
+  #   check_dup: logical; check for duplications in x after renaming
+  # Returns: 
+  #   renamed character vector of the same length as x
+  symbols <- as.character(symbols)
+  subs <- as.character(subs)
+  if (!length(symbols)) {
+    symbols <- c(" ", "(", ")", "[", "]", ",", "\"", "'", 
+                 "+", "-", "*", "/", "^", "=", "!=")
+  }
+  if (!length(subs)) {
+    subs <- c(rep("", 8), "P", "M", "MU", "D", "E", "EQ", "NEQ")
+  }
+  if (length(subs) == 1L) {
+    subs <- rep(subs, length(symbols))
+  }
+  stopifnot(length(symbols) == length(subs))
+  # avoid zero-length pattern error
+  has_chars <- nzchar(symbols)
+  symbols <- symbols[has_chars]
+  subs <- subs[has_chars]
+  out <- x
+  for (i in seq_along(symbols)) {
+    out <- gsub(symbols[i], subs[i], out, fixed = fixed)
+  }
+  dup <- duplicated(out)
+  if (check_dup && any(dup)) {
+    dup <- x[out %in% out[dup]]
+    stop2("Internal renaming led to duplicated names. \n",
+          "Occured for: ", collapse_comma(dup))
+  }
+  out
 }
 
 collapse_lists <- function(ls) {
@@ -190,6 +249,10 @@ deparse_no_string <- function(x) {
 eval2 <- function(text, ...) {
   # evaluate a string
   eval(parse(text = text), ...)
+}
+
+eval_smooth <- function(x) {
+  eval2(paste0("mgcv::", x))
 }
 
 stop2 <- function(...) {
@@ -362,6 +425,36 @@ logm1 <- function(x, base = exp(1)) {
 #' @export
 expp1 <- function(x) {
   exp(x) + 1
+}
+
+#' Scaled logit-link
+#' 
+#' Computes \code{logit((x - lb) / (ub - lb))}
+#' 
+#' @param x A numeric or complex vector.
+#' @param lb Lower bound defaulting to \code{0}.
+#' @param ub Upper bound defaulting to \code{1}.
+#' 
+#' @return A numeric or complex vector.
+#' 
+#' @export
+logit_scaled <- function(x, lb = 0, ub = 1) {
+  logit((x - lb) / (ub - lb))
+}
+
+#' Scaled inverse logit-link
+#' 
+#' Computes \code{inv_logit(x) * (ub - lb) + lb}
+#' 
+#' @param x A numeric or complex vector.
+#' @param lb Lower bound defaulting to \code{0}.
+#' @param ub Upper bound defaulting to \code{1}.
+#' 
+#' @return A numeric or complex vector between \code{lb} and \code{ub}.
+#' 
+#' @export
+inv_logit_scaled <- function(x, lb = 0, ub = 1) {
+  inv_logit(x) * (ub - lb) + lb
 }
 
 multiply_log <- function(x, y) {
