@@ -9,15 +9,13 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   # Returns:
   #   A named list to be intepreted by linear_predictor
   bterms <- parse_bf(formula(x), family = family(x))
-  if (is.null(subset) && !is.null(nsamples)) {
-    subset <- sample(nsamples(x), nsamples)
-  }
+  subset <- subset_samples(x, subset, nsamples)
   nsamples <- nsamples(x, subset = subset)
   newd_args <- nlist(
     fit = x, newdata, re_formula, allow_new_levels, incl_autocor
   )
   draws <- nlist(
-    f = prepare_family(x), autocor = x$autocor, nsamples = nsamples,
+    f = prepare_family(x), nsamples = nsamples,
     data = do.call(amend_newdata, c(newd_args, list(...)))
   )
   args <- c(newd_args, nlist(subset, nsamples, C = draws$data[["C"]]))
@@ -28,9 +26,14 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   resp <- bterms$response
   if (length(resp) > 1L && !isTRUE(x$formula[["old_mv"]])) {
     draws$mu[["mv"]] <- named_list(resp)
-    for (r in resp) {
-      more_args <- list(x = bterms$auxpars[["mu"]], nlpar = r)
+    for (j in seq_along(resp)) {
+      r <- resp[j]
+      more_args <- list(x = bterms$auxpars[["mu"]], nlpar = r, mv = TRUE)
       draws$mu[["mv"]][[r]] <- do.call(extract_draws, c(args, more_args))
+      draws$mu[["mv"]][[r]][["f"]] <- bterms$auxpars[["mu"]]$family
+      if (isTRUE(ncol(draws$mu[["mv"]][[r]]$data$Y) > 1L)) {
+        draws$mu[["mv"]][[r]]$data$Y <- draws$mu[["mv"]][[r]]$data$Y[, j]
+      }
     }
     bterms$auxpars[["mu"]] <- NULL
   }
@@ -50,30 +53,17 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
     }
   }
   if (is_linear(family(x)) && length(bterms$response) > 1L) {
-    # parameters for multivariate models
+    # parameters for multivariate normal models
     draws[["sigma"]] <- do.call(as.matrix, c(am_args, pars = "^sigma($|_)"))
     draws[["rescor"]] <- do.call(as.matrix, c(am_args, pars = "^rescor_"))
     draws[["Sigma"]] <- get_cov_matrix(sd = draws$sigma, cor = draws$rescor)$cov
   }
-  if (incl_autocor) {
-    # autocorrelation parameters
-    if (get_ar(x$autocor)) {
-      draws[["ar"]] <- do.call(as.matrix, c(am_args, pars = "^ar\\["))
-    }
-    if (get_ma(x$autocor)) {
-      draws[["ma"]] <- do.call(as.matrix, c(am_args, pars = "^ma\\["))
-    }
-    if (get_arr(x$autocor)) {
-      draws[["arr"]] <- do.call(as.matrix, c(am_args, pars = "^arr\\["))
-    }
-    if (is(x$autocor, "cor_bsts")) {
-      if (is.null(newdata)) {
-        draws[["loclev"]] <- do.call(as.matrix, c(am_args, pars = "^loclev\\["))
-      } else {
-        warning2("Local level terms are currently ignored when ",
-                 "'newdata' is specified.")
-      }
-    }
+  if (incl_autocor && use_cov(x$autocor)) {
+    # only include autocor samples on the top-level of draws 
+    # when using the covariance formulation of ARMA structures
+    draws <- c(draws, 
+      extract_draws_autocor(x, newdata = newdata, subset = subset)
+    )
   }
   draws
 }
@@ -93,8 +83,8 @@ extract_draws.btnl <- function(x, C, nlpar = "", ...) {
   nsamples <- draws$nlpars[[nlpars[1]]]$nsamples
   stopifnot(is.matrix(C))
   for (cov in colnames(C)) {
-    draws[["C"]][[cov]] <- matrix(
-      C[, cov], nrow = nsamples, ncol = nrow(C), byrow = TRUE
+    draws[["C"]][[cov]] <- as_draws_matrix(
+      C[, cov], dim = c(nsamples, nrow(C))
     )
   }
   draws$nlform <- x$formula[[2]]
@@ -105,11 +95,12 @@ extract_draws.btnl <- function(x, C, nlpar = "", ...) {
 extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL, 
                               allow_new_levels = FALSE, incl_autocor = TRUE,
                               subset = NULL, nlpar = "", smooths_only = FALSE, 
-                              ...) {
+                              mv = FALSE, ...) {
   # extract draws of all kinds of effects
   # Args:
   #   fit: a brmsfit object
   #   nlpar: name of a non-linear parameter
+  #   mv: is the model multivariate?
   #   ...: further elements to store in draws
   #   other arguments: see extract_draws.brmsfit
   # Returns:
@@ -126,7 +117,7 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
   if (nzchar(nlpar)) {
     # make sure not to evaluate family specific stuff
     fit$formula[["response"]] <- NA
-    fit$family <- fit$formula$family <- par_family(NA)
+    fit$family <- fit$formula$family <- par_family()
   }
   new_formula <- update_re_terms(fit$formula, re_formula = re_formula)
   bterms <- parse_bf(new_formula, family = family(fit))
@@ -146,13 +137,13 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
     new_ranef <- empty_ranef()
   }
   
-  args <- list(x = fit, subset = subset)
+  args <- nlist(x = fit, subset)
   fixef <- colnames(draws$data[["X"]])
   monef <- colnames(draws$data[["Xmo"]])
   csef <- colnames(draws$data[["Xcs"]])
   meef <- get_me_labels(bterms$auxpars$mu, fit$data)
   smooths <- rename(get_sm_labels(bterms$auxpars$mu, fit$data, covars = TRUE))
-  c(draws,
+  draws <- c(draws,
     extract_draws_fe(fixef, args, nlpar = nlpar, old_cat = draws$old_cat),
     extract_draws_mo(monef, args, sdata = draws$data, nlpar = nlpar),
     extract_draws_cs(csef, args, nlpar = nlpar, old_cat = draws$old_cat),
@@ -161,6 +152,13 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
     extract_draws_sm(smooths, args, sdata = draws$data, nlpar = nlpar),
     extract_draws_re(new_ranef, args, sdata = draws$data, nlpar = nlpar)
   )
+  if (incl_autocor && !use_cov(fit$autocor) && (!nzchar(nlpar) || mv)) {
+    # only include autocorrelation parameters in draws for mu
+    draws <- c(draws, 
+      extract_draws_autocor(fit, newdata = newdata, subset = subset)
+    )
+  }
+  draws
 }
 
 extract_draws_fe <- function(fixef, args, nlpar = "", old_cat = 0L) {
@@ -463,6 +461,31 @@ extract_draws_re <- function(ranef, args, sdata, nlpar = "") {
       take <- as.vector(outer(take, nranef * (seq_along(levels) - 1), "+"))
       r <- r[, take, drop = FALSE]
       draws[["r"]][[g]] <- r
+    }
+  }
+  draws
+}
+
+extract_draws_autocor <- function(fit, newdata = NULL, subset = NULL) {
+  # extract draws of autocorrelation parameters
+  stopifnot(is.brmsfit(fit))
+  args <- nlist(x = fit, subset)
+  draws <- list()
+  if (get_ar(fit$autocor)) {
+    draws[["ar"]] <- do.call(as.matrix, c(args, pars = "^ar\\["))
+  }
+  if (get_ma(fit$autocor)) {
+    draws[["ma"]] <- do.call(as.matrix, c(args, pars = "^ma\\["))
+  }
+  if (get_arr(fit$autocor)) {
+    draws[["arr"]] <- do.call(as.matrix, c(args, pars = "^arr\\["))
+  }
+  if (is(fit$autocor, "cor_bsts")) {
+    if (is.null(newdata)) {
+      draws[["loclev"]] <- do.call(as.matrix, c(args, pars = "^loclev\\["))
+    } else {
+      warning2("Local level terms are currently ignored ", 
+               "when 'newdata' is specified.")
     }
   }
   draws

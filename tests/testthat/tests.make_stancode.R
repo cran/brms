@@ -120,8 +120,8 @@ test_that("special shrinkage priors appear in the Stan code", {
   scode <- make_stancode(y ~ x1*x2, data = dat, 
                          prior = set_prior(hs),
                          sample_prior = TRUE)
-  expect_match2(scode, 
-    "  vector<lower=0>[Kc] hs_local[2]; \n  real<lower=0> hs_global[2];")
+  expect_match2(scode, "vector<lower=0>[Kc] hs_local[2];") 
+  expect_match2(scode, "real<lower=0> hs_global[2];") 
   expect_match2(scode, "hs_local[2] ~ inv_gamma(0.5 * 7, 0.5 * 7);")
   expect_match2(scode, "hs_global[2] ~ inv_gamma(0.5 * 3, 0.5 * 3);")
   expect_match2(scode, "b = horseshoe(zb, hs_local, hs_global, 2 * sigma);")
@@ -134,11 +134,35 @@ test_that("special shrinkage priors appear in the Stan code", {
   scode <- make_stancode(y ~ x1*x2, data = dat,
                          prior = prior(lasso(2, scale = 10)),
                          sample_prior = TRUE)
-  expect_match2(scode, "  lasso_inv_lambda ~ chi_square(2);")
-  expect_match2(scode, "  b ~ double_exponential(0, 10 * lasso_inv_lambda);")
+  expect_match2(scode, "lasso_inv_lambda ~ chi_square(2);")
+  expect_match2(scode, "b ~ double_exponential(0, 10 * lasso_inv_lambda);")
   expect_match2(scode,
-    "  prior_b = double_exponential_rng(0,10*prior_lasso_inv_lambda);")
+    "prior_b = double_exponential_rng(0,10*prior_lasso_inv_lambda);"
+  )
   
+  # horseshoe and lasso prior applied in a non-linear model
+  hs_a1 <- horseshoe(7, scale_global = 2, df_global = 3)
+  lasso_a2 <- lasso(2, scale = 10)
+  scode <- make_stancode(
+    bf(y ~ a1 + a2, a1 ~ x1, a2 ~ 0 + x2, nl = TRUE),
+    data = dat, sample_prior = TRUE,
+    prior = c(set_prior(hs_a1, nlpar = "a1"),
+              set_prior(lasso_a2, nlpar = "a2"))
+  )
+  expect_match2(scode, "vector<lower=0>[K_a1] hs_local_a1[2];")
+  expect_match2(scode, "real<lower=0> hs_global_a1[2];")
+  expect_match2(scode, "hs_local_a1[2] ~ inv_gamma(0.5 * 7, 0.5 * 7);")
+  expect_match2(scode, "hs_global_a1[2] ~ inv_gamma(0.5 * 3, 0.5 * 3);")
+  expect_match2(scode, 
+    "b_a1 = horseshoe(zb_a1, hs_local_a1, hs_global_a1, 2 * sigma);"
+  )
+  expect_match2(scode, "lasso_inv_lambda_a2 ~ chi_square(2);")
+  expect_match2(scode, "b_a2 ~ double_exponential(0, 10 * lasso_inv_lambda_a2);")
+  expect_match2(scode,
+    "prior_b_a2 = double_exponential_rng(0,10*prior_lasso_inv_lambda_a2);"
+  )
+  
+  # check error messages
   expect_error(make_stancode(y ~ x1*x2, data = dat, 
                              prior = prior(horseshoe(-1))),
                "Degrees of freedom of the local priors")
@@ -463,7 +487,7 @@ test_that("Stan code for non-linear models is correct", {
   # syntactic validity is already checked within make_stancode
   scode <- make_stancode(bf(y ~ a - exp(b^z), flist = flist, nl = TRUE), 
                             data = data, prior = prior)
-  expect_match2(scode, "mu[n] = mu_a[n] - exp(mu_b[n] ^ C[n, 1]);")
+  expect_match2(scode, "mu[n] = mu_a[n] - exp(mu_b[n] ^ C_1[n]);")
   
   flist <- list(a1 ~ 1, a2 ~ z + (x|g))
   prior <- c(set_prior("beta(1,1)", nlpar = "a1", lb = 0, ub = 1),
@@ -473,7 +497,7 @@ test_that("Stan code for non-linear models is correct", {
                             data = data, family = Gamma("log"), prior = prior)
   expect_match2(scode,
     paste("mu[n] = shape * exp(-(mu_a1[n] *", 
-          "exp( - C[n, 1] / (mu_a2[n] + C[n, 2]))));"))
+          "exp( - C_1[n] / (mu_a2[n] + C_2[n]))));"))
 })
 
 test_that("make_stancode accepts very long non-linear formulas", {
@@ -533,7 +557,7 @@ test_that("Addition term 'disp' appears in the Stan code", {
                             prior = c(set_prior("normal(0,1)", nlpar = "a"),
                                       set_prior("normal(0,1)", nlpar = "b")))
   expect_match2(scode,
-    "mu[n] = exp((mu_a[n] - mu_b[n] ^ C[n, 1]) / disp_shape[n]);")
+    "mu[n] = exp((mu_a[n] - mu_b[n] ^ C_1[n]) / disp_shape[n]);")
 })
 
 test_that("functions defined in 'stan_funs' appear in the functions block", {
@@ -671,7 +695,7 @@ test_that("distributional gamma models are handled correctly", {
   expect_match2(scode, paste0(
     "    shape[n] = exp(shape[n]); \n", 
     "    // compute non-linear predictor \n",
-    "    mu[n] = shape[n] / (inv_logit(mu_a[n]) * exp(mu_b[n] * C[n, 1]));"))
+    "    mu[n] = shape[n] / (inv_logit(mu_a[n]) * exp(mu_b[n] * C_1[n]));"))
 })
 
 test_that("weighted, censored, and truncated likelihoods are correct", {

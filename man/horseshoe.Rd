@@ -4,7 +4,7 @@
 \alias{horseshoe}
 \title{Set up a horseshoe prior in \pkg{brms}}
 \usage{
-horseshoe(df = 1, scale_global = 1, df_global = 1)
+horseshoe(df = 1, scale_global = 1, df_global = 1, autoscale = TRUE)
 }
 \arguments{
 \item{df}{Degrees of freedom of student-t prior of the 
@@ -17,6 +17,12 @@ multiplied by the residual standard deviation parameter \code{sigma}.}
 
 \item{df_global}{Degrees of freedom of student-t prior of the 
 global shrinkage parameter. Defaults to \code{1}.}
+
+\item{autoscale}{Logical; indicating whether the horseshoe
+prior should be scaled using the residual standard deviation
+\code{sigma} if possible and sensible (defaults to \code{TRUE}).
+Autoscaling is not applied for auxiliary parameters or 
+when the model does not contain the parameter \code{sigma}.}
 }
 \value{
 A character string obtained by \code{match.call()} with
@@ -38,4 +44,3 @@ set_prior(horseshoe(df = 3, scale_global = 2))
 \seealso{
 \code{\link[brms:set_prior]{set_prior}}
 }
-

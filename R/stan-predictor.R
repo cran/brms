@@ -116,11 +116,12 @@ stan_effects.btnl <- function(x, data, ranef, prior, eta = "mu",
     # covariates in the non-linear model
     covars <- wsp(setdiff(all.vars(rhs(x$formula)), nlpars))
     if (length(covars)) {
+      # use vectors as indexing matrices in Stan is slow
       out$data <- paste0(out$data, 
-        "  int<lower=1> KC;  // number of covariates \n",
-        " matrix[N, KC] C;  // covariate matrix \n"
+        "  // covariate vectors \n",
+        collapse("  vector[N] C_", seq_along(covars), ";\n")
       )
-      new_covars <- paste0(" C[n, ", seq_along(covars), "] ")
+      new_covars <- paste0(" C_", seq_along(covars), "[n] ")
     } else {
       new_covars <- NULL
     }
@@ -268,21 +269,25 @@ stan_fe <- function(fixef, prior, family = gaussian(),
       out$tdataC <- "  #include tdataC_sparse_X.stan \n"
     }
     # prepare population-level coefficients
-    if (!is.null(attr(prior, "hs_df")) && !nzchar(nlpar)) {
+    orig_nlpar <- ifelse(nzchar(nlpar), nlpar, "mu")
+    special <- attr(prior, "special")[[orig_nlpar]]
+    if (!is.null(special[["hs_df"]])) {
       out$par <- paste0(out$par,
         "  // horseshoe shrinkage parameters \n",
-        "  vector[K", ct, "] zb; \n",
-        "  vector<lower=0>[K", ct, "] hs_local[2]; \n",
-        "  real<lower=0> hs_global[2]; \n"
+        "  vector[K", ct, p, "] zb", p, "; \n",
+        "  vector<lower=0>[K", ct, p, "] hs_local", p, "[2]; \n",
+        "  real<lower=0> hs_global", p, "[2]; \n"
       )
       out$transD <- paste0(out$transD, 
-        "  vector[K", ct, "] b;",
+        "  vector[K", ct, p, "] b", p, ";",
         "  // population-level effects \n"
       )
-      hs_scale_global <- attr(prior, "hs_scale_global")
-      hs_args <- sargs("zb", "hs_local", "hs_global", hs_scale_global)
-      out$transD <- paste0(out$transD, 
-        "  b = horseshoe(", hs_args, "); \n"
+      hs_args <- sargs(
+        paste0(c("zb", "hs_local", "hs_global"), p), 
+        special[["hs_scale_global"]]
+      )
+      out$transC1 <- paste0(out$transC1, 
+        "  b", p, " = horseshoe(", hs_args, "); \n"
       )
     } else {
       bound <- get_bound(prior, class = "b", nlpar = nlpar)
@@ -291,14 +296,16 @@ stan_fe <- function(fixef, prior, family = gaussian(),
         "  // population-level effects \n"
       )
     }
-    if (!is.null(attr(prior, "lasso_df")) && !nzchar(nlpar)) {
+    if (!is.null(special[["lasso_df"]])) {
       out$par <- paste0(out$par,
         "  // lasso shrinkage parameter \n",
-        "  real<lower=0> lasso_inv_lambda; \n"
+        "  real<lower=0> lasso_inv_lambda", p, "; \n"
       )
     }
-    fixef_prior <- stan_prior(prior, class = "b", coef = fixef,
-                              nlpar = nlpar, suffix = p)
+    fixef_prior <- stan_prior(
+      prior, class = "b", coef = fixef,
+      nlpar = nlpar, suffix = p
+    )
     out$prior <- paste0(out$prior, fixef_prior)
   }
   if (center_X) {

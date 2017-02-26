@@ -976,7 +976,7 @@ stanplot.brmsfit <- function(object, pars = NA, type = "intervals",
                    paste0("nuts_", nuts_types))
   if (!type %in% valid_types) {
     stop2("Invalid plot type. Valid plot types are: \n",
-          paste(valid_types, collapse = ", "))
+          collapse_comma(valid_types))
   }
   mcmc_fun <- get(paste0("mcmc_", type), pos = asNamespace("bayesplot"))
   mcmc_arg_names <- names(formals(mcmc_fun))
@@ -993,7 +993,7 @@ stanplot.brmsfit <- function(object, pars = NA, type = "intervals",
       sel_pars <- names(samples)[!names(samples) %in% "chain"]
       if (type == "scatter" && length(sel_pars) != 2L) {
         stop2("For type 'scatter' exactly 2 parameters must be selected.",
-              "\nParameters selected: ", paste(sel_pars, collapse = ", "))
+              "\nParameters selected: ", collapse_comma(sel_pars))
       }
       mcmc_args[["x"]] <- samples
     }
@@ -1094,19 +1094,21 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
   valid_ppc_types <- sub("^ppc_", "", ppc_funs)
   if (!type %in% valid_ppc_types) {
     stop2("Type '", type, "' is not a valid ppc type. Valid types are: \n", 
-          paste(valid_ppc_types, collapse = ", "))
+          collapse_comma(valid_ppc_types))
   }
   ppc_fun <- get(paste0("ppc_", type), pos = asNamespace("bayesplot"))
-  # validate argument "group"
+  # validate argument 'group'
   object <- restructure(object)
-  valid_groups <- unique(object$ranef$group)
-  time_group <- parse_time(object$autocor$formula)$group
-  if (!is.null(time_group) && nchar(time_group)) {
-    valid_groups <- unique(c(valid_groups, time_group))
-  }
+  not_num <- !sapply(model.frame(object), is.numeric)
+  valid_groups <- c(
+    names(model.frame(object))[not_num],
+    parse_time(object$autocor$formula)$group,
+    object$ranef$group
+  )
+  valid_groups <- unique(valid_groups[nzchar(valid_groups)])
   if (!is.null(group) && !group %in% valid_groups) {
     stop2("Group '", group, "' is not a valid grouping factor. ",
-          "Valid groups are: \n", paste(valid_groups, collapse = ", "))
+          "Valid groups are: \n", collapse_comma(valid_groups))
   }
   is_group_type <- "group" %in% names(formals(ppc_fun))
   if (is.null(group) && is_group_type) {
@@ -1120,8 +1122,8 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
     bterms <- parse_bf(formula(object), family = family(object))
     ae_coll <- ulapply(get_all_effects(bterms), paste, collapse = ":")
     if (!x %in% ae_coll) {
-      stop2("Variable '", x, "' is not a valid variable for this model. \n",
-            "Valid variables are: ", paste(ae_coll, collapse = ", "))
+      stop2("Variable '", x, "' is not a valid variable for this model.",
+            "\nValid variables are: ", collapse_comma(ae_coll))
     }
   }
   if (type == "error_binned") {
@@ -1133,12 +1135,14 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
     method <- "predict"
   }
   if (missing(nsamples)) {
-    aps_types <- c("error_scatter_avg", "error_scatter_avg_vs_x",
-                   "intervals", "intervals_grouped", "ribbon", 
-                   "ribbon_grouped", "rootogram", "scatter_avg", 
-                   "scatter_avg_grouped", "stat", "stat_2d", 
-                   "stat_freqpoly_grouped", "stat_grouped", 
-                   "violin_grouped")
+    aps_types <- c(
+      "error_scatter_avg", "error_scatter_avg_vs_x",
+      "intervals", "intervals_grouped", "ribbon", 
+      "ribbon_grouped", "rootogram", "scatter_avg", 
+      "scatter_avg_grouped", "stat", "stat_2d", 
+      "stat_freqpoly_grouped", "stat_grouped", 
+      "violin_grouped"
+    )
     if (!is.null(subset)) {
       nsamples <- NULL
     } else if (type %in% aps_types) {
@@ -1167,8 +1171,7 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
   if (family(object)$family %in% "binomial") {
     # use success proportions following Gelman and Hill (2006)
     y <- y / standata$trials
-    yrep <- yrep / matrix(standata$trials, nrow = nrow(yrep),
-                          ncol = ncol(yrep), byrow = TRUE)
+    yrep <- yrep / as_draws_matrix(standata$trials, dim = dim(yrep))
   }
   ppc_args <- list(y, yrep, ...)
   old_order <- attr(standata, "old_order")
@@ -1235,7 +1238,7 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
   dots <- list(...)
   conditions <- use_alias(conditions, dots[["data"]])
   surface <- use_alias(surface, dots[["contour"]])
-  dots$data <- NULL
+  dots[["data"]] <- dots[["contour"]] <- NULL
   contains_samples(x)
   x <- restructure(x)
   new_formula <- update_re_terms(x$formula, re_formula = re_formula)
@@ -1249,9 +1252,11 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
              "in marginal plots, \nwhich is likely an invalid ", 
              "assumption for family ", x$family$family, ".")
   }
-  rsv_vars <- rsv_vars(x$family, nresp = length(bterms$response),
-                       rsv_intercept = attr(bterms$fe, "rsv_intercept"),
-                       old_mv = attr(bterms$formula, "old_mv"))
+  rsv_vars <- rsv_vars(
+    x$family, nresp = length(bterms$response),
+    rsv_intercept = attr(bterms$fe, "rsv_intercept"),
+    old_mv = attr(bterms$formula, "old_mv")
+  )
   if (is.null(effects)) {
     effects <- get_all_effects(bterms, rsv_vars = rsv_vars)
     if (!length(effects)) {
@@ -1261,14 +1266,16 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
     # allow to define interactions in any order
     effects <- strsplit(as.character(effects), split = ":")
     if (any(unique(unlist(effects)) %in% rsv_vars)) {
-      stop2("Variables ", paste0(rsv_vars, collapse = ", "),
+      stop2("Variables ", collapse_comma(rsv_vars),
             " should not be used as effects for this model")
     }
     if (any(lengths(effects) > 2L)) {
       stop2("To display interactions of order higher than 2 ",
             "please use the 'conditions' argument.")
     }
-    all_effects <- get_all_effects(bterms, rsv_vars = rsv_vars, comb_all = TRUE)
+    all_effects <- get_all_effects(
+      bterms, rsv_vars = rsv_vars, comb_all = TRUE
+    )
     ae_coll <- all_effects[lengths(all_effects) == 1L]
     ae_coll <- ulapply(ae_coll, paste, collapse = ":")
     matches <- match(lapply(all_effects, sort), lapply(effects, sort), 0L)
@@ -1276,23 +1283,24 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
       invalid <- effects[setdiff(seq_along(effects), sort(matches))]  
       invalid <- ulapply(invalid, paste, collapse = ":")
       warning2("Some specified effects are invalid for this model: ",
-               paste(invalid, collapse = ", "), "\nValid effects are ", 
-               "(combinations of): ", paste(ae_coll, collapse = ", "))
+               collapse_comma(invalid), "\nValid effects are ", 
+               "(combinations of): ", collapse_comma(ae_coll))
     }
     effects <- unique(effects[sort(matches)])
     if (!length(effects)) {
       stop2("All specified effects are invalid for this model.\n", 
             "Valid effects are (combinations of): ", 
-            paste(ae_coll, collapse = ", ")) 
+            collapse_comma(ae_coll))
     }
   }
   if (length(probs) != 2L) {
     stop2("Arguments 'probs' must be of length 2.")
   }
   
-  conditions <- prepare_conditions(x, conditions, effects, 
-                                   re_formula = re_formula, 
-                                   rsv_vars = rsv_vars)
+  conditions <- prepare_conditions(
+    x, conditions = conditions, effects = effects, 
+    re_formula = re_formula, rsv_vars = rsv_vars
+  )
   int_effects <- c(get_effect(bterms, "mo"), 
                    rmNULL(bterms[c("trials", "cat")]))
   int_vars <- unique(ulapply(int_effects, all.vars))
@@ -1315,9 +1323,12 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
     }
     # make sure numeric variables come first
     effects[[i]] <- attr(marg_data, "effects")
-    args <- c(list(x, newdata = marg_data, re_formula = re_formula,
-                   allow_new_levels = TRUE, incl_autocor = FALSE,
-                   probs = probs, robust = robust), dots)
+    args <- list(
+      x, newdata = marg_data, re_formula = re_formula,
+      allow_new_levels = TRUE, incl_autocor = FALSE,
+      probs = probs, robust = robust
+    )
+    args <- c(args, dots)
     if (is_ordinal(x$family) || is_categorical(x$family)) {
       args$summary <- FALSE 
       marg_res <- do.call(method, args)
@@ -1364,6 +1375,7 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
 marginal_smooths.brmsfit <- function(x, smooths = NULL,
                                      probs = c(0.025, 0.975),
                                      resolution = 100, too_far = 0,
+                                     subset = NULL, nsamples = NULL,
                                      ...) {
   contains_samples(x)
   x <- restructure(x)
@@ -1386,9 +1398,12 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
       lee <- c(lee, bt)
     }
   }
+  subset <- subset_samples(x, subset, nsamples)
+  nsamples <- nsamples(x, subset = subset)
   args <- nlist(
-    fit = x, smooths_only = TRUE, nsamples = nsamples(x),
-    incl_autocor = FALSE, allow_new_levels = TRUE
+    fit = x, allow_new_levels = TRUE,
+    subset, nsamples, incl_autocor = FALSE, 
+    smooths_only = TRUE 
   )
   too_many_covars <- FALSE
   results <- list()
@@ -1579,7 +1594,6 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
 #' predict(fit, newdata = newdata)
 #' }
 #' 
-#' @importFrom statmod rinvgauss pinvgauss qinvgauss
 #' @export 
 predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
                             transform = NULL, allow_new_levels = FALSE,
@@ -1890,13 +1904,16 @@ predictive_error.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' 
 #' This method allows to update an existing \code{brmsfit} object
 #' 
-#' @param object object of class \code{brmsfit}
-#' @param formula. changes to the formula; for details see 
-#'   \code{\link[stats:update.formula]{update.formula}}
-#' @param newdata optional \code{data.frame} 
-#'  to update the model with new data
-#' @param ... other arguments passed to 
-#'  \code{\link[brms:brm]{brm}}
+#' @param object An object of class \code{brmsfit}.
+#' @param formula. Changes to the formula; for details see 
+#'   \code{\link[stats:update.formula]{update.formula}} and
+#'   \code{\link[brms:brmsformula]{brmsformula}}.
+#' @param newdata Optional \code{data.frame} 
+#'   to update the model with new data.
+#' @param recompile Logical, indicating whether the Stan model should 
+#'  be recompiled. If \code{FALSE} (the default), the model is only 
+#'  recompiled when necessary.
+#' @param ... Other arguments passed to \code{\link[brms:brm]{brm}}.
 #'  
 #' @details Sometimes, when updating the model formula, 
 #'  it may happen that \R complains about a mismatch
@@ -1927,18 +1944,17 @@ predictive_error.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' }
 #'
 #' @export
-update.brmsfit <- function(object, formula., newdata = NULL, ...) {
+update.brmsfit <- function(object, formula., newdata = NULL, 
+                           recompile = FALSE, ...) {
   dots <- list(...)
   if ("data" %in% names(dots)) {
     # otherwise the data name cannot be found by substitute 
     stop2("Please use argument 'newdata' to update the data.")
   }
   object <- restructure(object)
-  recompile <- FALSE
   if (isTRUE(object$version$brms < utils::packageVersion("brms"))) {
     recompile <- TRUE
-    warning2("Updating models fitted with older versions ", 
-             "of brms may fail.")
+    warning2("Updating models fitted with older versions of brms may fail.")
   }
   if (missing(formula.)) {
     dots$formula <- object$formula
@@ -1960,8 +1976,8 @@ update.brmsfit <- function(object, formula., newdata = NULL, ...) {
       mvars <- all.vars(dots$formula$formula)
       mvars <- setdiff(mvars, c(names(object$data), "."))
       if (length(mvars) && is.null(newdata)) {
-        stop2("New variables found: ", paste(mvars, collapse = ", "),
-              "\nPlease supply your data again via argument 'newdata'")
+        stop2("New variables found: ", collapse_comma(mvars),
+              "\nPlease supply your data again via argument 'newdata'.")
       }
       dots$formula <- update(formula(object), dots$formula)
       ee_old <- parse_bf(formula(object))
@@ -2201,7 +2217,6 @@ loo.brmsfit <- function(x, ..., compare = TRUE, newdata = NULL,
 #' @export
 #' @export log_lik
 #' @importFrom rstantools log_lik
-#' @importFrom statmod dinvgauss
 log_lik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
                             allow_new_levels = FALSE, subset = NULL,
                             nsamples = NULL, pointwise = FALSE, ...) {
@@ -2268,10 +2283,12 @@ hypothesis.brmsfit <- function(x, hypothesis, class = "b", group = "",
   if (length(class) != 1L || length(group) != 1L) {
     stop2("Arguments 'class' and 'group' must be of length one.")
   }
-  valid_classes <- c("", "b", "bm", "bcs", "sd", "cor", "r", 
-                     "sds", "s", "simplex", "sigma", "rescor")
+  valid_classes <- c(
+    "", "b", "bcs", "bmo", "bme", "bm", "sd", "cor", 
+    "r", "sds", "s", "simplex", "sigma", "rescor"
+  )
   if (!class %in% valid_classes) {
-    stop2(class, " is not a valid paramter class.")
+    stop2("'", class, "' is not a valid parameter class.")
   }
   if (class %in% c("sd", "cor", "r") && nzchar(group)) {
     class <- paste0(class, "_", group, "__")
@@ -2296,7 +2313,7 @@ hypothesis.brmsfit <- function(x, hypothesis, class = "b", group = "",
     missing_pars <- setdiff(parsH, pars)
     if (length(missing_pars)) {
       stop2("The following parameters cannot be found in the model: \n", 
-            paste0(gsub("___", ":", missing_pars), collapse = ", "))
+            collapse_comma(gsub("___", ":", missing_pars)))
     }
     # prepare for renaming of parameters so that h can be evaluated
     parsH <- rename(parsH, "___", ":")
