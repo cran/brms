@@ -215,6 +215,7 @@ fix_factor_contrasts <- function(data, optdata = NULL) {
 amend_newdata <- function(newdata, fit, re_formula = NULL, 
                           allow_new_levels = FALSE,
                           check_response = FALSE,
+                          only_response = FALSE,
                           incl_autocor = TRUE,
                           return_standata = TRUE) {
   # amend newdata passed to predict and fitted methods
@@ -236,8 +237,11 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
   if (is.null(newdata)) {
     # to shorten expressions in S3 methods such as predict.brmsfit
     if (return_standata) {
-      control <- nlist(not4stan = TRUE, save_order = TRUE,
-                       omit_response = !check_response)
+      control <- list(
+        not4stan = TRUE, save_order = TRUE,
+        omit_response = !check_response,
+        only_response = only_response
+      )
       newdata <- standata(fit, re_formula = re_formula, control = control)
     } else {
       newdata <- model.frame(fit)
@@ -374,8 +378,8 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     unknown_levels <- setdiff(new_levels[[g]], old_levels[[g]])
     if (!allow_new_levels && length(unknown_levels)) {
       unknown_levels <- paste0("'", unknown_levels, "'", collapse = ", ")
-      stop2("Levels ", unknown_levels, " of grouping factor '", 
-            g, "' cannot be not found in the fitted model. ",
+      stop2("Levels ", unknown_levels, " of grouping factor '", g, "' ",
+            "cannot be found in the fitted model. ",
             "Consider setting argument 'allow_new_levels' to TRUE.")
     }
   }
@@ -384,10 +388,11 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
       is_newdata = TRUE, not4stan = TRUE, 
       old_levels = old_levels, save_order = TRUE, 
       omit_response = !check_response,
+      only_response = only_response,
       old_cat <- is_old_categorical(fit)
     )
     old_terms <- attr(model.frame(fit), "terms")
-    terms_attr <- c("variables", "predvars", "offset")
+    terms_attr <- c("variables", "predvars")
     control$terms_attr <- attributes(old_terms)[terms_attr]
     has_mo <- length(get_effect(bterms, "mo")) > 0L
     if (has_trials(fit$family) || has_cat(fit$family) || has_mo) {

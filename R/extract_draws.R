@@ -1,13 +1,18 @@
 #' @export
 extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL, 
-                                  allow_new_levels = FALSE, incl_autocor = TRUE,
-                                  subset = NULL, nsamples = NULL, ...) {
+                                  allow_new_levels = FALSE, 
+                                  sample_new_levels = "uncertainty",
+                                  incl_autocor = TRUE, subset = NULL, 
+                                  nsamples = NULL, ...) {
   # extract all data and posterior draws required in (non)linear_predictor
   # Args:
   #   incl_autocor: include autocorrelation parameters in the output?
   #   other arguments: see doc of logLik.brmsfit
   # Returns:
-  #   A named list to be intepreted by linear_predictor
+  #   A named list to be interpreted by linear_predictor
+  sample_new_levels <- match.arg(
+    sample_new_levels, c("uncertainty", "gaussian", "old_levels")
+  )
   bterms <- parse_bf(formula(x), family = family(x))
   subset <- subset_samples(x, subset, nsamples)
   nsamples <- nsamples(x, subset = subset)
@@ -18,7 +23,10 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
     f = prepare_family(x), nsamples = nsamples,
     data = do.call(amend_newdata, c(newd_args, list(...)))
   )
-  args <- c(newd_args, nlist(subset, nsamples, C = draws$data[["C"]]))
+  args <- c(newd_args, nlist(
+    sample_new_levels, subset, 
+    nsamples, C = draws$data[["C"]]
+  ))
   keep <- !grepl("^(X|Z|J|C)", names(draws$data))
   draws$data <- subset_attr(draws$data, keep)
   
@@ -52,11 +60,32 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
       draws[[ap]] <- do.call(as.matrix, c(am_args, pars = ap_regex))
     }
   }
+  if (is.mixfamily(family(x))) {
+    families <- family_names(family(x))
+    thetas <- paste0("theta", seq_along(families))
+    if (any(ulapply(draws[thetas], is.list))) {
+      # theta was predicted
+      missing_id <- which(ulapply(draws[thetas], is.null))
+      draws[[paste0("theta", missing_id)]] <- structure(
+        as_draws_matrix(0, c(draws$nsamples, draws$data$N)),
+        predicted = TRUE
+      )
+    } else {
+      # theta was not predicted
+      draws$theta <- do.call(cbind, draws[thetas])
+      draws[thetas] <- NULL
+      if (nrow(draws$theta) == 1L) {
+        draws$theta <- as_draws_matrix(
+          draws$theta, dim = c(nsamples, ncol(draws$theta))
+        )
+      }
+    }
+  }
   if (is_linear(family(x)) && length(bterms$response) > 1L) {
     # parameters for multivariate normal models
-    draws[["sigma"]] <- do.call(as.matrix, c(am_args, pars = "^sigma($|_)"))
-    draws[["rescor"]] <- do.call(as.matrix, c(am_args, pars = "^rescor_"))
-    draws[["Sigma"]] <- get_cov_matrix(sd = draws$sigma, cor = draws$rescor)$cov
+    draws$sigma <- do.call(as.matrix, c(am_args, pars = "^sigma($|_)"))
+    draws$rescor <- do.call(as.matrix, c(am_args, pars = "^rescor_"))
+    draws$Sigma <- get_cov_matrix(sd = draws$sigma, cor = draws$rescor)$cov
   }
   if (incl_autocor && use_cov(x$autocor)) {
     # only include autocor samples on the top-level of draws 
@@ -93,9 +122,10 @@ extract_draws.btnl <- function(x, C, nlpar = "", ...) {
 
 #' @export
 extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL, 
-                              allow_new_levels = FALSE, incl_autocor = TRUE,
-                              subset = NULL, nlpar = "", smooths_only = FALSE, 
-                              mv = FALSE, ...) {
+                              allow_new_levels = FALSE, 
+                              sample_new_levels = FALSE,
+                              incl_autocor = TRUE, subset = NULL, nlpar = "",
+                              smooths_only = FALSE, mv = FALSE, ...) {
   # extract draws of all kinds of effects
   # Args:
   #   fit: a brmsfit object
@@ -124,8 +154,10 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
   new_ranef <- tidy_ranef(bterms, model.frame(fit))
   nlpar_usc <- usc(nlpar, "suffix")
   usc_nlpar <- usc(usc(nlpar))
-  newd_args <- nlist(fit, newdata, re_formula, allow_new_levels, 
-                     incl_autocor, check_response = FALSE)
+  newd_args <- nlist(
+    fit, newdata, re_formula, allow_new_levels, 
+    incl_autocor, check_response = FALSE
+  )
   draws <- list(data = do.call(amend_newdata, newd_args), 
                 old_cat = is_old_categorical(fit))
   draws[names(dots)] <- dots
@@ -150,7 +182,8 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
     extract_draws_me(meef, args, sdata = draws$data, nlpar = nlpar,
                      is_newdata = !is.null(newdata)),
     extract_draws_sm(smooths, args, sdata = draws$data, nlpar = nlpar),
-    extract_draws_re(new_ranef, args, sdata = draws$data, nlpar = nlpar)
+    extract_draws_re(new_ranef, args, sdata = draws$data, nlpar = nlpar,
+                     sample_new_levels = sample_new_levels)
   )
   if (incl_autocor && !use_cov(fit$autocor) && (!nzchar(nlpar) || mv)) {
     # only include autocorrelation parameters in draws for mu
@@ -158,7 +191,7 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
       extract_draws_autocor(fit, newdata = newdata, subset = subset)
     )
   }
-  draws
+  structure(draws, predicted = TRUE)
 }
 
 extract_draws_fe <- function(fixef, args, nlpar = "", old_cat = 0L) {
@@ -345,13 +378,15 @@ extract_draws_sm <- function(smooths, args, sdata, nlpar = "") {
   draws
 }
 
-extract_draws_re <- function(ranef, args, sdata, nlpar = "") {
+extract_draws_re <- function(ranef, args, sdata, nlpar = "",
+                             sample_new_levels = "uncertainty") {
   # extract draws of group-level effects
   # Args:
   #   ranef: data.frame returned by tidy_ranef
   #   args: list of arguments passed to as.matrix.brmsfit
   #   sdata: list returned by make_standata
   #   nlpar: name of a non-linear parameter
+  #   sample_new_levels: see help("predict.brmsfit")
   # Returns: 
   #   A named list to be interpreted by linear_predictor
   stopifnot("x" %in% names(args))
@@ -389,16 +424,64 @@ extract_draws_re <- function(ranef, args, sdata, nlpar = "") {
     new_r_levels <- vector("list", length(gf))
     max_level <- nlevels
     for (i in seq_along(gf)) {
-      has_new_levels <- anyNA(gf[[i]])
+      has_new_levels <- any(gf[[i]] > nlevels)
       if (has_new_levels) {
-        new_r_levels[[i]] <- matrix(nrow = nrow(r), ncol = nranef)
-        for (k in seq_len(nranef)) {
-          # sample values of the new level for each group-level effect
-          indices <- ((k - 1) * nlevels + 1):(k * nlevels)
-          new_r_levels[[i]][, k] <- apply(r[, indices], 1, sample, size = 1)
+        if (sample_new_levels %in% c("old_levels", "gaussian")) {
+          new_levels <- sort(setdiff(gf[[i]], seq_len(nlevels)))
+          new_r_levels[[i]] <- matrix(
+            nrow = nrow(r), ncol = nranef * length(new_levels)
+          )
+          if (sample_new_levels == "old_levels") {
+            for (j in seq_along(new_levels)) {
+              # choose a person to take the group-level effects from
+              take_level <- sample(seq_len(nlevels), 1)
+              for (k in seq_len(nranef)) {
+                take <- (k - 1) * nlevels + take_level
+                new_r_levels[[i]][, (j - 1) * nranef + k] <- r[, take]
+              }
+            }
+          } else if (sample_new_levels == "gaussian") {
+            # extract hyperparameters used to compute the covariance matrix
+            sd_pars <- paste0("sd_", g, usc_nlpar, "__", new_r$coef)
+            sd_samples <- do.call(as.matrix, 
+              c(args, list(pars = sd_pars, exact_match = TRUE))
+            )
+            cor_type <- paste0("cor_", g)
+            cor_pars <- paste0(usc(nlpar, "suffix"), new_r$coef)
+            cor_pars <- get_cornames(cor_pars, type = cor_type, brackets = FALSE)
+            cor_samples <- matrix(
+              0, nrow = nrow(sd_samples), ncol = length(cor_pars)
+            )
+            for (j in seq_along(cor_pars)) {
+              if (cor_pars[j] %in% parnames(args$x)) {
+                cor_samples[, j] <- do.call(as.matrix, 
+                  c(args, list(pars = cor_pars[j], exact_match = TRUE))
+                )
+              }
+            }
+            # compute the covariance matrix
+            cov_matrix <- get_cov_matrix(sd_samples, cor_samples)$cov
+            for (j in seq_along(new_levels)) {
+              # sample new levels from the normal distribution
+              # implied by the covariance matrix
+              indices <- ((j - 1) * nranef + 1):(j * nranef)
+              new_r_levels[[i]][, indices] <- t(apply(
+                cov_matrix, 1, rmulti_normal, 
+                n = 1, mu = rep(0, length(sd_pars))
+              ))
+            }
+          }
+          max_level <- max_level + length(new_levels)
+        } else if (sample_new_levels == "uncertainty") {
+          new_r_levels[[i]] <- matrix(nrow = nrow(r), ncol = nranef)
+          for (k in seq_len(nranef)) {
+            # sample values for the new level
+            indices <- ((k - 1) * nlevels + 1):(k * nlevels)
+            new_r_levels[[i]][, k] <- apply(r[, indices], 1, sample, size = 1)
+          }
+          max_level <- max_level + 1
+          gf[[i]][gf[[i]] > nlevels] <- max_level
         }
-        max_level <- max_level + 1
-        gf[[i]][is.na(gf[[i]])] <- max_level
       } else { 
         new_r_levels[[i]] <- matrix(nrow = nrow(r), ncol = 0)
       }

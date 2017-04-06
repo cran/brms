@@ -1,7 +1,7 @@
 stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE, 
                              sparse = FALSE, threshold = "flexible",
                              nlpar = "", eta = "mu", ilink = rep("", 2),
-                             ...) {
+                             order_mixture = 'none',  ...) {
   # combine effects for the predictors of a single (non-linear) parameter
   # Args:
   #   center_X: center population-level design matrix if possible?
@@ -26,7 +26,7 @@ stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE,
   text_fe <- stan_fe(
     fixef, center_X = center_X, family = x$family, 
     prior = prior, nlpar = nlpar, sparse = sparse, 
-    threshold = threshold
+    threshold = threshold, order_mixture = order_mixture
   )
   # include smooth terms
   smooths <- get_sm_labels(x, data = data)
@@ -45,18 +45,16 @@ stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE,
   ))
   
   p <- usc(nlpar, "prefix")
-  has_offset <- !is.null(get_offset(x$fe))
-  if (has_offset) {
+  if (is.formula(x$offset)) {
     out$data <- paste0(out$data, "  vector[N] offset", p, "; \n")
   }
-  
   # initialize and compute eta_<nlpar>
   out$modelC1 <- paste0(
     out$modelC1, "  ", eta, " = ", 
     text_fe$eta, text_sm$eta,
     if (center_X && !is_ordinal(x$family)) 
       paste0(" + temp", p, "_Intercept"),
-    if (has_offset) paste0(" + offset", p),
+    if (is.formula(x$offset)) paste0(" + offset", p),
     if (get_arr(x$autocor)) " + Yarr * arr", 
     "; \n"
   )
@@ -84,7 +82,8 @@ stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE,
   # possibly transform eta before it is passed to the likelihood
   if (sum(nzchar(ilink))) {
     # make sure mu comes last as it might depend on other parameters
-    position <- ifelse(nzchar(nlpar), "modelC3", "modelC4")
+    not_mu <- nzchar(nlpar) && auxpar_class(nlpar) != "mu"
+    position <- ifelse(not_mu, "modelC3", "modelC4")
     out[[position]] <- paste0(out[[position]],
       "    ", eta, "[n] = ", ilink[1], eta, "[n]", ilink[2], "; \n"
     )
@@ -93,12 +92,16 @@ stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE,
 }
 
 stan_effects.btnl <- function(x, data, ranef, prior, eta = "mu", 
-                              ilink = rep("", 2), ...) {
+                              nlpar = "", ilink = rep("", 2), ...) {
   # prepare Stan code for non-linear models
   # Args:
   #   data: data.frame supplied by the user
   #   ranef: data.frame returned by tidy_ranef
   #   prior: a brmsprior object
+  #   nlpar: currently unused but should not be part of ...
+  #   ilink: character vector of length 2 containing
+  #          Stan code for the link function
+  #   ...: passed to stan_effects.btl
   stopifnot(length(ilink) == 2L)
   out <- list()
   if (length(x$nlpars)) {
@@ -107,7 +110,8 @@ stan_effects.btnl <- function(x, data, ranef, prior, eta = "mu",
       nl_text <- stan_effects(
         x = x$nlpars[[nlp]], data = data, 
         ranef = ranef, prior = prior, 
-        nlpar = nlp, center_X = FALSE
+        nlpar = nlp, center_X = FALSE, 
+        ...
       )
       out <- collapse_lists(list(out, nl_text))
     }
@@ -150,48 +154,40 @@ stan_effects.brmsterms <- function(x, data, ranef, prior, sparse = FALSE,
   #   bterms: object of class brmsterms
   #   other arguments: same as make_stancode
   out <- list()
-  default_defs <- c(
-    mu = "",  # mu is always predicted
-    sigma = "  real<lower=0> sigma;  // residual SD \n",
-    shape = "  real<lower=0> shape;  // shape parameter \n",
-    nu = "  real<lower=1> nu;  // degrees of freedom or shape \n",
-    phi = "  real<lower=0> phi;  // precision parameter \n",
-    kappa = "  real<lower=0> kappa;  // precision parameter \n",
-    beta = "  real<lower=0> beta;  // scale parameter \n",
-    zi = "  real<lower=0,upper=1> zi;  // zero-inflation probability \n", 
-    hu = "  real<lower=0,upper=1> hu;  // hurdle probability \n",
-    bs = "  real<lower=0> bs;  // boundary separation parameter \n",
-    ndt = "  real<lower=0,upper=min_Y> ndt;  // non-decision time parameter \n",
-    bias = "  real<lower=0,upper=1> bias;  // initial bias parameter \n",
-    disc = "  real<lower=0> disc;  // discrimination parameters \n",
-    quantile = "  real<lower=0,upper=1> quantile;  // quantile parameter \n",
-    xi = "  real xi;  // shape parameter \n"
-  )
-  default_defs_temp <- c(
-    xi = "  real temp_xi;  // unscaled shape parameter \n"
-  )
-  valid_auxpars <- valid_auxpars(bterms = x)
+  valid_auxpars <- valid_auxpars(x$family, bterms = x)
   args <- nlist(data, ranef, prior)
   for (ap in valid_auxpars) {
     ap_terms <- x$auxpars[[ap]]
     if (is.btl(ap_terms) || is.btnl(ap_terms)) {
       ilink <- stan_eta_ilink(
-        ap_terms$family, auxpars = names(x$auxpars), adforms = x$adforms
+        ap_terms$family, auxpars = names(x$auxpars), 
+        adforms = x$adforms, mix = auxpar_id(ap)
       )
       eta <- ifelse(ap == "mu", "mu", "")
-      ap_args <- list(ap_terms, nlpar = ap, eta = eta, ilink = ilink)
+      ap_args <- list(
+        ap_terms, nlpar = ap, eta = eta, ilink = ilink,
+        sparse = sparse, order_mixture = x$family$order
+      )
       out[[ap]] <- do.call(stan_effects, c(ap_args, args))
     } else if (is.numeric(x$fauxpars[[ap]])) {
-      out[[ap]] <- list(data = default_defs[ap]) 
+      out[[ap]] <- list(data = stan_auxpar_defs(ap))
+    } else if (is.character(x$fauxpars[[ap]])) {
+      if (!x$fauxpars[[ap]] %in% valid_auxpars) {
+        stop2("Parameter '", x$fauxpars[[ap]], "' cannot be found.")
+      }
+      out[[ap]] <- list(
+        transD = stan_auxpar_defs(ap),
+        transC1 = paste0("  ", ap, " = ", x$fauxpars[[ap]], "; \n") 
+      )
     } else {
-      if (ap %in% names(default_defs_temp)) {
-        out[[ap]] <- list(
-          par = default_defs_temp[ap],
+      def_temp <- stan_auxpar_defs_temp(ap)
+      def <- stan_auxpar_defs(ap)
+      if (nzchar(def_temp)) {
+        out[[ap]] <- list(par = def_temp,
           prior = stan_prior(prior, class = ap, prefix = "temp_")
         )
-      } else {
-        out[[ap]] <- list(
-          par = default_defs[ap],
+      } else if (nzchar(def)) {
+        out[[ap]] <- list(par = def,
           prior = stan_prior(prior, class = ap)
         )
       }
@@ -239,7 +235,7 @@ stan_effects_mv <- function(bterms, data, ranef, prior, sparse = FALSE) {
 
 stan_fe <- function(fixef, prior, family = gaussian(),
                     center_X = TRUE, nlpar = "", sparse = FALSE,
-                    threshold = "flexible") {
+                    threshold = "flexible", order_mixture = 'none') {
   # Stan code for population-level effects
   # Args:
   #   fixef: names of the population-level effects
@@ -247,7 +243,8 @@ stan_fe <- function(fixef, prior, family = gaussian(),
   #   family: the model family
   #   prior: a data.frame containing user defined priors 
   #          as returned by check_prior 
-  #   threshold: either "flexible" or "equidistant" 
+  #   threshold: either "flexible" or "equidistant"
+  #   order_mixture: order intercepts to identify mixture models?
   # Returns:
   #   a list containing Stan code related to population-level effects
   p <- usc(nlpar, "prefix")
@@ -262,11 +259,17 @@ stan_fe <- function(fixef, prior, family = gaussian(),
     )
     if (sparse) {
       stopifnot(!center_X)
-      if (nchar(nlpar)) {
-        stop2("Sparse matrices are not yet implemented for this model.")
-      }
-      out$tdataD <- "  #include tdataD_sparse_X.stan \n"
-      out$tdataC <- "  #include tdataC_sparse_X.stan \n"
+      out$tdataD <- paste0(
+        "  vector[rows(csr_extract_w(X", p, "))] wX", p, ";\n",
+        "  int vX", p, "[size(csr_extract_v(X", p, "))];\n",
+        "  int uX", p, "[size(csr_extract_u(X", p, "))];\n"
+      )
+      out$tdataC <- paste0(
+        "  // generate sparse matrix representation of X", p, "\n",
+        "  wX", p, " = csr_extract_w(X", p, ");\n",
+        "  vX", p, " = csr_extract_v(X", p, ");\n",
+        "  uX", p, " = csr_extract_u(X", p, ");\n"
+      )
     }
     # prepare population-level coefficients
     orig_nlpar <- ifelse(nzchar(nlpar), nlpar, "mu")
@@ -341,9 +344,21 @@ stan_fe <- function(fixef, prior, family = gaussian(),
         "  b_Intercept = temp_Intercept", sub_X_means, "; \n"
       )
     } else {
-      out$par <- paste0(out$par, 
-        "  real temp", p, "_Intercept;  // temporary intercept \n"
-      )
+       if (identical(auxpar_class(nlpar), order_mixture)) {
+         # identify mixtures via ordering of the intercepts
+         out$transD <- paste0(out$transD, 
+           "  real temp", p, "_Intercept;  // temporary intercept \n"
+        )
+        ap_id <- auxpar_id(nlpar)
+        out$transC1 <- paste0(out$transC1, 
+          "  temp", p, "_Intercept = ordered_Intercept[", ap_id, "]; \n"
+        )
+      } else {
+        out$par <- paste0(out$par, 
+          "  real temp", p, "_Intercept;  // temporary intercept \n"
+        )
+      }
+
       out$genD <- paste0(
         "  real b", p, "_Intercept;  // population-level intercept \n"
       )
@@ -357,6 +372,12 @@ stan_fe <- function(fixef, prior, family = gaussian(),
     int_prior <- stan_prior(prior, class = "Intercept", nlpar = nlpar,
                             prefix = prefix, suffix = suffix)
     out$prior <- paste0(out$prior, int_prior)
+  } else {
+    if (identical(auxpar_class(nlpar), order_mixture)) {
+      stop2("Identifying mixture components via ordering requires ",
+            "population-level intercepts to be present.\n",
+            "Try setting order = 'none' in function 'mixture'.")
+    }
   }
   out$eta <- stan_eta_fe(fixef, center_X, sparse, nlpar)
   out
@@ -710,8 +731,12 @@ stan_eta_fe <- function(fixef, center_X = TRUE,
   p <- usc(nlpar)
   if (length(fixef)) {
     if (sparse) {
-      stopifnot(!center_X, nchar(nlpar) == 0L)
-      eta_fe <- "csr_matrix_times_vector(rows(X), cols(X), wX, vX, uX, b)"
+      stopifnot(!center_X)
+      csr_args <- sargs(
+        paste0(c("rows", "cols"), "(X", p, ")"),
+        paste0(c("wX", "vX", "uX", "b"), p)
+      )
+      eta_fe <- paste0("csr_matrix_times_vector(", csr_args, ")")
     } else {
       eta_fe <- paste0("X", if (center_X) "c", p, " * b", p)
     }
@@ -835,7 +860,8 @@ stan_eta_transform <- function(family, llh_adj = FALSE) {
   (llh_adj || !stan_has_built_in_fun(family))
 }
 
-stan_eta_ilink <- function(family, auxpars = NULL, adforms = NULL) {
+stan_eta_ilink <- function(family, auxpars = NULL, 
+                           adforms = NULL, mix = "") {
   # correctly apply inverse link to eta
   # Args:
   #   family: a list with elements 'family' and 'link
@@ -846,11 +872,13 @@ stan_eta_ilink <- function(family, auxpars = NULL, adforms = NULL) {
   if (stan_eta_transform(family, llh_adj = llh_adj)) {
     link <- family$link
     family <- family$family
+    shape <- paste0("shape", mix)
     shape <- ifelse(
-      is.formula(adforms$disp), "disp_shape[n]", 
-      ifelse("shape" %in% auxpars, "shape[n]", "shape")
+      is.formula(adforms$disp), paste0("disp_", shape, "[n]"), 
+      ifelse(shape %in% auxpars, paste0(shape, "[n]"), shape)
     )
-    nu <- ifelse("nu" %in% auxpars, "nu[n]", "nu")
+    nu <- paste0("nu", mix)
+    nu <- ifelse(nu %in% auxpars, paste0(nu, "[n]"), nu)
     fl <- ifelse(family %in% c("gamma", "exponential"), 
                  paste0(family, "_", link), family)
     ilink <- stan_ilink(link)
@@ -875,4 +903,91 @@ stan_eta_ilink <- function(family, auxpars = NULL, adforms = NULL) {
     out <- rep("", 2)
   }
   out
+}
+
+stan_auxpar_defs <- function(auxpar) {
+  # default Stan definitions for auxiliary parameters
+  default_defs <- list(
+    sigma = c(
+      "  real<lower=0> ", 
+      ";  // residual SD \n"
+    ),
+    shape = c(
+      "  real<lower=0> ", 
+      ";  // shape parameter \n"
+    ),
+    nu = c(
+      "  real<lower=1> ", 
+      ";  // degrees of freedom or shape \n"
+    ),
+    phi = c(
+      "  real<lower=0> ", 
+      ";  // precision parameter \n"
+    ),
+    kappa = c(
+      "  real<lower=0> ", 
+      ";  // precision parameter \n"
+    ),
+    beta = c(
+      "  real<lower=0> ", 
+      ";  // scale parameter \n"
+    ),
+    zi = c(
+      "  real<lower=0,upper=1> ", 
+      ";  // zero-inflation probability \n"
+    ), 
+    hu = c(
+      "  real<lower=0,upper=1> ", 
+      ";  // hurdle probability \n"
+    ),
+    bs = c(
+      "  real<lower=0> ", 
+      ";  // boundary separation parameter \n"
+    ),
+    ndt = c(
+      "  real<lower=0,upper=min_Y> ", 
+      ";  // non-decision time parameter \n"
+    ),
+    bias = c(
+      "  real<lower=0,upper=1> ", 
+      ";  // initial bias parameter \n"
+    ),
+    disc = c(
+      "  real<lower=0> ", 
+      ";  // discrimination parameters \n"
+    ),
+    quantile = c(
+      "  real<lower=0,upper=1> ", 
+      ";  // quantile parameter \n"
+    ),
+    xi = c(
+      "  real ", 
+      ";  // shape parameter \n"
+    )
+    # theta is handled in stan_mixture
+  )
+  def <- default_defs[[auxpar_class(auxpar)]]
+  if (!is.null(def)) {
+    def <- paste0(def[1], auxpar, def[2])
+  } else {
+    def <- ""
+  }
+  def
+}
+
+stan_auxpar_defs_temp <- function(auxpar) {
+  # default Stan definitions for temporary auxiliary parameters
+  default_defs <- list(
+    xi = c(
+      "  real temp_", 
+      ";  // unscaled shape parameter \n"
+    )
+  )
+  def <- default_defs[[auxpar_class(auxpar)]]
+  if (!is.null(def)) {
+    def <- paste0(def[1], auxpar, def[2])
+  } else {
+    def <- ""
+  }
+  def
 }

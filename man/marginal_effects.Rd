@@ -7,18 +7,19 @@
 \title{Display marginal effects of predictors}
 \usage{
 \method{marginal_effects}{brmsfit}(x, effects = NULL, conditions = NULL,
-  re_formula = NA, robust = TRUE, probs = c(0.025, 0.975),
-  method = c("fitted", "predict"), surface = FALSE, resolution = 100,
-  too_far = 0, ...)
+  int_conditions = NULL, re_formula = NA, robust = TRUE,
+  probs = c(0.025, 0.975), method = c("fitted", "predict"),
+  surface = FALSE, resolution = 100, select_points = 0, too_far = 0,
+  ...)
 
 marginal_effects(x, ...)
 
 \method{plot}{brmsMarginalEffects}(x, ncol = NULL, points = FALSE,
-  rug = FALSE, stype = c("contour", "raster"),
+  rug = FALSE, jitter_width = 0, stype = c("contour", "raster"),
   theme = bayesplot::theme_default(), ask = TRUE, plot = TRUE, ...)
 }
 \arguments{
-\item{x}{An object usually of class \code{brmsfit}.}
+\item{x}{An \R object usually of class \code{brmsfit}.}
 
 \item{effects}{An optional character vector naming effects
 (main effects or interactions) for which to compute marginal plots.
@@ -35,6 +36,17 @@ The row names of \code{data} will be treated as titles of the subplots.
 It is recommended to only define a few rows in order to keep the plots clear.
 If \code{NULL} (the default), numeric variables will be marginalized
 by using their means and factors will get their reference level assigned.}
+
+\item{int_conditions}{An optional named \code{list} whose elements are numeric
+vectors of values of the second variables in two-way interactions. 
+At these values, predictions are evaluated. The names of 
+\code{int_conditions} have to match the variable names exactly.
+Additionally, the elements of the numeric vectors may be named themselves,
+in which case their names appear as labels for the conditions in the plots.
+Instead of vectors, functions returning vectors may be passed and are
+applied on the original values of the corresponding variable.
+If \code{NULL} (the default), predictions are evaluated at the 
+\eqn{mean} and at \eqn{mean +/- sd}.}
 
 \item{re_formula}{A formula containing random effects to be considered 
 in the marginal predictions. If \code{NULL}, include all random effects; 
@@ -62,7 +74,17 @@ this implies \code{10000} support points for interaction terms,
 so it might be necessary to reduce \code{resolution} 
 when only few RAM is available.}
 
-\item{too_far}{For surface plots only: Grid points that are too 
+\item{select_points}{Positive number. 
+Only relevant if \code{points} or \code{rug} are set to \code{TRUE}: 
+Actual data points of numeric variables that 
+are too far away from the values specified in \code{conditions} 
+can be excluded from the plot. Values are scaled into 
+the unit interval and then points more than \code{select_points} 
+from the values in \code{conditions} are excluded. 
+By default, all points are used.}
+
+\item{too_far}{Positive number. 
+For surface plots only: Grid points that are too 
 far away from the actual data points can be excluded from the plot. 
 \code{too_far} determines what is too far. The grid is scaled into 
 the unit square and then grid points more than \code{too_far} 
@@ -80,11 +102,20 @@ on the number of rows of \code{data}.}
 \item{points}{Logical; indicating whether the original data points
 should be added via \code{\link[ggplot2:geom_point]{geom_point}}.
 Default is \code{FALSE}. Note that only those data points will be added
-that match the specified conditions defined in \code{conditions}.}
+that match the specified conditions defined in \code{conditions}.
+For categorical predictors, the conditions have to match exactly. 
+For numeric predictors, argument \code{select_points} is used to
+determine, which points do match a condition.}
 
 \item{rug}{Logical; indicating whether a rug representation of predictor
 values should be added via \code{\link[ggplot2:geom_rug]{geom_rug}}.
-Default is \code{FALSE}.}
+Default is \code{FALSE}. Depends on \code{select_points} in the same
+way as \code{points} does.}
+
+\item{jitter_width}{Only used if \code{points = TRUE}: 
+Amount of horizontal jittering of the data points.
+Mainly useful for ordinal models. Defaults to \code{0} that 
+is no jittering.}
 
 \item{stype}{Indicates how surface plots should be displayed.
 Either \code{"contour"} or \code{"raster"}.}
@@ -139,7 +170,13 @@ When creating \code{marginal_effects} for a particular predictor
   \code{NA} values within factors in \code{conditions}, 
   are interpreted as if all dummy variables of this factor are 
   zero. This allows, for instance, to make predictions of the grand mean 
-  when using sum coding.
+  when using sum coding. 
+  
+  To fully change colours of the created plots, 
+  one has to amend both \code{scale_colour} and \code{scale_fill}.
+  See \code{\link[ggplot2:scale_colour_grey]{scale_colour_grey}} or
+  \code{\link[ggplot2:scale_colour_gradient]{scale_colour_gradient}}
+  for more details.
 }
 \examples{
 \dontrun{
@@ -148,6 +185,12 @@ fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient),
            
 ## plot all marginal effects
 plot(marginal_effects(fit), ask = FALSE)
+
+## change colours to grey scale
+me <- marginal_effects(fit, "log_Base4_c:Trt_c")
+plot(me, plot = FALSE)[[1]] + 
+  scale_color_grey() +
+  scale_fill_grey()
 
 ## only plot the marginal interaction effect of 'log_Base4_c:Trt_c'
 ## for different values for 'log_Age_c'
@@ -160,13 +203,29 @@ plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c",
 plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
                       conditions = conditions, re_formula = NULL), 
      points = TRUE, rug = TRUE)
+ 
+## change handling of two-way interactions
+int_conditions <- list(
+  log_Base4_c = setNames(c(-2, 1, 0), c("b", "c", "a"))
+)
+marginal_effects(fit, effects = "Trt_c:log_Base4_c",
+                 int_conditions = int_conditions)
+marginal_effects(fit, effects = "Trt_c:log_Base4_c",
+                 int_conditions = list(log_Base4_c = quantile))        
      
 ## fit a model to illustrate how to plot 3-way interactions
 fit3way <- brm(count ~ log_Age_c * log_Base4_c * Trt_c, data = epilepsy)
 conditions <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
 rownames(conditions) <- paste("log_Age_c =", conditions$log_Age_c)
-plot(marginal_effects(fit3way, "log_Base4_c:Trt_c",
-                      conditions = conditions))
+marginal_effects(
+  fit3way, "log_Base4_c:Trt_c", conditions = conditions
+)
+## only include points close to the specified values of log_Age_c
+me <- marginal_effects(
+ fit3way, "log_Base4_c:Trt_c", conditions = conditions, 
+ select_points = 0.1
+)
+plot(me, points = TRUE)
 }
 
 }

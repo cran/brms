@@ -2,16 +2,14 @@
 #' 
 #' Fit Bayesian generalized (non-)linear multilevel models 
 #' using Stan for full Bayesian inference. A wide range of distributions 
-#' and link functions are supported, allowing users to fit linear, 
-#' robust linear, binomial, Poisson, survival, response times, ordinal, 
-#' quantile, zero-inflated, hurdle, and even non-linear models 
-#' all in a multilevel context. 
-#' Further modeling options include auto-correlation and smoothing terms, 
-#' user defined dependence structures, censored data, meta-analytic 
-#' standard errors, and quite a few more. 
-#' In addition, all parameters of the response distribution can be predicted
-#' in order to perform distributional regression.
-#' Prior specifications are flexible and explicitly encourage 
+#' and link functions are supported, allowing users to fit -- among others -- 
+#' linear, robust linear, count data, survival, response times, ordinal, 
+#' zero-inflated, hurdle, and even self-defined mixture models all in a 
+#' multilevel context. Further modeling options include non-linear and 
+#' smooth terms, auto-correlation structures, censored data, meta-analytic 
+#' standard errors, and quite a few more. In addition, all parameters of the 
+#' response distribution can be predicted in order to perform distributional 
+#' regression. Prior specifications are flexible and explicitly encourage 
 #' users to apply prior distributions that actually reflect their beliefs.
 #' In addition, model fit can easily be assessed and compared with
 #' posterior predictive checks and leave-one-out cross-validation.
@@ -66,11 +64,8 @@
 #' @param sparse Logical; indicates whether the population-level 
 #'   design matrix should be treated as sparse (defaults to \code{FALSE}). 
 #'   For design matrices with many zeros, this can considerably 
-#'   reduce required memory. For univariate sparse models, it may be
-#'   sensible to prevent the design matrix from being centered
-#'   (see 'Details' for more information), as centering may
-#'   reduce sparsity. Sampling speed is currently not improved or 
-#'   even slightly decreased.
+#'   reduce required memory. Sampling speed is currently not 
+#'   improved or even slightly decreased.
 #' @param cov_ranef A list of matrices that are proportional to the 
 #'   (within) covariance structure of the group-level effects. 
 #'   The names of the matrices should correspond to columns 
@@ -149,7 +144,13 @@
 #'   informational messages of compiler and sampler are suppressed.
 #'   The actual sampling progress is still printed. 
 #'   Set \code{refresh = 0} to turn this off as well.
-#' @param seed Used by \code{set.seed} to make results reproducable.  
+#' @param seed Used by \code{set.seed} to make results reproducable.
+#'   Be aware that \code{brm} resets the seed to the value specified
+#'   in \code{seed} (default: \code{12345}) every time it is run.
+#'   If you want to use different seeds per run, use, for instance,
+#'   \code{seed = sample(1e+7, size = 1)}. Be aware that generally, 
+#'   the seed also affects subsequently called functions (such as 
+#'   \code{predict}), which make use of the random number generator of \R.
 #' @param save_model Either \code{NULL} or a character string. 
 #'   In the latter case, the model code is
 #'   saved in a file named after the string supplied in \code{save_model}, 
@@ -383,28 +384,33 @@ brm <- function(formula, data, family = NULL, prior = NULL,
     # see data-helpers.R
     data <- update_data(data, family = family, bterms = bterms)
     # see priors.R
-    prior <- check_prior(prior, formula = formula, data = data, 
-                         family = family, sample_prior = sample_prior, 
-                         autocor = autocor, threshold = threshold, 
-                         warn = TRUE)
+    prior <- check_prior(
+      prior, formula = formula, data = data, family = family, 
+      sample_prior = sample_prior, autocor = autocor, 
+      threshold = threshold, warn = TRUE
+    )
     # initialize S3 object
-    x <- brmsfit(formula = formula, family = family, data = data, 
-                 data.name = data.name, prior = prior, 
-                 autocor = autocor, cov_ranef = cov_ranef, 
-                 threshold = threshold, algorithm = algorithm)
+    x <- brmsfit(
+      formula = formula, family = family, data = data, 
+      data.name = data.name, prior = prior, 
+      autocor = autocor, cov_ranef = cov_ranef, 
+      threshold = threshold, algorithm = algorithm
+    )
     # see validate.R
     x$ranef <- tidy_ranef(bterms, data = x$data)  
-    x$exclude <- exclude_pars(bterms, x$data, ranef = x$ranef, 
-                              save_ranef = save_ranef,
-                              save_mevars = save_mevars)
+    x$exclude <- exclude_pars(
+      bterms, data = x$data, ranef = x$ranef, 
+      save_ranef = save_ranef, save_mevars = save_mevars
+    )
     # see make_stancode.R
-    x$model <- make_stancode(formula = formula, data = data, 
-                             family = family, prior = prior,  
-                             autocor = autocor, threshold = threshold, 
-                             sparse = sparse, cov_ranef = cov_ranef, 
-                             sample_prior = sample_prior, knots = knots, 
-                             stan_funs = stan_funs, save_model = save_model, 
-                             brm_call = TRUE)
+    x$model <- make_stancode(
+      formula = formula, data = data, family = family, 
+      prior = prior, autocor = autocor, threshold = threshold,
+      sparse = sparse, cov_ranef = cov_ranef,
+      sample_prior = sample_prior, knots = knots, 
+      stan_funs = stan_funs, save_model = save_model, 
+      brm_call = TRUE
+    )
     # generate standata before compiling the model to avoid
     # unnecessary compilations in case of invalid data
     standata <- standata(x, newdata = dots$is_newdata)
@@ -428,8 +434,10 @@ brm <- function(formula, data, family = NULL, prior = NULL,
                 include = FALSE, algorithm, iter)
   args[names(dots)] <- dots 
   if (algorithm == "sampling") {
-    args <- c(args, nlist(init = inits, warmup, thin, chains, 
-                          cores, control, show_messages = !silent))
+    args <- c(args, 
+      nlist(init = inits, warmup, thin, chains, cores, 
+            control, show_messages = !silent)
+    )
   }
   
   set.seed(seed)

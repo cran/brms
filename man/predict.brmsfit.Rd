@@ -7,13 +7,16 @@
 \title{Model Predictions of \code{brmsfit} Objects}
 \usage{
 \method{predict}{brmsfit}(object, newdata = NULL, re_formula = NULL,
-  transform = NULL, allow_new_levels = FALSE, incl_autocor = TRUE,
-  subset = NULL, nsamples = NULL, sort = FALSE, ntrys = 5,
-  summary = TRUE, robust = FALSE, probs = c(0.025, 0.975), ...)
+  transform = NULL, allow_new_levels = FALSE,
+  sample_new_levels = "uncertainty", incl_autocor = TRUE,
+  negative_rt = FALSE, subset = NULL, nsamples = NULL, sort = FALSE,
+  ntrys = 5, summary = TRUE, robust = FALSE, probs = c(0.025, 0.975),
+  ...)
 
 \method{posterior_predict}{brmsfit}(object, newdata = NULL,
   re_formula = NULL, transform = NULL, allow_new_levels = FALSE,
-  incl_autocor = TRUE, subset = NULL, nsamples = NULL, sort = FALSE,
+  sample_new_levels = "uncertainty", incl_autocor = TRUE,
+  negative_rt = FALSE, subset = NULL, nsamples = NULL, sort = FALSE,
   ntrys = 5, robust = FALSE, probs = c(0.025, 0.975), ...)
 }
 \arguments{
@@ -36,9 +39,28 @@ levels of group-level effects are allowed
 (defaults to \code{FALSE}). 
 Only relevant if \code{newdata} is provided.}
 
+\item{sample_new_levels}{Indicates how to sample new levels 
+for grouping factors specified in \code{re_formula}.
+This argument is only relevant if \code{newdata} is provided and 
+\code{allow_new_levels} is set to \code{TRUE}.
+If \code{"uncertainty"} (default), include group-level uncertainty
+in the predictions based on the variation of the existing levels. 
+If \code{"gaussian"}, sample new levels from the (multivariate) 
+normal distribution implied by the group-level standard deviations 
+and correlations. This options may be useful for conducting 
+Bayesian power analysis. 
+If \code{"old_levels"}, directly sample new levels from the
+existing levels.}
+
 \item{incl_autocor}{A flag indicating if autocorrelation
 parameters should be included in the predictions. 
 Defaults to \code{TRUE}.}
+
+\item{negative_rt}{Only relevant for Wiener diffusion models. 
+A flag indicating whether response times of responses
+on the lower boundary should be returned as negative values.
+This allows to distinquish responses on the upper and
+lower boundary. Defaults to \code{FALSE}.}
 
 \item{subset}{A numeric vector specifying
 the posterior samples to be used. 

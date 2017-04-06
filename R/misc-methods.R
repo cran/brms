@@ -1,9 +1,8 @@
 #' @export
 print.brmssummary <- function(x, digits = 2, ...) {
   cat(" Family: ")
-  if (is(x$family, "family")) {
-    type <- ifelse(is.null(x$family$type), "", paste(",", x$family$type))
-    cat(paste0(x$family$family, " (", x$family$link, type, ") \n"))
+  if (is.family(x$family)) {
+    cat(summary(x$family), "\n")
   } else {
     cat(paste0(x$family, " (", x$link, ") \n"))  
   }
@@ -11,8 +10,8 @@ print.brmssummary <- function(x, digits = 2, ...) {
   print(x$formula, wsp = 9)
   cat(paste0("   Data: ", x$data.name, 
              " (Number of observations: ", x$nobs, ") \n"))
-  if (x$sampler == "") {
-    cat(paste("\nThe model does not contain posterior samples."))
+  if (!nzchar(x$sampler)) {
+    cat("\nThe model does not contain posterior samples.\n")
   } else {
     if (!is.null(x$n.iter)) {
       # deprecated names are used
@@ -87,7 +86,7 @@ print.brmssummary <- function(x, digits = 2, ...) {
       cat("\n")
     }
     
-    cat(paste0("Samples were drawn using ",x$sampler,". "))
+    cat(paste0("Samples were drawn using ", x$sampler, ". "))
     if (x$algorithm == "sampling") {
       cat(paste0("For each parameter, Eff.Sample \n",
           "is a crude measure of effective sample size, ", 
@@ -95,6 +94,7 @@ print.brmssummary <- function(x, digits = 2, ...) {
           "scale reduction factor on split chains ",
           "(at convergence, Rhat = 1)."))
     }
+    cat("\n")
   }
   invisible(x)
 }

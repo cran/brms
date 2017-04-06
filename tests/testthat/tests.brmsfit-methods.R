@@ -3,6 +3,7 @@ test_that("all S3 methods have reasonable ouputs", {
   fit2 <- brms:::rename_pars(brms:::brmsfit_example2)
   fit3 <- brms:::rename_pars(brms:::brmsfit_example3)
   fit4 <- brms:::rename_pars(brms:::brmsfit_example4)
+  fit5 <- brms:::rename_pars(brms:::brmsfit_example5)
   
   # test S3 methods in alphabetical order
   # as.data.frame
@@ -44,9 +45,10 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(colnames(fi), 
                c("Estimate", "Est.Error", "2.5%ile", "97.5%ile"))
   
-  newdata <- data.frame(Age = c(0, -0.2), visit = c(1, 4),
-                        Trt = c(-0.2, 0.5), count = c(20, 13),
-                        patient = c(1, 42), Exp = c(2, 4))
+  newdata <- data.frame(
+    Age = c(0, -0.2), visit = c(1, 4), Trt = c(-0.2, 0.5), 
+    count = c(20, 13), patient = c(1, 42), Exp = c(2, 4)
+  )
   fi <- fitted(fit1, newdata = newdata)
   expect_equal(dim(fi), c(2, 4))
   newdata$visit <- c(1, 6)
@@ -54,13 +56,29 @@ test_that("all S3 methods have reasonable ouputs", {
                allow_new_levels = TRUE)
   expect_equal(dim(fi), c(2, 4))
   
+  # fitted values with new_levels
+  newdata <- data.frame(
+    Age = 0, visit = paste0("a", 1:100), Trt = 0, 
+    count = 20, patient = 1, Exp = 2
+  )
+  fi <- fitted(fit1, newdata = newdata, allow_new_levels = TRUE, 
+               sample_new_levels = "old_levels", nsamples = 10)
+  expect_equal(dim(fi), c(100, 4))
+  fi <- fitted(fit1, newdata = newdata, allow_new_levels = TRUE, 
+               sample_new_levels = "gaussian", nsamples = 1)
+  expect_equal(dim(fi), c(100, 4))
+  
   # fitted values of auxiliary parameters
+  newdata <- data.frame(
+    Age = 0, visit = c("a", "b"), Trt = 0, 
+    count = 20, patient = 1, Exp = 2
+  )
   fi <- fitted(fit1, auxpar = "sigma")
   expect_equal(dim(fi), c(nobs(fit1), 4))
   expect_true(all(fi > 0))
-  fi <- fitted(fit1, auxpar = "sigma", scale = "linear")
-  expect_equal(dim(fi), c(nobs(fit1), 4))
-  expect_true(any(fi < 0))
+  fi_lin <- fitted(fit1, auxpar = "sigma", scale = "linear")
+  expect_equal(dim(fi_lin), c(nobs(fit1), 4))
+  expect_true(!isTRUE(all.equal(fi, fi_lin)))
   expect_error(fitted(fit1, auxpar = "inv"),
                "Invalid argument 'auxpar'")
   expect_error(fitted(fit1, auxpar = "nu"),
@@ -74,6 +92,9 @@ test_that("all S3 methods have reasonable ouputs", {
   
   fi <- fitted(fit4)
   expect_equal(dim(fi), c(nobs(fit4), 4, 4))
+  
+  fi <- fitted(fit5)
+  expect_equal(dim(fi), c(nobs(fit5), 4))
   
   # fixef
   fixef1 <- fixef(fit1, estimate = c("mean", "sd"))  
@@ -152,12 +173,45 @@ test_that("all S3 methods have reasonable ouputs", {
   loo4 <- SW(LOO(fit4, cores = 1))
   expect_true(is.numeric(loo4[["looic"]]))
   
+  loo5 <- SW(LOO(fit5, cores = 1))
+  expect_true(is.numeric(loo5[["looic"]]))
+
+  # loo_linpred
+  llp <- SW(loo_linpred(fit1))
+  expect_equal(length(llp), nobs(fit1))
+  llp2 <- SW(loo::psislw(-log_lik(fit1), cores = 1))
+  llp2 <- loo_linpred(fit1, lw = llp2$lw_smooth)
+  expect_equal(llp, llp2)
+  
+  expect_error(loo_linpred(fit4), "Method 'loo_linpred'")
+  llp <- SW(loo_linpred(fit2, scale = "response", type = "var"))
+  expect_equal(length(llp), nobs(fit2))
+  
+  # loo_predict
+  llp <- SW(loo_predict(fit1))
+  expect_equal(length(llp), nobs(fit1))
+  llp <- SW(loo_predict(
+    fit1, newdata = newdata, 
+    type = "quantile", probs = c(0.25, 0.75),
+    allow_new_levels = TRUE
+  ))
+  expect_equal(dim(llp), c(2, nrow(newdata)))
+  llp <- SW(loo_predict(fit4))
+  expect_equal(length(llp), nobs(fit4))
+  
+  # loo_predictive_interval
+  llp <- SW(loo_predictive_interval(fit3, pointwise = TRUE))
+  expect_equal(dim(llp), c(nobs(fit3), 2))
+  
   # marginal_effects
   me <- marginal_effects(fit1)
   expect_equal(nrow(me[[2]]), 100)
   meplot <- plot(me, points = TRUE, rug = TRUE, 
                  ask = FALSE, plot = FALSE)
   expect_true(is(meplot[[1]], "ggplot"))
+  
+  me <- marginal_effects(fit1, "Trt", select_points = 0.1)
+  expect_lt(nrow(attr(me[[1]], "points")), nobs(fit1))
   
   me <- marginal_effects(fit1, "Trt:Age", surface = TRUE, 
                          resolution = 15, too_far = 0.2)
@@ -166,29 +220,47 @@ test_that("all S3 methods have reasonable ouputs", {
   meplot <- plot(me, stype = "raster", plot = FALSE)
   expect_true(is(meplot[[1]], "ggplot"))
   
-  mdata = data.frame(Age = c(-0.3, 0, 0.3), count = c(10, 20, 30), 
-                     visit = 1:3, patient = 1, Trt = 0, Exp = c(1,3,5))
+  mdata = data.frame(
+    Age = c(-0.3, 0, 0.3), 
+    count = c(10, 20, 30), 
+    Exp = c(1, 3, 5)
+  )
   exp_nrow <- nrow(mdata) * 100
-  expect_equal(nrow(marginal_effects(fit1, conditions = mdata)[[1]]),
-               exp_nrow)
-  expect_equal(nrow(marginal_effects(fit1, effects = "Trt", 
-                                     conditions = mdata)[[1]]), 
-               exp_nrow)
-  expect_equal(nrow(marginal_effects(fit1, re_formula = NULL, 
-                                     conditions = mdata)[[1]]), 
-               exp_nrow)
+  me <- marginal_effects(fit1, effects = "Trt", conditions = mdata)
+  expect_equal(nrow(me[[1]]), exp_nrow)
+  
+  mdata$visit <- 1:3
+  me <- marginal_effects(fit1, re_formula = NULL, conditions = mdata)
+  expect_equal(nrow(me[[1]]), exp_nrow)
+  
+  me <- marginal_effects(
+    fit1, "Trt:Age", int_conditions = list(Age = rnorm(5))
+  )
+  expect_equal(nrow(me[[1]]), 500)
+  me <- marginal_effects(
+    fit1, "Trt:Age", int_conditions = list(Age = quantile)
+  )
+  expect_equal(nrow(me[[1]]), 500)
+  
   expect_error(marginal_effects(fit1, effects = "Trtc"), 
                "All specified effects are invalid for this model")
   expect_warning(marginal_effects(fit1, effects = c("Trtc", "Trt")), 
                  "Some specified effects are invalid for this model")
   expect_error(marginal_effects(fit1, effects = "Trtc:a:b"), 
                "please use the 'conditions' argument")
+  
+  mdata$visit <- NULL
+  mdata$patient <- 1
   expect_equal(nrow(marginal_effects(fit2)[[2]]), 100)
-  expect_equal(nrow(marginal_effects(fit2, conditions = mdata)[[1]]),
-               exp_nrow)
+  me <- marginal_effects(fit2, re_formula = NULL, conditions = mdata)
+  expect_equal(nrow(me[[1]]), exp_nrow)
+  
   expect_warning(me4 <- marginal_effects(fit4),
                  "Predictions are treated as continuous variables")
   expect_true(is(me4, "brmsMarginalEffects"))
+  
+  me5 <- marginal_effects(fit5)
+  expect_true(is(me5, "brmsMarginalEffects"))
   
   # marginal_smooths
   ms1 <- marginal_smooths(fit1)
@@ -244,8 +316,20 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_true(is(pp_check(fit1, newdata = fit1$data[1:100, ]), "ggplot"))
   expect_true(is(pp_check(fit1, "stat", nsamples = 5), "ggplot"))
   expect_true(is(pp_check(fit1, "error_binned"), "ggplot"))
-  ribbon_plot <- pp_check(fit1, "ribbon_grouped", group = "visit", x = "Age")
-  expect_true(is(ribbon_plot, "ggplot"))
+  pp <- pp_check(fit1, "ribbon_grouped", group = "visit", x = "Age")
+  expect_true(is(pp, "ggplot"))
+  pp <- pp_check(fit1, type = "violin_grouped", 
+                 group = "visit", newdata = fit1$data[1:100, ])
+  expect_true(is(pp, "ggplot"))
+  
+  # uncomment as soon as bayesplot 1.2.0 is on CRAN
+  # pp <- SW(pp_check(fit1, type = "loo_pit", loo_args = list(cores = 1)))
+  # expect_true(is(pp, "ggplot"))
+  # lw <- SW(loo::psislw(-log_lik(fit1), cores = 1)$lw_smooth)
+  # not getting warnings implies that the precomputed lw is used
+  # pp <- pp_check(fit1, type = "loo_intervals", lw = lw)
+  # expect_true(is(pp, "ggplot"))
+  
   expect_true(is(pp_check(fit3), "ggplot"))
   expect_true(is(pp_check(fit2, "ribbon", x = "Trt"), "ggplot"))
   expect_error(pp_check(fit2, "ribbon"),
@@ -257,8 +341,15 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_error(pp_check(fit1, "stat_grouped", group = "g"),
                "not a valid grouping factor")
   expect_true(is(pp_check(fit4), "ggplot"))
+  expect_true(is(pp_check(fit5), "ggplot"))
   expect_error(pp_check(fit4, "error_binned"),
                "Type 'error_binned' is not available")
+  
+  # pp_mixture
+  expect_equal(dim(pp_mixture(fit5)), c(nobs(fit5), 4, 2))
+  expect_error(pp_mixture(fit1), 
+    "Method 'pp_mixture' can only be applied on mixture models"
+  )
   
   # predict
   pred <- predict(fit1)
@@ -289,6 +380,10 @@ test_that("all S3 methods have reasonable ouputs", {
   pred <- predict(fit4)
   expect_equal(dim(pred), c(nobs(fit4), 4))
   expect_equal(colnames(pred), paste0("P(Y = ", 1:4, ")"))
+  
+  pred <- predict(fit5)
+  expect_equal(dim(pred), c(nobs(fit5), 4))
+  
   # check if grouping factors with a single level are accepted
   newdata$patient <- factor(2)
   pred <- predict(fit2, newdata = newdata)
@@ -351,8 +446,8 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(names(standata(fit1)),
                c("N", "Y", "nb_1", "knots_1", "Zs_1_1", "K", "X", 
                  "Kmo", "Xmo", "Jmo", "con_simplex_1", "Z_1_1", "Z_1_2", 
-                 "K_sigma", "X_sigma", "J_1", "N_1", "M_1", "NC_1", 
-                 "offset", "tg", "Kar", "Kma", "Karma", "prior_only"))
+                 "offset", "K_sigma", "X_sigma", "J_1", "N_1", "M_1", 
+                 "NC_1", "tg", "Kar", "Kma", "Karma", "prior_only"))
   expect_equal(names(standata(fit2)),
                c("N", "Y", "C_1", "K_a", "X_a", "Z_1_a_1",
                  "K_b", "X_b", "Z_1_b_2", "J_1", "N_1", "M_1",
@@ -374,7 +469,9 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_output(print(summary1), "Population-Level Effects:")
   expect_output(print(summary1), "Priors:")
   
-  summary2 <- SW(summary(fit1, waic = TRUE))
+  summary5 <- SW(summary(fit5, waic = TRUE))
+  expect_output(print(summary5), "sigma1")
+  expect_output(print(summary5), "theta1")
   
   # update
   # do not actually refit the model as is causes CRAN checks to fail
@@ -392,11 +489,13 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_true("r_1" %in% up$exclude)
   expect_error(update(fit1, data = new_data), "use argument 'newdata'")
   
-  up <- update(fit1, formula = ~ . + log(Trt), testmode = TRUE,
+  up <- update(fit1, formula = ~ . + I(exp(Trt)), testmode = TRUE,
                prior = set_prior("normal(0,10)"))
   expect_true(is(up, "brmsfit"))
+  up <- update(fit1, ~ . - Trt + factor(Trt),  testmode = TRUE)
+  expect_true(is(up, "brmsfit"))
   
-  up <- update(fit1, formula = ~ . + log(Trt), newdata = new_data,
+  up <- update(fit1, formula = ~ . + I(exp(Trt)), newdata = new_data,
                sample_prior = FALSE, testmode = TRUE)
   expect_true(is(up, "brmsfit"))
   expect_error(update(fit1, formula. = ~ . + wrong_var),

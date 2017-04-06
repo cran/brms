@@ -7,26 +7,28 @@
 \method{pairs}{brmsfit}(x, pars = NA, exact_match = FALSE, ...)
 }
 \arguments{
-\item{x}{An object of class \code{stanfit}}
+\item{x}{An object of class \code{brmsfit}}
 
-\item{pars}{Names of the parameters to plot, as given by 
-a character vector or a regular expression. 
-By default, all parameters are plotted.}
+\item{pars}{Names of parameters for which posterior samples 
+should be returned, as given by a character vector or regular expressions.
+By default, all posterior samples of all parameters are extracted.}
 
 \item{exact_match}{Indicates whether parameter names 
 should be matched exactly or treated as regular expression. 
 Default is \code{FALSE}.}
 
 \item{...}{Further arguments to be passed to 
-\code{\link[rstan:pairs.stanfit]{pairs.stanfit}}.}
+\code{bayesplot::mcmc_pairs}.}
 }
 \description{
 A \code{\link[graphics:pairs]{pairs}} 
-method that is customized for MCMC output
+method that is customized for MCMC output.
 }
 \details{
-For a detailed description see 
- \code{\link[rstan:pairs.stanfit]{pairs.stanfit}}.
+If you have \pkg{bayesplot} 1.2.0 or higher installed,
+  the \code{bayesplot::mcmc_pairs} function is called.
+  Else, we fall fack to the \code{pairs} method for \code{stanfit}
+  objects.
 }
 \examples{
 \dontrun{
@@ -34,7 +36,7 @@ fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c
            + (1|patient) + (1|visit), 
            data = epilepsy, family = "poisson")  
 pairs(fit, pars = parnames(fit)[1:3], exact_match = TRUE)
-pairs(fit, pars = "^sd")
+pairs(fit, pars = "^sd_")
 }
 
 }

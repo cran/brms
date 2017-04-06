@@ -2,6 +2,84 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.6.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Fit finite mixture models using family
+      function \code{mixture}.
+      \item Introduce method \code{pp_mixture} to compute
+      posterior probabilities of mixture component 
+      memberships thanks to a discussion with Stephen Martin.
+      \item Implement different ways to sample new levels
+      of grouping factors in \code{predict} and related 
+      methods through argument \code{sample_new_levels}.
+      Thanks to Tom Wallis and Jonah Gabry for a detailed 
+      discussion about this feature.
+      \item Add methods \code{loo_predict}, \code{loo_linpred},
+      and \code{loo_predictive_interval} for computing
+      LOO predictions thanks to Aki Vehtari and Jonah Gabry.
+      \item Allow using \code{offset} in formulas
+      of non-linear and auxiliary parameters.
+      \item Allow sparse matrix multiplication in
+      non-linear and distributional models.
+      \item Allow using the \code{identity} link for
+      all auxiliary parameters.
+      \item Introduce argument \code{negative_rt} in
+      \code{predict} and \code{posterior_predict} to 
+      distinquish responses on the upper and lower 
+      boundary in \code{wiener} diffusion models
+      thanks to Guido Biele.
+      \item Introduce method \code{control_params} to
+      conveniently extract control parameters of the 
+      NUTS sampler.
+      \item Introduce argument \code{int_conditions} in
+      \code{marginal_effects} for enhanced plotting of 
+      two-way interactions thanks to a discussion with
+      Thomas Kluth.
+      \item Improve flexibility of the \code{conditions} 
+      argument of \code{marginal_effects}.
+      \item Extend method \code{stanplot} to correctly 
+      handle some new \code{mcmc_} plots of the 
+      \pkg{bayesplot} package.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Improve the \code{update} method to
+      only recompile models when the \pkg{Stan} code
+      changes.
+      \item Warn about divergent transitions when calling
+      \code{summary} or \code{print} on \code{brmsfit} objects.
+      \item Warn about unused variables in argument 
+      \code{conditions} when calling \code{marginal_effects}.
+      \item Export and document several distribution functions 
+      that were previously kept internal.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix problems with the inclusion of offsets
+      occuring for more complicated formulas thanks to 
+      Christian Stock.
+      \item Fix a bug that led to invalid Stan code when 
+      sampling from priors in intercept only models thanks 
+      to Tom Wallis.
+      \item Correctly check for category specific
+      group-level effects in non-ordinal models thanks to
+      Wayne Folta.
+      \item Fix problems in \code{pp_check} when specifying
+      argument \code{newdata} together with arguments 
+      \code{x} or \code{group}. 
+      \item Rename the last column in the output of 
+      \code{hypothesis} to \code{"star"} in order to avoid 
+      problems with zero length column names thanks to 
+      the GitHub user puterleat.
+      \item Add a missing new line statement at the end 
+      of the \code{summary} output thanks to Thomas Kluth.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.5.1}{
   \subsection{NEW FEATURES}{
     \itemize{

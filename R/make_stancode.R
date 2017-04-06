@@ -39,8 +39,8 @@ make_stancode <- function(formula, data, family = NULL,
   bterms <- parse_bf(formula, family = family, autocor = autocor)
   prior <- check_prior(
     prior, formula = formula, data = data, family = family, 
-    autocor = autocor, threshold = threshold, 
-    warn = !isTRUE(dots$brm_call)
+    autocor = autocor, sample_prior = sample_prior, 
+    threshold = threshold, warn = !isTRUE(dots$brm_call)
   )
   prior_only <- identical(sample_prior, "only")
   sample_prior <- if (prior_only) FALSE else sample_prior
@@ -92,6 +92,7 @@ make_stancode <- function(formula, data, family = NULL,
     disc = disc, threshold = threshold
   )
   text_families <- stan_families(family, bterms)
+  text_mixture <- stan_mixture(bterms, prior = prior)
   text_se <- stan_se(is.formula(bterms$adforms$se))
   text_cens <- stan_cens(has_cens, family = family)
   text_disp <- stan_disp(bterms, family = family)
@@ -106,6 +107,7 @@ make_stancode <- function(formula, data, family = NULL,
     text_ordinal$prior,
     text_autocor$prior,
     text_mv$prior,
+    text_mixture$prior,
     stan_prior(class = "", prior = prior)
   )
   
@@ -139,6 +141,7 @@ make_stancode <- function(formula, data, family = NULL,
     text_ranef$data,
     text_ordinal$data,
     text_families$data,
+    text_mixture$data,
     text_autocor$data,
     text_cens$data,
     text_disp$data,
@@ -177,12 +180,14 @@ make_stancode <- function(formula, data, family = NULL,
     text_ranef$par,
     text_ordinal$par,
     text_autocor$par,
-    text_mv$par
+    text_mv$par,
+    text_mixture$par
   )
   text_rngprior <- stan_rngprior(
     sample_prior = sample_prior, 
     par_declars = text_parameters,
-    prior = text_prior, family = family, 
+    gen_quantities = text_effects$genC,
+    prior = text_prior,
     prior_special = attr(prior, "special")
   )
   text_parameters <- paste0(
@@ -196,11 +201,13 @@ make_stancode <- function(formula, data, family = NULL,
   text_transformed_parameters <- paste0(
     "transformed parameters { \n",
       text_effects$transD,
+      text_mixture$transD,
       text_ranef$transD,
       text_autocor$transD, 
       text_ordinal$transD,
       text_mv$transD,
       text_effects$transC1,
+      text_mixture$transC1,
       text_ranef$transC1,
       text_autocor$transC1, 
       text_ordinal$transC1, 
@@ -214,6 +221,7 @@ make_stancode <- function(formula, data, family = NULL,
     text_effects$modelC2, 
     text_autocor$modelC2,
     text_effects$modelC3,
+    text_mixture$modelC3,
     text_effects$modelC4
   )
   if (isTRUE(nzchar(text_model_loop))) {
@@ -232,11 +240,13 @@ make_stancode <- function(formula, data, family = NULL,
   text_model <- paste0(
     "model { \n",
       text_effects$modelD,
+      text_mixture$modelD,
       text_disp$modelD,
       text_autocor$modelD,
       text_families$modelD,
       text_lp_pre$modelD,
       text_effects$modelC1,
+      text_mixture$modelC1,
       text_autocor$modelC1, 
       text_disp$modelC1,
       text_model_loop,

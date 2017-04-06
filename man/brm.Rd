@@ -95,11 +95,8 @@ of moderate size and complexity.}
 \item{sparse}{Logical; indicates whether the population-level 
 design matrix should be treated as sparse (defaults to \code{FALSE}). 
 For design matrices with many zeros, this can considerably 
-reduce required memory. For univariate sparse models, it may be
-sensible to prevent the design matrix from being centered
-(see 'Details' for more information), as centering may
-reduce sparsity. Sampling speed is currently not improved or 
-even slightly decreased.}
+reduce required memory. Sampling speed is currently not 
+improved or even slightly decreased.}
 
 \item{sample_prior}{A flag to indicate if samples from all specified 
 proper priors should be drawn additionally to the posterior samples
@@ -171,7 +168,13 @@ informational messages of compiler and sampler are suppressed.
 The actual sampling progress is still printed. 
 Set \code{refresh = 0} to turn this off as well.}
 
-\item{seed}{Used by \code{set.seed} to make results reproducable.}
+\item{seed}{Used by \code{set.seed} to make results reproducable.
+Be aware that \code{brm} resets the seed to the value specified
+in \code{seed} (default: \code{12345}) every time it is run.
+If you want to use different seeds per run, use, for instance,
+\code{seed = sample(1e+7, size = 1)}. Be aware that generally, 
+the seed also affects subsequently called functions (such as 
+\code{predict}), which make use of the random number generator of \R.}
 
 \item{save_model}{Either \code{NULL} or a character string. 
 In the latter case, the model code is
@@ -195,16 +198,14 @@ An object of class \code{brmsfit}, which contains the posterior samples along
 \description{
 Fit Bayesian generalized (non-)linear multilevel models 
 using Stan for full Bayesian inference. A wide range of distributions 
-and link functions are supported, allowing users to fit linear, 
-robust linear, binomial, Poisson, survival, response times, ordinal, 
-quantile, zero-inflated, hurdle, and even non-linear models 
-all in a multilevel context. 
-Further modeling options include auto-correlation and smoothing terms, 
-user defined dependence structures, censored data, meta-analytic 
-standard errors, and quite a few more. 
-In addition, all parameters of the response distribution can be predicted
-in order to perform distributional regression.
-Prior specifications are flexible and explicitly encourage 
+and link functions are supported, allowing users to fit -- among others -- 
+linear, robust linear, count data, survival, response times, ordinal, 
+zero-inflated, hurdle, and even self-defined mixture models all in a 
+multilevel context. Further modeling options include non-linear and 
+smooth terms, auto-correlation structures, censored data, meta-analytic 
+standard errors, and quite a few more. In addition, all parameters of the 
+response distribution can be predicted in order to perform distributional 
+regression. Prior specifications are flexible and explicitly encourage 
 users to apply prior distributions that actually reflect their beliefs.
 In addition, model fit can easily be assessed and compared with
 posterior predictive checks and leave-one-out cross-validation.

@@ -7,24 +7,17 @@
 \usage{
 \method{pp_check}{brmsfit}(object, type, nsamples, group = NULL, x = NULL,
   newdata = NULL, re_formula = NULL, allow_new_levels = FALSE,
-  incl_autocor = TRUE, subset = NULL, ntrys = 5, ...)
+  sample_new_levels = "uncertainty", incl_autocor = TRUE, subset = NULL,
+  ntrys = 5, loo_args = list(), ...)
 }
 \arguments{
 \item{object}{An object of class \code{brmsfit}.}
 
 \item{type}{Type of the ppc plot as given by a character string.
-Currently, the following plots (as names) are implemented
-in \pkg{bayesplot} (v1.1.0):
-\code{boxplot}, \code{dens} \code{dens_overlay} (default), 
-\code{ecdf_overlay}, \code{error_binned}, 
-\code{error_hist}, \code{error_scatter}, 
-\code{error_scatter_avg}, \code{error_scatter_avg_vs_x},
-\code{freqpoly}, \code{freqpoly_grouped}, \code{hist},
-\code{intervals}, \code{intervals_grouped}, 
-\code{ribbon}, \code{ribbon_grouped}, \code{scatter},
-\code{scatter_avg}, \code{scatter_avg_grouped}, 
-\code{stat}, \code{stat_2d}, \code{stat_freqpoly_grouped},
-\code{stat_grouped}, and \code{violin_grouped}.}
+See \code{\link[bayesplot:PPC-overview]{PPC}} for an overview
+of currently supported types. You may also use an invalid
+type (e.g. \code{type = "xyz"}) to get a list of supported 
+types in the resulting error message.}
 
 \item{nsamples}{Positive integer indicating how many
 posterior samples should be used.
@@ -32,7 +25,7 @@ If \code{NULL} all samples are used. If not specified,
 the number of posterior samples is chosen automatically.
 Ignored if \code{subset} is not \code{NULL}.}
 
-\item{group}{Optional name of a grouping factor in the model
+\item{group}{Optional name of a factor variable in the model
 by which to stratify the ppc plot. This argument is required for
 ppc \code{*_grouped} types and ignored otherwise.}
 
@@ -53,6 +46,19 @@ levels of group-level effects are allowed
 (defaults to \code{FALSE}). 
 Only relevant if \code{newdata} is provided.}
 
+\item{sample_new_levels}{Indicates how to sample new levels 
+for grouping factors specified in \code{re_formula}.
+This argument is only relevant if \code{newdata} is provided and 
+\code{allow_new_levels} is set to \code{TRUE}.
+If \code{"uncertainty"} (default), include group-level uncertainty
+in the predictions based on the variation of the existing levels. 
+If \code{"gaussian"}, sample new levels from the (multivariate) 
+normal distribution implied by the group-level standard deviations 
+and correlations. This options may be useful for conducting 
+Bayesian power analysis. 
+If \code{"old_levels"}, directly sample new levels from the
+existing levels.}
+
 \item{incl_autocor}{A flag indicating if autocorrelation
 parameters should be included in the predictions. 
 Defaults to \code{TRUE}.}
@@ -66,8 +72,12 @@ for truncated discrete models only
 (defaults to \code{5}). For more details see
 \code{\link[brms:predict.brmsfit]{predict.brmsfit}}.}
 
+\item{loo_args}{An optional list of additional arguments 
+passed to \code{\link[loo:psislw]{psislw}}. 
+Ignored for non \code{loo_*} ppc types.}
+
 \item{...}{Further arguments passed to the ppc functions
-of the \pkg{\link[bayesplot:bayesplot]{bayesplot}} package.}
+of \pkg{\link[bayesplot:bayesplot]{bayesplot}}.}
 }
 \value{
 A ggplot object that can be further
@@ -86,13 +96,18 @@ package.
 \examples{
 \dontrun{
 fit <-  brm(count ~ log_Age_c + log_Base4_c * Trt_c
-            + (1|patient) + (1|visit),
+            + (1|patient) + (1|obs),
             data = epilepsy, family = poisson())
 
 pp_check(fit)  # shows dens_overlay plot by default
 pp_check(fit, type = "error_hist", nsamples = 11)
 pp_check(fit, type = "scatter_avg", nsamples = 100)
 pp_check(fit, type = "stat_2d")
+pp_check(fit, type = "rootogram")
+pp_check(fit, type = "loo_pit")
+
+## get an overview of all valid types
+pp_check(fit, type = "xyz")
 }
 
 }

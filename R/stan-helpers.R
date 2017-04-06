@@ -378,55 +378,130 @@ stan_families <- function(family, bterms) {
   # Returns:
   #   a list of character strings
   stopifnot(is.family(family), is.brmsterms(bterms))
-  family <- family$family
+  families <- family_names(family)
   out <- list()
-  if (family == "categorical") {
+  if (any(families %in% "categorical")) {
     out$data <- "  int<lower=2> ncat;  // number of categories \n" 
     out$tdataD <- "  vector[1] zero; \n"
     out$tdataC <- "  zero[1] = 0; \n"
-  } else if (family == "zero_inflated_poisson") {
+  } else if (any(families %in% "zero_inflated_poisson")) {
     out$fun <- "  #include 'fun_zero_inflated_poisson.stan' \n"
-  } else if (family == "zero_inflated_negbinomial") {
+  } else if (any(families %in% "zero_inflated_negbinomial")) {
     out$fun <- "  #include 'fun_zero_inflated_negbinomial.stan' \n"
-  } else if (family == "zero_inflated_binomial") {
+  } else if (any(families %in% "zero_inflated_binomial")) {
     out$fun <- "  #include 'fun_zero_inflated_binomial.stan' \n"
-  } else if (family == "zero_inflated_beta") {
+  } else if (any(families %in% "zero_inflated_beta")) {
     out$fun <- "  #include 'fun_zero_inflated_beta.stan' \n"
-  } else if (family == "hurdle_poisson") {
+  } else if (any(families %in% "hurdle_poisson")) {
     out$fun <- "  #include 'fun_hurdle_poisson.stan' \n"
-  } else if (family == "hurdle_negbinomial") {
+  } else if (any(families %in% "hurdle_negbinomial")) {
     out$fun <- "  #include 'fun_hurdle_negbinomial.stan' \n"
-  } else if (family == "hurdle_gamma") {
+  } else if (any(families %in% "hurdle_gamma")) {
     out$fun <- "  #include 'fun_hurdle_gamma.stan' \n"
-  } else if (family == "hurdle_lognormal") {
+  } else if (any(families %in% "hurdle_lognormal")) {
     out$fun <- "  #include 'fun_hurdle_lognormal.stan' \n"
-  } else if (family == "exgaussian") {
+  } else if (any(families %in% "exgaussian")) {
     out$fun <- "  #include 'fun_exgaussian.stan' \n"
-  } else if (family == "inverse.gaussian") {
+  } else if (any(families %in% "inverse.gaussian")) {
     out$fun <- "  #include 'fun_inv_gaussian.stan' \n"
     out$tdataD <- "  #include 'tdataD_inv_gaussian.stan' \n"
     out$tdataC <- "  #include 'tdataC_inv_gaussian.stan' \n"
-  } else if (family == "von_mises") {
+  } else if (any(families %in% "von_mises")) {
     out$fun <- paste0(
       "  #include 'fun_tan_half.stan' \n",
       "  #include 'fun_von_mises.stan' \n"
     )
-  } else if (family == "wiener") {
+  } else if (any(families %in% "wiener")) {
     out$fun <- "  #include 'fun_wiener_diffusion.stan' \n"
     out$tdataD <- "  real min_Y; \n"
     out$tdataC <- "  min_Y = min(Y); \n"
-  } else if (family == "asym_laplace") {
+  } else if (any(families %in% "asym_laplace")) {
     out$fun <- "  #include 'fun_asym_laplace.stan' \n"
-  } else if (family == "gen_extreme_value") {
+  } else if (any(families %in% "gen_extreme_value")) {
     out$fun <- paste0(
       "  #include 'fun_gen_extreme_value.stan' \n",
       "  #include 'fun_scale_xi.stan' \n"
     )
-    if (!"xi" %in% c(names(bterms$auxpars), names(bterms$fauxpars))) {
-      out$modelD <- "  real xi;  // scaled shape parameter \n"
-      v <- ifelse("sigma" %in% names(bterms$auxpars), "_vector", "")
-      out$modelC <- paste0(
-        "  xi = scale_xi", v, "(temp_xi, Y, mu, sigma); \n"
+    ap_names <- c(names(bterms$auxpars), names(bterms$fauxpars))
+    for (i in which(families %in% "gen_extreme_value")) {
+      id <- ifelse(length(families) == 1L, "", i)
+      xi <- paste0("xi", id)
+      if (!xi %in% ap_names) {
+        out$modelD <- paste0(out$modelD, 
+           "  real ", xi, ";  // scaled shape parameter \n"
+        )
+        sigma <- paste0("sigma", id)
+        v <- ifelse(sigma %in% names(bterms$auxpars), "_vector", "")
+        args <- sargs(paste0("temp_", xi), "Y", paste0("mu", id), sigma)
+        out$modelC <- paste0(out$modelC, 
+           "  ", xi, " = scale_xi", v, "(", args, "); \n"
+        )
+      }
+    }
+  }
+  out
+}
+
+stan_mixture <- function(bterms, prior) {
+  # Stan code specific for mixture families
+  out <- list()
+  if (is.mixfamily(bterms$family)) {
+    nmix <- length(bterms$family$mix)
+    theta_pred <- grepl("^theta", names(bterms$auxpars))
+    theta_pred <- bterms$auxpars[theta_pred]
+    theta_fix <- grepl("^theta", names(bterms$fauxpars))
+    theta_fix <- bterms$fauxpars[theta_fix]
+    def_thetas <- collapse(
+      "  real<lower=0,upper=1> theta", 1:nmix, ";",
+      "  // mixing proportion \n"
+    )
+    if (length(theta_pred)) {
+      if (length(theta_pred) != nmix - 1) {
+        stop2("Can only predict all but one mixing proportion.")
+      }
+      missing_id <- setdiff(1:nmix, auxpar_id(names(theta_pred)))
+      out$modelD <- paste0(out$modelD,
+        "  vector[N] theta", missing_id, "; \n",                   
+        "  real log_sum_exp_theta; \n"      
+      )
+      out$modelC1 <- paste0(out$modelC1,
+        "  theta", missing_id, " = rep_vector(0, N); \n"
+      )
+      sum_exp_theta <- paste0(
+        "exp(theta", 1:nmix, "[n])", collapse = " + "
+      )
+      out$modelC3 <- paste0(out$modelC3, 
+        "    log_sum_exp_theta = log(", sum_exp_theta, "); \n",
+        collapse(
+          "    theta", 1:nmix, "[n] = theta", 1:nmix, "[n]", 
+          " - log_sum_exp_theta; \n"
+        )
+      )
+    } else if (length(theta_fix)) {
+      if (length(theta_fix) != nmix) {
+        stop2("Can only fix no or all mixing proportions.")
+      }
+      out$data <- paste0(out$data, def_thetas)
+    } else {
+      out$data <- paste0(out$data,
+        "  vector[", nmix, "] con_theta;  // prior concentration \n"                  
+      )
+      out$par <- paste0(out$par,
+        "  simplex[", nmix, "] theta;",
+        "  // mixing proportions \n"
+      )
+      out$prior <- paste0(out$prior, 
+        "  theta ~ dirichlet(con_theta); \n"                
+      )
+      out$transD <- paste0(out$transD, def_thetas)
+      out$transC1 <- paste0(out$transC1,
+        collapse("  theta", 1:nmix, " = theta[", 1:nmix, "]; \n")
+      )
+    }
+    if (bterms$family$order %in% "mu") {
+      out$par <- paste0(out$par, 
+        "  ordered[", nmix, "] ordered_Intercept;",
+        "  // to identify mixtures \n"
       )
     }
   }
@@ -641,8 +716,8 @@ stan_prior <- function(prior, class, coef = "", group = "",
   }
   out <- collapse(out)
   if (prior_only && nzchar(class) && !nchar(out)) {
-    stop2("Sampling from priors is not possible because ", 
-          "not all parameters have proper priors. \n",
+    stop2("Sampling from priors is not possible as ", 
+          "some parameters have no proper priors. ",
           "Error occured for class '", class, "'.")
   }
   out
@@ -674,19 +749,18 @@ stan_base_prior <- function(prior) {
 }
 
 stan_rngprior <- function(sample_prior, prior, par_declars,
-                          family, prior_special) {
+                          gen_quantities, prior_special) {
   # stan code to sample from priors seperately
   # Args:
   #   sample_prior: take samples from priors?
   #   prior: character string taken from stan_prior
   #   par_declars: the parameters block of the Stan code
-  #                required to extract boundaries
-  #   family: the model family
+  #     required to extract boundaries
+  #   gen_quantities: Stan code from the generated quantities block
   #   prior_special: a list of values pertaining to special priors
-  #                  such as horseshoe or lasso
+  #     such as horseshoe or lasso
   # Returns:
   #   a character string containing the priors to be sampled from in stan code
-  stopifnot(is.family(family))
   out <- list()
   if (sample_prior) {
     prior <- gsub(" ", "", paste0("\n", prior))
@@ -789,10 +863,10 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
       temp_intercepts <- pars[is_temp_intercept]
       p <- gsub("^temp|_Intercept$", "", temp_intercepts)
       intercepts <- paste0("b", p, "_Intercept")
-      use_plus <- family$family %in% c("cumulative", "sratio")
-      sub_X_means <- paste0(
-        ifelse(use_plus, " + ", " - "), 
-        "dot_product(means_X", p, ", b", p, ")"
+      regex <- paste0(" (\\+|-) dot_product\\(means_X", p, ", b", p, "\\)")
+      sub_X_means <- lapply(regex, get_matches, gen_quantities)
+      sub_X_means <- ulapply(sub_X_means, 
+        function(x) if (length(x)) x[1] else ""
       )
       out$genD <- paste0(out$genD, 
         collapse("  real prior_", intercepts, "; \n")

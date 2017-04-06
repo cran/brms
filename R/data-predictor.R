@@ -28,7 +28,8 @@ data_effects.btl <- function(x, data, ranef = empty_ranef(),
                      not4stan = not4stan)
   data_me <- data_me(x, data = data, nlpar = nlpar)
   data_cs <- data_cs(x, data = data, nlpar = nlpar)
-  c(data_fe, data_mo, data_re, data_me, data_cs)
+  data_offset <- data_offset(x, data = data, nlpar = nlpar)
+  c(data_fe, data_mo, data_re, data_me, data_cs, data_offset)
 }
 
 #' @export 
@@ -150,15 +151,14 @@ data_mo <- function(bterms, data, ranef = empty_ranef(),
     for (i in seq_along(monef)) {
       take <- prior$class == "simplex" & prior$coef == monef[i] & 
         prior$nlpar == nlpar  
-      sprior <- prior$prior[take]
-      if (isTRUE(nchar(sprior) > 0L)) {
-        sprior <- eval2(sprior)
-        if (length(sprior) != Jmo[i]) {
-          stop2("Invalid dirichlet prior for the simplex of '", 
-                monef[i], "'. Expected input of length ", Jmo[i], 
-                " but found ", paste(sprior, collapse = ","))
+      simplex_prior <- prior$prior[take]
+      if (isTRUE(nzchar(simplex_prior))) {
+        simplex_prior <- eval2(simplex_prior)
+        if (length(simplex_prior) != Jmo[i]) {
+          stop2("Invalid Dirichlet prior for the simplex of coefficient '",
+                monef[i], "'. Expected input of length ", Jmo[i], ".")
         }
-        out[[paste0("con_simplex", p, "_", i)]] <- sprior
+        out[[paste0("con_simplex", p, "_", i)]] <- simplex_prior
       } else {
         out[[paste0("con_simplex", p, "_", i)]] <- rep(1, Jmo[i]) 
       }
@@ -241,7 +241,15 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
       }
     } else {
       g <- id_ranef$gcall[[1]]$groups
-      out[[paste0("J_", id)]] <- as.array(match(get(g, data), levels))
+      gdata <- get(g, data)
+      J <- match(gdata, levels)
+      if (anyNA(J)) {
+        # occurs for new levels only
+        new_gdata <- gdata[!gdata %in% levels]
+        new_levels <- unique(new_gdata)
+        J[is.na(J)] <- match(new_gdata, new_levels) + length(levels)
+      }
+      out[[paste0("J_", id)]] <- as.array(J)
     }
     temp <- list(length(levels), nranef, nranef * (nranef - 1) / 2)
     out <- c(out, setNames(temp, paste0(c("N_", "M_", "NC_"), id)))
@@ -315,6 +323,44 @@ data_me <- function(bterms, data, nlpar = "") {
     names(noise) <- paste0("noise", p, "_", seq_along(Xn))
     Kme <- setNames(list(length(meef)), paste0("Kme", p))
     out <- c(out, Xn, noise, Cme, Kme)
+  }
+  out
+}
+
+data_offset <- function(bterms, data, nlpar = "") {
+  # prepare data of offsets for use in Stan
+  out <- list()
+  if (is.formula(bterms$offset)) {
+    mf <- model.frame(bterms$offset, rm_attr(data, "terms"))
+    out[[paste0("offset", usc(nlpar))]] <- model.offset(mf)
+  }
+  out
+}
+
+data_mixture <- function(bterms, prior = brmsprior()) {
+  # data specific for mixture models
+  stopifnot(is.brmsterms(bterms))
+  out <- list()
+  if (is.mixfamily(bterms$family)) {
+    families <- family_names(bterms$family)
+    ap_classes <- auxpar_class(
+      names(c(bterms$auxpars, bterms$fauxpars))
+    )
+    if (!any(ap_classes %in% "theta")) {
+      # estimate mixture probabilities directly
+      take <- prior$class == "theta"
+      theta_prior <- prior$prior[take]
+      if (isTRUE(nzchar(theta_prior))) {
+        theta_prior <- eval2(theta_prior)
+        if (length(theta_prior) != length(families)) {
+          stop2("Invalid dirichlet prior for the ", 
+                "mixture probabilities 'theta'.")
+        }
+        out[["con_theta"]] <- theta_prior
+      } else {
+        out[["con_theta"]] <- rep(1, length(families)) 
+      }
+    }
   }
   out
 }

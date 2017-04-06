@@ -18,7 +18,7 @@ array2list <- function(x) {
 }
 
 contains_samples <- function(x) {
-  if (!is(x$fit, "stanfit") || !length(x$fit@sim)) {
+  if (!(is.brmsfit(x) && length(x$fit@sim))) {
     stop2("The model does not contain posterior samples.")
   }
   invisible(TRUE)
@@ -34,13 +34,12 @@ name_model <- function(family) {
   # create the name of the fitted stan model
   # Args:
   #   family: A family object
-  if (!is(family, "family")) {
-    mn <- "brms-model"
+  if (!is.family(family)) {
+    out <- "brms-model"
   } else {
-    type <- ifelse(is.null(family$type), "", paste(",", family$type))
-    mn <- paste0(family$family, "(", family$link, type, ") brms-model")
+    out <- paste(summary(family), "brms-model")
   }
-  mn
+  out
 }
 
 #' Retructure Old \code{brmsfit} Objects
@@ -213,45 +212,23 @@ prepare_conditions <- function(x, conditions = NULL, effects = NULL,
   mf <- model.frame(x)
   new_formula <- update_re_terms(formula(x), re_formula = re_formula)
   bterms <- parse_bf(new_formula, family = family(x))
-  int_effects <- c(
-    get_effect(bterms, "mo"), 
-    rmNULL(bterms$adforms[c("trials", "cat")])
+  re <- get_re(bterms)
+  req_vars <- c(
+    lapply(get_effect(bterms, "fe"), rhs), 
+    lapply(get_effect(bterms, "mo"), rhs),
+    lapply(get_effect(bterms, "me"), rhs),
+    lapply(get_effect(bterms, "sm"), rhs),
+    lapply(get_effect(bterms, "cs"), rhs),
+    lapply(get_effect(bterms, "offset"), rhs),
+    re$form, lapply(re$gcall, "[[", "weightvars"),
+    bterms$adforms[c("se", "disp", "trials", "cat")],
+    bterms$auxpars$mu$covars
   )
-  int_vars <- unique(ulapply(int_effects, all.vars))
+  req_vars <- unique(ulapply(req_vars, all.vars))
+  req_vars <- setdiff(req_vars, rsv_vars)
   if (is.null(conditions)) {
-    if (!is.null(bterms$adforms$trials)) {
-      message("Using the median number of trials by default")
-    }
-    # list all required variables
-    re <- get_re(bterms)
-    req_vars <- c(
-      lapply(get_effect(bterms, "fe"), rhs), 
-      lapply(get_effect(bterms, "mo"), rhs),
-      lapply(get_effect(bterms, "me"), rhs),
-      lapply(get_effect(bterms, "sm"), rhs),
-      lapply(get_effect(bterms, "cs"), rhs),
-      re$form, lapply(re$gcall, "[[", "weightvars"),
-      bterms$adforms[c("se", "disp", "trials", "cat")],
-      bterms$auxpars$mu$covars
-    )
-    req_vars <- unique(ulapply(req_vars, all.vars))
-    req_vars <- setdiff(req_vars, rsv_vars)
     conditions <- as.data.frame(as.list(rep(NA, length(req_vars))))
     names(conditions) <- req_vars
-    for (v in req_vars) {
-      if (is.numeric(mf[[v]])) {
-        if (v %in% int_vars) {
-          conditions[[v]] <- round(median(mf[[v]]))
-        } else {
-          conditions[[v]] <- mean(mf[[v]])
-        }
-      } else {
-        # use reference category
-        lev <- attr(as.factor(mf[[v]]), "levels")
-        conditions[[v]] <- factor(lev[1], levels = lev, 
-                                  ordered = is.ordered(mf[[v]]))
-      }
-    }
   } else {
     conditions <- as.data.frame(conditions)
     if (!nrow(conditions)) {
@@ -261,28 +238,59 @@ prepare_conditions <- function(x, conditions = NULL, effects = NULL,
       stop2("Row names of 'conditions' should be unique.")
     }
     conditions <- unique(conditions)
-    eff_vars <- lapply(effects, function(e) all.vars(parse(text = e)))
-    uni_eff_vars <- unique(unlist(eff_vars))
-    is_everywhere <- ulapply(uni_eff_vars, function(uv)
-      all(ulapply(eff_vars, function(vs) uv %in% vs)))
-    # variables that are present in every effect term
-    # do not need to be defined in conditions
-    missing_vars <- setdiff(uni_eff_vars[is_everywhere], names(conditions))
-    for (v in missing_vars) {
-      conditions[, v] <- mf[[v]][1]
+    req_vars <- setdiff(req_vars, names(conditions))
+  }
+  trial_vars <- all.vars(bterms$adforms$trials)
+  if (length(trial_vars)) {
+    write_msg <- any(ulapply(trial_vars, function(x) 
+      !isTRUE(x %in% names(conditions)) || anyNA(conditions[[x]])
+    ))
+    if (write_msg) {
+      message("Using the median number of trials by ", 
+              "default if not specified otherwise.")
     }
   }
-  amend_newdata(conditions, fit = x, re_formula = re_formula,
-                allow_new_levels = TRUE, incl_autocor = FALSE, 
-                return_standata = FALSE)
+  # use default values for unspecified variables
+  int_vars <- rmNULL(bterms$adforms[c("trials", "cat")])
+  int_vars <- c(int_vars, get_effect(bterms, "mo"))
+  int_vars <- unique(ulapply(int_vars, all.vars))
+  for (v in req_vars) {
+    if (is.numeric(mf[[v]])) {
+      if (v %in% int_vars) {
+        conditions[[v]] <- round(median(mf[[v]]))
+      } else {
+        conditions[[v]] <- mean(mf[[v]])
+      }
+    } else {
+      # use reference category
+      levels <- attr(as.factor(mf[[v]]), "levels")
+      conditions[[v]] <- factor(
+        levels[1], levels = levels, ordered = is.ordered(mf[[v]])
+      )
+    }
+  }
+  unused_vars <- setdiff(names(conditions), all.vars(bterms$allvars))
+  if (length(unused_vars)) {
+    warning2(
+      "The following variables in 'conditions' are not ", 
+      "part of the model:\n", collapse_comma(unused_vars)
+    )
+  }
+  amend_newdata(
+    conditions, fit = x, re_formula = re_formula,
+    allow_new_levels = TRUE, incl_autocor = FALSE, 
+    return_standata = FALSE
+  )
 }
 
-prepare_marg_data <- function(data, conditions, int_vars = NULL,
-                              surface = FALSE, resolution = 100) {
+prepare_marg_data <- function(data, conditions, int_conditions = NULL,
+                              int_vars = NULL, surface = FALSE, 
+                              resolution = 100) {
   # prepare data to be used in marginal_effects
   # Args:
   #  data: data.frame containing only data of the predictors of interest
   #  conditions: see argument 'conditions' of marginal_effects
+  #  int_conditions: see argument 'int_conditions' of marginal_effects
   #  int_vars: names of variables being treated as integers
   #  surface: generate surface plots later on?
   #  resolution: number of distinct points at which to evaluate
@@ -317,7 +325,13 @@ prepare_marg_data <- function(data, conditions, int_vars = NULL,
             values[[2]] <- seq(min2, max2, length.out = resolution)
           }
         } else {
-          if (mono[2]) {
+          if (effects[2] %in% names(int_conditions)) {
+            int_cond <- int_conditions[[effects[2]]]
+            if (is.function(int_cond)) {
+              int_cond <- int_cond(data[, effects[2]])
+            }
+            values[[2]] <- int_cond
+          } else if (mono[2]) {
             median2 <- median(data[, effects[2]])
             mad2 <- mad(data[, effects[2]])
             values[[2]] <- round((-1:1) * mad2 + median2)
@@ -480,8 +494,10 @@ get_cov_matrix <- function(sd, cor = NULL) {
   stopifnot(all(sd >= 0))
   if (!is.null(cor)) {
     cor <- as.matrix(cor)
-    stopifnot(ncol(cor) == ncol(sd) * (ncol(sd) - 1) / 2, 
-              nrow(sd) == nrow(cor), min(cor) >= -1 && max(cor) <= 1)
+    stopifnot(
+      ncol(cor) == ncol(sd) * (ncol(sd) - 1) / 2, 
+      nrow(sd) == nrow(cor), min(cor) >= -1 && max(cor) <= 1
+    )
   }
   nsamples <- nrow(sd)
   nranef <- ncol(sd)
@@ -655,7 +671,7 @@ get_shape <- function(x, data, i = NULL, dim = NULL) {
   mult_disp(x, data = data, i = i, dim = dim)
 }
 
-get_theta <- function(draws, i = NULL, par = c("zi", "hu")) {
+get_zi_hu <- function(draws, i = NULL, par = c("zi", "hu")) {
   # convenience function to extract zi / hu parameters
   # also works with deprecated models fitted with brms < 1.0.0 
   # which were using multivariate syntax
@@ -665,9 +681,31 @@ get_theta <- function(draws, i = NULL, par = c("zi", "hu")) {
   par <- match.arg(par)
   if (!is.null(draws$data$N_trait)) {
     j <- if (!is.null(i)) i else seq_len(draws$data$N_trait)
-    theta <- ilink(get_eta(draws$mu, j + draws$data$N_trait), "logit")
+    out <- ilink(get_eta(draws$mu, j + draws$data$N_trait), "logit")
   } else {
-    theta <- get_auxpar(draws[[par]], i = i)
+    out <- get_auxpar(draws[[par]], i = i)
+  }
+  out
+}
+
+get_theta <- function(draws, i = NULL) {
+  # get the mixing proportions of mixture models
+  if (!is.null(draws[["theta"]])) {
+    theta <- draws[["theta"]]
+  } else {
+    # theta was predicted; apply softmax
+    families <- family_names(draws$f)
+    theta <- vector("list", length(families))
+    for (j in seq_along(families)) {
+      theta[[j]] <- get_auxpar(draws[[paste0("theta", j)]], i = i)
+    }
+    theta <- do.call(abind, c(theta, along = 3))
+    for (n in seq_len(dim(theta)[2])) {
+      theta[, n, ] <- softmax(theta[, n, ])
+    }
+    if (length(i) == 1L) {
+      dim(theta) <- dim(theta)[c(1, 3)]
+    }
   }
   theta
 }
@@ -731,6 +769,19 @@ mult_disp <- function(x, data, i = NULL, dim = NULL) {
   x
 }
 
+choose_N <- function(draws) {
+  # choose N to be used in predict and log_lik
+  stopifnot(is.list(draws))
+  if (!is.null(draws$data$N_trait)) {
+    N <- draws$data$N_trait
+  } else if (!is.null(draws$data$N_tg)) {
+    N <- draws$data$N_tg
+  } else {
+    N <- draws$data$N
+  }
+  N
+}
+
 prepare_family <- function(x) {
   # prepare for calling family specific log_lik / predict functions
   family <- family(x)
@@ -756,6 +807,7 @@ reorder_obs <- function(eta, old_order = NULL, sort = FALSE) {
   #   sort: keep the new order as defined by the time-series?
   # Returns:
   #   eta with possibly reordered columns
+  stopifnot(length(dim(eta)) %in% c(2L, 3L))
   if (!is.null(old_order) && !sort) {
     N <- length(old_order)
     if (ncol(eta) %% N != 0) {
@@ -769,9 +821,13 @@ reorder_obs <- function(eta, old_order = NULL, sort = FALSE) {
       old_order <- rep(old_order, nresp)
       old_order <- old_order + rep(0:(nresp - 1) * N, each = N)
     }
-    eta <- eta[, old_order, drop = FALSE]  
-    colnames(eta) <- NULL
+    if (length(dim(eta)) == 3L) {
+      eta <- eta[, old_order, , drop = FALSE]   
+    } else {
+      eta <- eta[, old_order, drop = FALSE]   
+    }
   }
+  colnames(eta) <- NULL
   eta
 }
 
@@ -783,8 +839,8 @@ fixef_pars <- function() {
 default_plot_pars <- function() {
   # list all parameter classes to be included in plots by default
   c(fixef_pars(), "^sd_", "^cor_", "^sigma_", "^rescor_", 
-    paste0("^", auxpars(), "$"), "^delta$", "^ar", "^ma", 
-    "^arr", "^sigmaLL", "^sds_")
+    paste0("^", auxpars(), "[[:digit:]]*$"), "^delta$",
+    "^theta", "^ar", "^ma", "^arr", "^sigmaLL", "^sds_")
 }
 
 extract_pars <- function(pars, all_pars, exact_match = FALSE,
@@ -813,29 +869,37 @@ extract_pars <- function(pars, all_pars, exact_match = FALSE,
   pars
 }
 
-compute_ic <- function(x, ic = c("waic", "loo"), ll_args = list(), ...) {
+compute_ic <- function(x, ic = c("waic", "loo", "psislw"), 
+                       loo_args = list(), ...) {
   # compute WAIC and LOO using the 'loo' package
   # Args:
   #   x: an object of class brmsfit
   #   ic: the information criterion to be computed
-  #   ll_args: a list of additional arguments passed to log_lik
-  #   ...: passed to the loo package
+  #   loo_args: passed to functions of the loo package
+  #   ...: passed to log_lik.brmsfit
   # Returns:
-  #   output of the loo package with amended class attribute
+  #   output of the loo functions with amended class attribute
+  stopifnot(is.list(loo_args))
   ic <- match.arg(ic)
+  dots <- list(...)
   contains_samples(x)
-  args <- list(x = do.call(log_lik, c(list(x), ll_args)))
-  if (ll_args$pointwise) {
-    args$args$draws <- attr(args$x, "draws")
-    args$args$data <- data.frame()
-    args$args$N <- attr(args$x, "N")
-    args$args$S <- nsamples(x, subset = ll_args$subset)
-    attr(args$x, "draws") <- NULL
+  loo_args$x <- do.call(log_lik, c(list(x), dots))
+  pointwise <- is.function(loo_args$x)
+  if (pointwise) {
+    loo_args$args <- attr(loo_args$x, "args")
+    attr(loo_args$x, "args") <- NULL
   }
-  if (ic == "loo") {
-    args <- c(args, ...)
+  if (ic == "psislw") {
+    if (pointwise) {
+      loo_args[["llfun"]] <- loo_args[["x"]]
+      loo_args[["llargs"]] <- loo_args[["args"]]
+      loo_args[["x"]] <- loo_args[["args"]] <- NULL
+    } else {
+      loo_args[["lw"]] <- -loo_args[["x"]]
+      loo_args[["x"]] <- NULL
+    }
   }
-  IC <- do.call(eval(parse(text = paste0("loo::", ic))), args)
+  IC <- do.call(eval(parse(text = paste0("loo::", ic))), loo_args)
   class(IC) <- c("ic", "loo")
   IC
 }
@@ -922,7 +986,32 @@ compare_ic <- function(..., x = NULL) {
   x
 }
 
-set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+08) {
+loo_weights <- function(object, lw = NULL, log = FALSE, 
+                        loo_args = list(), ...) {
+  # compute loo weights for use in loo_predict and related methods
+  # Args:
+  #   object: a brmsfit object
+  #   lw: precomputed log weights matrix
+  #   log: return log weights?
+  #   loo_args: further arguments passed to functions of loo
+  #   ...: further arguments passed to compute_ic
+  # Returns:
+  #   an S x N matrix
+  if (!is.null(lw)) {
+    stopifnot(is.matrix(lw))
+  } else {
+    message("Running PSIS to compute weights")
+    psis <- compute_ic(object, ic = "psislw", loo_args = loo_args, ...)
+    lw <- psis[["lw_smooth"]]
+  }
+  if (!log) {
+    lw <- exp(lw) 
+  } 
+  lw
+}
+
+set_pointwise <- function(x, pointwise = NULL, newdata = NULL, 
+                          subset = NULL, thres = 1e+08) {
   # set the pointwise argument based on the model size
   # Args:
   #   x: a brmsfit object
@@ -931,17 +1020,26 @@ set_pointwise <- function(x, newdata = NULL, subset = NULL, thres = 1e+08) {
   #   thres: threshold above which pointwise is set to TRUE
   # Returns:
   #   TRUE or FALSE
-  nsamples <- nsamples(x, subset = subset)
-  if (is.data.frame(newdata)) {
-    nobs <- nrow(newdata)
+  if (!is.null(pointwise)) {
+    pointwise <- as.logical(pointwise)
+    if (length(pointwise) != 1L || anyNA(pointwise)) {
+      stop2("Argument 'pointwise' must be either TRUE or FALSE.")
+    }
   } else {
-    nobs <- nobs(x)
-  }
-  pointwise <- nsamples * nobs > thres
-  if (pointwise) {
-    message("Switching to pointwise evaluation to reduce ",  
-            "RAM requirements.\nThis will likely increase ",
-            "computation time.")
+    nsamples <- nsamples(x, subset = subset)
+    if (is.data.frame(newdata)) {
+      nobs <- nrow(newdata)
+    } else {
+      nobs <- nobs(x)
+    }
+    pointwise <- nsamples * nobs > thres
+    if (pointwise) {
+      message(
+        "Switching to pointwise evaluation to reduce ",  
+        "RAM requirements.\nThis will likely increase ",
+        "computation time."
+      )
+    }
   }
   pointwise
 }
@@ -1050,23 +1148,22 @@ evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"),
   out  
 }
 
-make_point_frame <- function(mf, effects, conditions, groups, family) {
+make_point_frame <- function(mf, effects, conditions, groups, 
+                             family, select_points = 0) {
   # helper function for marginal_effects.brmsfit
   # allowing add data points to the marginal plots
   # Args:
   #   mf: the original model.frame
-  #   effects: see argument 'effects' of marginal_effects
-  #   conditions: see argument 'conditions' of marginal_effects
+  #   effects: see marginal_effects
+  #   conditions: see marginal_effects
   #   groups: names of the grouping factors
   #   family: the model family
+  #   select_points: see marginal_effects
   # Returns:
   #   a data.frame containing the data points to be plotted
   points <- mf[, effects, drop = FALSE]
   points$resp__ <- model.response(mf)
-  # get required variables i.e. (grouping) factors
-  list_mf <- lapply(as.list(mf), function(x)
-    if (is.numeric(x)) x else as.factor(x))
-  req_vars <- names(mf)[sapply(list_mf, is.factor)]
+  req_vars <- names(mf)
   if (length(groups)) {
     req_vars <- c(req_vars, unlist(strsplit(groups, ":")))
   }
@@ -1080,11 +1177,35 @@ make_point_frame <- function(mf, effects, conditions, groups, family) {
     points <- replicate(nrow(conditions), points, simplify = FALSE)
     for (i in seq_along(points)) {
       cond <- conditions[i, , drop = FALSE]
-      not_na <- which(!(is.na(cond) | cond == "zero__"))
-      if (length(not_na)) {
+      not_na <- !(is.na(cond) | cond == "zero__")
+      cond <- cond[, not_na, drop = FALSE]
+      mf_tmp <- mf[, not_na, drop = FALSE]
+      if (ncol(mf_tmp)) {
+        is_num <- sapply(mf_tmp, is.numeric)
+        if (sum(is_num)) {
+          stopifnot(select_points >= 0)
+          if (select_points > 0) {
+            for (v in names(mf_tmp)[is_num]) {
+              min <- min(mf_tmp[, v])
+              max <- max(mf_tmp[, v])
+              unit <- (mf_tmp[, v] - min) / (max - min)
+              unit_cond <- (cond[, v] - min) / (max - min)
+              unit_diff <- abs(unit - unit_cond)
+              close_enough <- unit_diff <= select_points
+              mf_tmp[close_enough, v] <- cond[, v]
+              mf_tmp[!close_enough, v] <- NA
+            }
+          } else {
+            # take all numeric values if select_points is zero
+            cond <- cond[, !is_num, drop = FALSE]
+            mf_tmp <- mf[, !is_num, drop = FALSE]
+          }
+        }
+      }
+      if (ncol(mf_tmp)) {
         # do it like base::duplicated
-        K <- do.call("paste", c(mf[, not_na, drop = FALSE], sep = "\r")) %in% 
-             do.call("paste", c(cond[, not_na, drop = FALSE], sep = "\r"))
+        K <- do.call("paste", c(mf_tmp, sep = "\r")) %in%
+             do.call("paste", c(cond, sep = "\r"))
       } else {
         K <- seq_len(nrow(mf))
       }

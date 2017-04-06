@@ -4,7 +4,7 @@
 brms
 ====
 
-The **brms** package provides an interface to fit Bayesian generalized (non-)linear multilevel models using Stan, which is a C++ package for performing full Bayesian inference (see <http://mc-stan.org/>). The formula syntax is very similar to that of the package lme4 to provide a familiar and simple interface for performing regression analyses. A wide range of distributions and link functions are supported, allowing users to fit -- among others -- linear, robust linear, binomial, Poisson, survival, response times, ordinal, zero-inflated, hurdle, and even non-linear models all in a multilevel context. Further modeling options include auto-correlation and smoothing terms, user defined dependence structures, censored data, meta-analytic standard errors, and quite a few more. In addition, all parameters of the response distribution can be predicted in order to perform distributional regression. Prior specifications are flexible and explicitly encourage users to apply prior distributions that actually reflect their beliefs. In addition, model fit can easily be assessed and compared with posterior predictive checks and leave-one-out cross-validation.
+The **brms** package provides an interface to fit Bayesian generalized (non-)linear multilevel models using Stan, which is a C++ package for performing full Bayesian inference (see <http://mc-stan.org/>). The formula syntax is very similar to that of the package lme4 to provide a familiar and simple interface for performing regression analyses. A wide range of distributions and link functions are supported, allowing users to fit -- among others -- linear, robust linear, count data, survival, response times, ordinal, zero-inflated, hurdle, and even self-defined mixture models all in a multilevel context. Further modeling options include non-linear and smooth terms, auto-correlation structures, censored data, meta-analytic standard errors, and quite a few more. In addition, all parameters of the response distribution can be predicted in order to perform distributional regression. In addition, all parameters of the response distribution can be predicted in order to perform distributional regression. Prior specifications are flexible and explicitly encourage users to apply prior distributions that actually reflect their beliefs. In addition, model fit can easily be assessed and compared with posterior predictive checks and leave-one-out cross-validation.
 
 <!--
 
@@ -29,7 +29,7 @@ The results (i.e. posterior samples) can be investigated using
 
 ``` r
 summary(fit, waic = TRUE) 
-#>  Family: poisson (log) 
+#>  Family: poisson(log) 
 #> Formula: count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient) + (1 | obs) 
 #>    Data: epilepsy (Number of observations: 236) 
 #> Samples: 4 chains, each with iter = 2000; warmup = 1000; thin = 1; 
@@ -105,18 +105,23 @@ For a complete list of methods to apply on **brms** models see
 
 ``` r
 methods(class = "brmsfit") 
-#>  [1] as.data.frame     as.matrix         as.mcmc           coef             
-#>  [5] expose_functions  family            fitted            fixef            
-#>  [9] formula           hypothesis        launch_shiny      log_lik          
-#> [13] log_posterior     logLik            loo               LOO              
-#> [17] marginal_effects  marginal_smooths  model.frame       neff_ratio       
-#> [21] ngrps             nobs              nsamples          nuts_params      
-#> [25] pairs             parnames          plot              posterior_predict
-#> [29] posterior_samples pp_check          predict           predictive_error 
-#> [33] print             prior_samples     prior_summary     ranef            
-#> [37] residuals         rhat              stancode          standata         
-#> [41] stanplot          summary           update            VarCorr          
-#> [45] vcov              waic              WAIC             
+#>  [1] as.data.frame           as.matrix               as.mcmc                
+#>  [4] coef                    control_params          expose_functions       
+#>  [7] family                  fitted                  fixef                  
+#> [10] formula                 hypothesis              launch_shiny           
+#> [13] log_lik                 log_posterior           logLik                 
+#> [16] loo                     LOO                     loo_linpred            
+#> [19] loo_predict             loo_predictive_interval marginal_effects       
+#> [22] marginal_smooths        model.frame             neff_ratio             
+#> [25] ngrps                   nobs                    nsamples               
+#> [28] nuts_params             pairs                   parnames               
+#> [31] plot                    posterior_predict       posterior_samples      
+#> [34] pp_check                predict                 predictive_error       
+#> [37] print                   prior_samples           prior_summary          
+#> [40] ranef                   residuals               rhat                   
+#> [43] stancode                standata                stanplot               
+#> [46] summary                 update                  VarCorr                
+#> [49] vcov                    waic                    WAIC                   
 #> see '?methods' for accessing help and source code
 ```
 
