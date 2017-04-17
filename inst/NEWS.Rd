@@ -2,6 +2,36 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.6.1}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Implement zero-one-inflated beta models
+      via family \code{zero_one_inflated_beta}.
+      \item Allow for more link functions in 
+      zero-inflated and hurdle models.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Ensure full compatibility with 
+      \pkg{bayesplot} version 1.2.0.
+      \item Deprecate addition argument \code{disp}.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix problems when setting priors
+      on coefficients of auxiliary parameters 
+      when also setting priors on the corresponding
+      coefficients of the mean parameter.
+      Thanks to Matti Vuorre for reporting this bug.
+      \item Allow ordered factors to be used
+      as grouping variables thanks to the GitHub
+      user itissid.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.6.0}{
   \subsection{NEW FEATURES}{
     \itemize{

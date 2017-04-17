@@ -58,8 +58,9 @@ update_data <- function(data, family, bterms,
       stop2("Variable names may not contain double underscores ",
             "or underscores at the end.")
     }
-    data <- combine_groups(data, get_re(bterms)$group, bterms$time$group)
-    data <- fix_factor_contrasts(data)
+    groups <- c(get_re(bterms)$group, bterms$time$group)
+    data <- combine_groups(data, groups)
+    data <- fix_factor_contrasts(data, ignore = groups)
     attr(data, "knots") <- knots
     attr(data, "brmsframe") <- TRUE
   }
@@ -185,20 +186,22 @@ combine_groups <- function(data, ...) {
   data
 }
 
-fix_factor_contrasts <- function(data, optdata = NULL) {
+fix_factor_contrasts <- function(data, optdata = NULL, ignore = NULL) {
   # hard code factor contrasts to be independent
   # of the global "contrasts" option
   # Args:
   #   data: a data.frame
   #   optdata: optional data.frame from which contrasts
   #            are taken if present
+  #   ignore: names of variables for which not to fix contrasts
   # Returns:
   #   a data.frame with amended contrasts attributes
   stopifnot(is(data, "data.frame"))
   stopifnot(is.null(optdata) || is.list(optdata))
   optdata <- as.data.frame(optdata)  # fixes issue #105
   for (i in seq_along(data)) {
-    if (is.factor(data[[i]]) && is.null(attr(data[[i]], "contrasts"))) {
+    needs_contrast <- is.factor(data[[i]]) && !names(data)[i] %in% ignore
+    if (needs_contrast && is.null(attr(data[[i]], "contrasts"))) {
       if (!is.null(attr(optdata[[names(data)[i]]], "contrasts"))) {
         # take contrasts from optdata
         contrasts(data[[i]]) <- attr(optdata[[names(data)[i]]], "contrasts")
@@ -491,48 +494,39 @@ prepare_mo_vars <- function(formula, data, check = TRUE) {
   out
 }
 
-make_smooth_list <- function(bterms, data) {
-  # compute smoothing objects based on the original data
-  # as the basis for doing predictions with new data
-  # Args:
-  #   bterms: object of class brmsterms
-  #   data: the original model.frame
-  # Returns:
-  #   A named list of lists of smoothing objects
-  #   one element per (non-linear) parameter    
-  if (has_smooths(bterms)) {
+#' @export
+make_smooth_list.btl <- function(x, data, ...) {
+  if (has_smooths(x)) {
     knots <- attr(data, "knots")
     data <- rm_attr(data, "terms")
     gam_args <- list(data = data, knots = knots, 
                      absorb.cons = TRUE, modCon = 3)
-    if (length(bterms$nlpars)) {
-      smooth <- named_list(names(bterms$nlpars))
-      for (nlp in names(smooth)) {
-        sm_labels <- get_sm_labels(bterms$nlpars[[nlp]])
-        for (i in seq_along(sm_labels)) {
-          sc_args <- c(list(eval_smooth(sm_labels[i])), gam_args)
-          smooth[[nlp]][[i]] <- do.call(mgcv::smoothCon, sc_args)
-        }
-      }
-    } else {
-      smooth <- named_list("mu")
-      sm_labels <- get_sm_labels(bterms)
-      for (i in seq_along(sm_labels)) {
-        sc_args <- c(list(eval_smooth(sm_labels[i])), gam_args)
-        smooth[["mu"]][[i]] <- do.call(mgcv::smoothCon, sc_args)
-      }
-    }
-    auxpars <- names(bterms$auxpars)
-    smooth <- c(smooth, named_list(auxpars))
-    for (ap in auxpars) {
-      sm_labels <- get_sm_labels(bterms$auxpars[[ap]])
-      for (i in seq_along(sm_labels)) {
-        sc_args <- c(list(eval_smooth(sm_labels[i])), gam_args)
-        smooth[[ap]][[i]] <- do.call(mgcv::smoothCon, sc_args)
-      }
+    sm_labels <- get_sm_labels(x)
+    smooth <- named_list(sm_labels)
+    for (i in seq_along(sm_labels)) {
+      sc_args <- c(list(eval_smooth(sm_labels[i])), gam_args)
+      smooth[[i]] <- do.call(mgcv::smoothCon, sc_args)
     }
   } else {
     smooth <- list()
+  }
+  smooth
+}
+
+#' @export
+make_smooth_list.btnl <- function(x, data, ...) {
+  smooth <- named_list(names(x$nlpars))
+  for (i in seq_along(smooth)) {
+    smooth[[i]] <- make_smooth_list(x$nlpars[[i]], data, ...)
+  }
+  smooth
+}
+
+#' @export
+make_smooth_list.brmsterms <- function(x, data, ...) {
+  smooth <- named_list(names(x$auxpars))
+  for (i in seq_along(smooth)) {
+    smooth[[i]] <- make_smooth_list(x$auxpars[[i]], data, ...)
   }
   smooth
 }

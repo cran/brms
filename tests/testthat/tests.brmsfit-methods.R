@@ -451,7 +451,7 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(names(standata(fit2)),
                c("N", "Y", "C_1", "K_a", "X_a", "Z_1_a_1",
                  "K_b", "X_b", "Z_1_b_2", "J_1", "N_1", "M_1",
-                 "NC_1", "disp", "prior_only"))
+                 "NC_1", "weights", "prior_only"))
   
   # stanplot tested in tests.plots.R
   # summary
@@ -560,4 +560,7 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_true(is(nuts_params(fit1), "data.frame"))
   expect_true(is(rhat(fit1), "numeric"))
   expect_true(is(neff_ratio(fit1), "numeric"))
+  
+  # test fix of issue #214
+  expect_true(is.null(attr(fit1$data$patient, "contrasts")))
 })

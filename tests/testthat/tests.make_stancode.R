@@ -90,6 +90,13 @@ test_that("specified priors appear in the Stan code", {
                          sample_prior = TRUE)
   expect_match2(scode, "prior_b_Intercept = prior_temp_Intercept;")
   
+  # test for problem described in #213
+  prior <- c(prior(normal(0, 1), coef = x1),
+             prior(normal(0, 2), coef = x1, nlpar = sigma))
+  scode <- make_stancode(bf(y ~ x1, sigma ~ x1), dat, prior = prior)
+  expect_match2(scode, "b ~ normal(0, 1);")
+  expect_match2(scode, "b_sigma ~ normal(0, 2);")
+  
   prior <- c(set_prior("target += normal_lpdf(b[1] | 0, 1)", check = FALSE),
              set_prior("", class = "sigma"))
   scode <- make_stancode(y ~ x1, dat, prior = prior,
@@ -299,6 +306,9 @@ test_that("self-defined functions appear in the Stan code", {
   expect_match2(make_stancode(count ~ Trt_c, data = epilepsy, 
                              family = "zero_inflated_beta"),
                "real zero_inflated_beta_lpdf(real y")
+  expect_match2(make_stancode(count ~ Trt_c, data = epilepsy, 
+                              family = "zero_one_inflated_beta"),
+                "real zero_one_inflated_beta_lpdf(real y")
   expect_match2(make_stancode(count ~ Trt_c, data = epilepsy, 
                              family = hurdle_poisson()),
                "real hurdle_poisson_lpmf(int y")
@@ -535,34 +545,37 @@ test_that("known standard errors appear in the Stan code", {
 })
 
 test_that("Addition term 'disp' appears in the Stan code", {
-  scode <- make_stancode(time | disp(sqrt(age)) ~ sex + age, data = kidney)
+  SW(scode <- make_stancode(time | disp(sqrt(age)) ~ sex + age, data = kidney))
   expect_match2(scode, "disp_sigma = sigma * disp;")
   expect_match2(scode, "Y ~ normal(mu, disp_sigma)")
   
-  scode <- make_stancode(time | disp(1/age) ~ sex + age, 
-                         data = kidney, family = lognormal())
+  SW(scode <- make_stancode(time | disp(1/age) ~ sex + age, 
+                            data = kidney, family = lognormal()))
   expect_match2(scode, "Y ~ lognormal(mu, disp_sigma);")
   
-  scode <- make_stancode(time | disp(1/age) ~ sex + age + (1|patient), 
-                         data = kidney, family = Gamma())
+  SW(scode <- make_stancode(time | disp(1/age) ~ sex + age + (1|patient), 
+                            data = kidney, family = Gamma()))
   expect_match2(scode, "mu[n] = disp_shape[n] * (")
   expect_match2(scode, "Y ~ gamma(disp_shape, mu)")
   
-  scode <- make_stancode(time | disp(1/age) ~ sex + age, 
-                         data = kidney, family = weibull())
+  SW(scode <- make_stancode(time | disp(1/age) ~ sex + age, 
+                            data = kidney, family = weibull()))
   expect_match2(scode, "mu[n] = exp((mu[n]) / disp_shape[n]);")
   
-  scode <- make_stancode(time | disp(1/age) ~ sex + age, 
-                         data = kidney, family = negbinomial())
+  SW(scode <- make_stancode(time | disp(1/age) ~ sex + age, 
+                            data = kidney, family = negbinomial()))
   expect_match2(scode, "Y ~ neg_binomial_2_log(mu, disp_shape);")
   
-  scode <- make_stancode(bf(y | disp(y) ~ a - b^x, a + b ~ 1, nl = TRUE),
-                            family = weibull(),
-                            data = data.frame(y = rpois(10, 10), x = rnorm(10)),
-                            prior = c(set_prior("normal(0,1)", nlpar = "a"),
-                                      set_prior("normal(0,1)", nlpar = "b")))
+  SW(scode <- make_stancode(
+    bf(y | disp(y) ~ a - b^x, a + b ~ 1, nl = TRUE),
+    family = weibull(),
+    data = data.frame(y = rpois(10, 10), x = rnorm(10)),
+    prior = c(set_prior("normal(0,1)", nlpar = "a"),
+              set_prior("normal(0,1)", nlpar = "b"))
+  ))
   expect_match2(scode,
-    "mu[n] = exp((mu_a[n] - mu_b[n] ^ C_1[n]) / disp_shape[n]);")
+    "mu[n] = exp((mu_a[n] - mu_b[n] ^ C_1[n]) / disp_shape[n]);"
+  )
 })
 
 test_that("functions defined in 'stan_funs' appear in the functions block", {
@@ -764,8 +777,8 @@ test_that("priors on intercepts appear in the Stan code", {
                           "- dot_product(means_X, b);"))
   scode <- make_stancode(cbind(count, count) ~ log_Age_c + log_Base4_c * Trt_c,
                       data = epilepsy, family = gaussian(), 
-                      prior = c(prior(student_t(5,0,10), class = b),
-                                prior(normal(0,5), class = Intercept)),
+                      prior = c(prior(student_t(5,0,10), class = b, nlpar = count),
+                                prior(normal(0,5), class = Intercept, nlpar = count)),
                       sample_prior = TRUE)
   expect_match2(scode, paste0("prior_b_count_Intercept = prior_temp_count_Intercept ", 
                           "- dot_product(means_X_count, b_count);"))
@@ -812,18 +825,52 @@ test_that("Group syntax | and || is handled correctly,", {
 test_that("predicting zi and hu works correctly", {
   scode <- make_stancode(bf(count ~ Trt_c, zi ~ Trt_c), epilepsy, 
                          family = "zero_inflated_poisson")
-  expect_match2(scode, "Y[n] ~ zero_inflated_poisson_logit(mu[n], zi[n])")
+  expect_match2(scode, 
+    "Y[n] ~ zero_inflated_poisson_log_logit(mu[n], zi[n])"
+  )
   expect_true(!grepl("inv_logit\\(", scode))
+  expect_true(!grepl("exp(mu[n])", scode, fixed = TRUE))
+  
+  scode <- make_stancode(bf(count ~ Trt_c, zi ~ Trt_c), epilepsy, 
+                         family = zero_inflated_poisson(identity))
+  expect_match2(scode, 
+    "Y[n] ~ zero_inflated_poisson_logit(mu[n], zi[n])"
+  )
+  
+  scode <- make_stancode(bf(count ~ Trt_c, zi ~ Trt_c), epilepsy, 
+                         family = "zero_inflated_binomial")
+  expect_match2(scode, 
+    "Y[n] ~ zero_inflated_binomial_blogit_logit(trials[n], mu[n], zi[n])"
+  )
+  expect_true(!grepl("inv_logit\\(", scode))
+  
+  fam <- zero_inflated_binomial("probit", link_zi = "identity")
+  scode <- make_stancode(bf(count ~ Trt_c, zi ~ Trt_c), epilepsy, 
+                         family = fam)
+  expect_match2(scode, 
+    "Y[n] ~ zero_inflated_binomial(trials[n], mu[n], zi[n])"
+  )
+  expect_match2(scode, "mu[n] = Phi(mu[n]);")
+  
+  scode <- make_stancode(bf(count ~ Trt_c, hu ~ Trt_c), epilepsy, 
+                         family = "hurdle_negbinomial")
+  expect_match2(scode, 
+    "Y[n] ~ hurdle_neg_binomial_log_logit(mu[n], shape, hu[n])"
+  )
+  expect_true(!grepl("inv_logit\\(", scode))
+  expect_true(!grepl("exp(mu[n])", scode, fixed = TRUE))
   
   scode <- make_stancode(bf(count ~ Trt_c, hu ~ Trt_c), epilepsy, 
                          family = "hurdle_gamma")
   expect_match2(scode, "Y[n] ~ hurdle_gamma_logit(shape, mu[n], hu[n])")
   expect_true(!grepl("inv_logit\\(", scode))
+  expect_match2(scode, "mu[n] = shape * exp(-(mu[n]));")
   
   scode <- make_stancode(bf(count ~ Trt_c, hu ~ Trt_c), epilepsy, 
                          family = hurdle_gamma(link_hu = "identity"))
   expect_match2(scode, "Y[n] ~ hurdle_gamma(shape, mu[n], hu[n])")
   expect_true(!grepl("inv_logit\\(", scode))
+  expect_match2(scode, "mu[n] = shape * exp(-(mu[n]));")
 })
 
 test_that("fixing auxiliary parameters is possible", {

@@ -20,7 +20,6 @@ stan_llh.default <- function(family, bterms, data, autocor,
   is_ordinal <- is_ordinal(family)
   is_hurdle <- is_hurdle(family)
   is_zero_inflated <- is_zero_inflated(family)
-  is_forked <- is_forked(family)
   is_mv <- is_linear(family) && length(bterms$response) > 1L
   
   has_sigma <- has_sigma(family, bterms)
@@ -52,6 +51,7 @@ stan_llh.default <- function(family, bterms, data, autocor,
   auxpars <- names(bterms$auxpars)
   reqn <- llh_adj || is_categorical || is_ordinal || 
           is_hurdle || is_zero_inflated || is_mix ||
+          is_zero_one_inflated(family) ||
           is_wiener(family) || is_exgaussian(family) || 
           is_asym_laplace(family) || is_gev(family) ||
           has_sigma && has_se && !use_cov(autocor) ||
@@ -99,8 +99,29 @@ stan_llh.default <- function(family, bterms, data, autocor,
       ), 
       bernoulli = c(
         "bernoulli_logit", 
-        p$mu)
+        p$mu
+      ),
+      hurdle_poisson = c(
+        paste0("hurdle_poisson_log", usc_logit), 
+        sargs(p$mu, p$hu)
+      ),
+      hurdle_negbinomial = c(
+        paste0("hurdle_neg_binomial_log", usc_logit), 
+        sargs(p$mu, p$shape, p$hu)
+      ),
+      zero_inflated_poisson = c(
+        paste0("zero_inflated_poisson_log", usc_logit), 
+        sargs(p$mu, p$zi)
+      ),
+      zero_inflated_negbinomial = c(
+        paste0("zero_inflated_neg_binomial_log", usc_logit),
+        sargs(p$mu, p$shape, p$zi)
+      ),
+      zero_inflated_binomial = c(
+        paste0("zero_inflated_binomial_blogit", usc_logit), 
+        sargs(trials, p$mu, p$zi)
       )
+    )
   } else {
     llh_pre <- switch(family,
       gaussian = c(
@@ -229,7 +250,7 @@ stan_llh.default <- function(family, bterms, data, autocor,
       ),
       hurdle_negbinomial = c(
         paste0("hurdle_neg_binomial", usc_logit), 
-        sargs(p$mu, p$hu, p$shape)
+        sargs(p$mu, p$shape, p$hu)
       ),
       hurdle_gamma = c(
         paste0("hurdle_gamma", usc_logit), 
@@ -237,7 +258,7 @@ stan_llh.default <- function(family, bterms, data, autocor,
       ),
       hurdle_lognormal = c(
         paste0("hurdle_lognormal", usc_logit), 
-        sargs(p$mu, p$hu, p$sigma)
+        sargs(p$mu, p$sigma, p$hu)
       ),
       zero_inflated_poisson = c(
         paste0("zero_inflated_poisson", usc_logit), 
@@ -245,7 +266,7 @@ stan_llh.default <- function(family, bterms, data, autocor,
       ),
       zero_inflated_negbinomial = c(
         paste0("zero_inflated_neg_binomial", usc_logit),
-        sargs(p$mu, p$zi, p$shape)
+        sargs(p$mu, p$shape, p$zi)
       ),
       zero_inflated_binomial = c(
         paste0("zero_inflated_binomial", usc_logit), 
@@ -253,7 +274,11 @@ stan_llh.default <- function(family, bterms, data, autocor,
       ),
       zero_inflated_beta = c(
         paste0("zero_inflated_beta", usc_logit), 
-        sargs(p$mu, p$zi, p$phi)
+        sargs(p$mu, p$phi, p$zi)
+      ),
+      zero_one_inflated_beta = c(
+        "zero_one_inflated_beta", 
+        sargs(p$mu, p$phi, p$zoi, p$coi)
       )
     )
   }

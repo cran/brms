@@ -2,17 +2,16 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using Stan
-Version: 1.6.0
-Date: 2017-04-04
+Version: 1.6.1
+Date: 2017-04-17
 Authors@R: person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
 Depends: R (>= 3.2.0), Rcpp (>= 0.12.0), ggplot2 (>= 2.0.0), methods
 Imports: rstan (>= 2.14.1), loo (>= 1.1.0), shinystan (>= 2.2.1),
         Matrix (>= 1.1.1), mgcv (>= 1.8-13), rstantools (>= 1.2.0),
-        bayesplot (>= 1.1.0), matrixStats, nlme, coda, abind, stats,
+        bayesplot (>= 1.2.0), matrixStats, nlme, coda, abind, stats,
         RWiener, graphics, utils, parallel, grDevices,
-Suggests: testthat (>= 0.9.1), arm, mvtnorm, KernSmooth, R.rsp, knitr,
-        rmarkdown
+Suggests: testthat (>= 0.9.1), arm, mvtnorm, R.rsp, knitr, rmarkdown
 Description: Fit Bayesian generalized (non-)linear multilevel models 
     using Stan for full Bayesian inference. A wide range of distributions 
     and link functions are supported, allowing users to fit -- among others -- 
@@ -24,8 +23,8 @@ Description: Fit Bayesian generalized (non-)linear multilevel models
     response distribution can be predicted in order to perform distributional 
     regression. Prior specifications are flexible and explicitly encourage 
     users to apply prior distributions that actually reflect their beliefs.
-    In addition, model fit can easily be assessed and compared with
-    posterior predictive checks and leave-one-out cross-validation.
+    Model fit can easily be assessed and compared with posterior predictive 
+    checks and leave-one-out cross-validation.
 LazyData: true
 NeedsCompilation: no
 License: GPL (>= 3)
@@ -34,8 +33,8 @@ URL: https://github.com/paul-buerkner/brms,
 BugReports: https://github.com/paul-buerkner/brms/issues
 VignetteBuilder: knitr, R.rsp
 RoxygenNote: 6.0.1
-Packaged: 2017-04-06 17:29:23 UTC; paulb
+Packaged: 2017-04-17 10:49:22 UTC; paulb
 Author: Paul-Christian Bürkner [aut, cre]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2017-04-06 21:04:58 UTC
+Date/Publication: 2017-04-17 13:53:55 UTC

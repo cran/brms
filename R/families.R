@@ -15,13 +15,13 @@
 #'   \code{geometric}, \code{Gamma}, \code{lognormal}, 
 #'   \code{exgaussian}, \code{wiener}, \code{inverse.gaussian}, 
 #'   \code{exponential}, \code{weibull}, \code{frechet},
-#'   \code{Beta}, \code{von_mises},
-#'   \code{categorical}, \code{cumulative}, \code{cratio}, \code{sratio},
-#'   \code{acat}, \code{hurdle_poisson}, \code{hurdle_negbinomial}, 
-#'   \code{hurdle_gamma}, \code{hurdle_lognormal}, 
+#'   \code{Beta}, \code{von_mises}, \code{asym_laplace},
+#'   \code{gen_extreme_value}, \code{categorical}, \code{cumulative}, 
+#'   \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
+#'   \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{hurdle_lognormal},
 #'   \code{zero_inflated_binomial}, \code{zero_inflated_beta},
-#'   \code{zero_inflated_negbinomial}, 
-#'   and \code{zero_inflated_poisson}.
+#'   \code{zero_inflated_negbinomial}, \code{zero_inflated_poisson},
+#'   and \code{zero_one_inflated_beta}.
 #' @param link A specification for the model link function. 
 #'   This can be a name/expression or character string. 
 #'   See the 'Details' section for more information on link
@@ -34,6 +34,8 @@
 #' @param link_beta Link of auxiliary parameter \code{beta} if being predicted.
 #' @param link_zi Link of auxiliary parameter \code{zi} if being predicted.
 #' @param link_hu Link of auxiliary parameter \code{hu} if being predicted.
+#' @param link_zoi Link of auxiliary parameter \code{zoi} if being predicted.
+#' @param link_coi Link of auxiliary parameter \code{coi} if being predicted.
 #' @param link_disc Link of auxiliary parameter \code{disc} if being predicted.
 #' @param link_bs Link of auxiliary parameter \code{bs} if being predicted.
 #' @param link_ndt Link of auxiliary parameter \code{ndt} if being predicted.
@@ -65,11 +67,13 @@
 #'   the main formula predicts the drift parameter 'delta' and
 #'   all other parameters are modeled as auxiliary parameters 
 #'   (see \code{\link[brms:brmsformula]{brmsformula}} for details).
-#'   Families \code{hurdle_poisson}, \code{hurdle_negbinomial}, \code{hurdle_gamma}, 
-#'   \code{hurdle_lognormal}, \code{zero_inflated_poisson},
-#'   \code{zero_inflated_negbinomial}, \code{zero_inflated_binomial}, and
-#'   \code{zero_inflated_beta} allow to estimate zero-inflated and hurdle models. 
+#'   Families \code{hurdle_poisson}, \code{hurdle_negbinomial}, 
+#'   \code{hurdle_gamma}, \code{hurdle_lognormal}, \code{zero_inflated_poisson},
+#'   \code{zero_inflated_negbinomial}, \code{zero_inflated_binomial},
+#'   \code{zero_inflated_beta}, and \code{zero_one_inflated_beta} 
+#'   allow to estimate zero-inflated and hurdle models. 
 #'   These models can be very helpful when there are many zeros in the data 
+#'   (or ones in case of one-inflated models)
 #'   that cannot be explained by the primary distribution of the response. 
 #'   Families \code{hurdle_lognormal} and \code{hurdle_gamma} are 
 #'   especially useful, as traditional \code{lognormal} or \code{Gamma}
@@ -79,22 +83,28 @@
 #'   The families \code{gaussian}, \code{student}, \code{exgaussian},
 #'   \code{asym_laplace}, and \code{gen_extreme_value} accept the links 
 #'   (as names) \code{identity}, \code{log}, and \code{inverse};
-#'   families \code{poisson}, \code{negbinomial}, and \code{geometric} the links 
+#'   families \code{poisson}, \code{negbinomial}, \code{geometric},
+#'   \code{zero_inflated_poisson}, \code{zero_inflated_negbinomial},
+#'   \code{hurdle_poisson}, and \code{hurdle_negbinomial} the links 
 #'   \code{log}, \code{identity}, and \code{sqrt}; 
-#'   families \code{binomial}, \code{bernoulli}, \code{Beta},
-#'   \code{cumulative}, \code{cratio}, \code{sratio}, and \code{acat} 
-#'   the links \code{logit}, \code{probit}, \code{probit_approx}, 
-#'   \code{cloglog}, and \code{cauchit}; 
+#'   families \code{binomial}, \code{bernoulli}, \code{Beta}, 
+#'   \code{zero_inflated_binomial}, \code{zero_inflated_beta}, 
+#'   and \code{zero_one_inflated_beta} the links \code{logit}, 
+#'   \code{probit}, \code{probit_approx}, \code{cloglog}, 
+#'   \code{cauchit}, and \code{identity}; 
+#'   families \code{cumulative}, \code{cratio}, \code{sratio}, 
+#'   and \code{acat} the links \code{logit}, \code{probit}, 
+#'   \code{probit_approx}, \code{cloglog}, and \code{cauchit}; 
 #'   family \code{categorical} the link \code{logit};
-#'   families \code{Gamma}, \code{weibull}, \code{exponential}, and 
-#'   \code{frechet} the links \code{log}, \code{identity}, and \code{inverse};
-#'   family \code{lognormal} the links \code{identity} and \code{inverse};
+#'   families \code{Gamma}, \code{weibull}, \code{exponential}, 
+#'   \code{frechet}, and \code{hurdle_gamma} the links 
+#'   \code{log}, \code{identity}, and \code{inverse};
+#'   families \code{lognormal} and \code{hurdle_lognormal} 
+#'   the links \code{identity} and \code{inverse};
 #'   family \code{inverse.gaussian} the links \code{1/mu^2}, 
-#'   \code{inverse}, \code{identity} and \code{log}; 
-#'   families \code{hurdle_poisson}, \code{hurdle_negbinomial},
-#'   \code{hurdle_gamma}, \code{zero_inflated_poisson}, and
-#'   \code{zero_inflated_negbinomial} the link \code{log};
-#'   families \code{wiener} and \code{hurdle_lognormal} the link \code{identity}.
+#'   \code{inverse}, \code{identity} and \code{log};
+#'   family \code{von_mises} the link \code{tan_half};
+#'   family \code{wiener} the link \code{identity}.
 #'   The first link mentioned for each family is the default.     
 #'   
 #'   Please note that when calling the \code{\link[stats:family]{Gamma}} 
@@ -106,8 +116,7 @@
 #'   convergence problems and requires carefully chosen prior distributions 
 #'   to work efficiently. For this reason, we currently do not recommend
 #'   to use the \code{inverse.gaussian} family, unless you really feel
-#'   that your data requires exactly this type of model. \cr
-#'   
+#'   that your data requires exactly this type of model.
 #'
 #' @seealso \code{\link[brms:brm]{brm}}, 
 #'   \code{\link[stats:family]{family}}
@@ -125,16 +134,18 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
                        link_shape = "log", link_nu = "logm1",
                        link_phi = "log", link_kappa = "log",
                        link_beta = "log", link_zi = "logit", 
-                       link_hu = "logit", link_disc = "log",
+                       link_hu = "logit", link_zoi = "logit",
+                       link_coi = "logit", link_disc = "log",
                        link_bs = "log", link_ndt = "log",
-                       link_bias = "logit", link_quantile = "logit",
-                       link_xi = "log1p") {
+                       link_bias = "logit", link_xi = "log1p",
+                       link_quantile = "logit") {
   slink <- substitute(link)
   .brmsfamily(family, link = link, slink = slink,
               link_sigma = link_sigma, link_shape = link_shape, 
               link_nu = link_nu, link_phi = link_phi, 
               link_kappa = link_kappa, link_beta = link_beta, 
               link_zi = link_zi, link_hu = link_hu, 
+              link_zoi = link_zoi, link_coi = link_coi,
               link_disc = link_disc, link_bs = link_bs, 
               link_ndt = link_ndt, link_bias = link_bias,
               link_quantile = link_quantile, 
@@ -171,38 +182,57 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
     "hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
     "hurdle_lognormal", "zero_inflated_poisson", 
     "zero_inflated_negbinomial", "zero_inflated_binomial", 
-    "zero_inflated_beta")
+    "zero_inflated_beta", "zero_one_inflated_beta")
   if (!family %in% ok_families) {
     stop(family, " is not a supported family. Supported families are: \n",
          paste(ok_families, collapse = ", "), call. = FALSE)
   }
   
   # check validity of link
-  as_lin <- family %in% c("exgaussian", "asym_laplace", "gen_extreme_value")
-  if (is_linear(family) || as_lin) {
+  is_linear <- family %in% c(
+    "gaussian", "student", "exgaussian", 
+    "asym_laplace", "gen_extreme_value"
+  )  
+  is_count <- family %in% c(
+    "poisson", "negbinomial", "geometric", "hurdle_poisson",
+    "hurdle_negbinomial", "zero_inflated_poisson",
+    "zero_inflated_negbinomial"
+  )
+  is_binomial <- family %in% c(
+    "binomial", "bernoulli", "zero_inflated_binomial"
+  )
+  is_beta <- family %in% c(
+    "beta", "zero_inflated_beta", "zero_one_inflated_beta"
+  )
+  is_skewed <- family %in% c(
+    "gamma", "weibull", "exponential", "frechet", "hurdle_gamma"
+  )
+  is_lognormal <- family %in% c("lognormal", "hurdle_lognormal")
+  if (is_linear) {
     ok_links <- c("identity", "log", "inverse")
-  } else if (family == "inverse.gaussian") {
-    ok_links <- c("1/mu^2", "inverse", "identity", "log")
-  } else if (is_count(family)) {
+  } else if (is_count) {
     ok_links <- c("log", "identity", "sqrt")
-  } else if (is_ordinal(family) || family %in% "zero_inflated_beta") {
-    ok_links <- c("logit", "probit", "probit_approx", "cloglog", "cauchit")
-  } else if (is_binary(family) || family %in% "beta") {
-    ok_links <- c("logit", "probit", "probit_approx", 
-                 "cloglog", "cauchit", "identity")
-  } else if (family %in% c("categorical", "zero_inflated_binomial")) {
-    ok_links <- c("logit")
-  } else if (is_skewed(family)) {
+  } else if (is_binomial || is_beta) {
+    ok_links <- c(
+      "logit", "probit", "probit_approx", 
+      "cloglog", "cauchit", "identity"
+    )
+  } else if (is_skewed) {
     ok_links <- c("log", "identity", "inverse")
-  } else if (is_lognormal(family)) {
+  } else if (is_lognormal) {
     ok_links <- c("identity", "inverse")
-  } else if (family %in% c("hurdle_lognormal", "wiener")) {
+  } else if (is_categorical(family)) {
+    ok_links <- c("logit")
+  } else if (is_ordinal(family)) {
+    ok_links <- c(
+      "logit", "probit", "probit_approx", "cloglog", "cauchit"
+    )
+  } else if (family %in% "inverse.gaussian") {
+    ok_links <- c("1/mu^2", "inverse", "identity", "log")
+  } else if (is_wiener(family)) {
     ok_links <- c("identity")
-  } else if (family %in% c("von_mises")) {
+  } else if (family %in% "von_mises") {
     ok_links <- c("tan_half")
-  } else if (is_hurdle(family) || is_zero_inflated(family)) {
-    # does not include zi_binomial, zi_beta, or hu_lognormal
-    ok_links <- c("log")
   }
   # non-standard evaluation of link
   if (!is.character(slink)) {
@@ -216,7 +246,7 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
     }
   }
   if (length(slink) != 1L) {
-    stop("Argument 'link' must be of length 1.", call. = FALSE)
+    stop2("Argument 'link' must be of length 1.")
   }
   if (is.na(slink)) {
     slink <- ok_links[1]
@@ -401,6 +431,16 @@ zero_inflated_beta <- function(link = "logit", link_phi = "log",
   slink <- substitute(link)
   .brmsfamily("zero_inflated_beta", link = link, slink = slink,
               link_phi = link_phi, link_zi = link_zi)
+}
+
+#' @rdname brmsfamily
+#' @export
+zero_one_inflated_beta <- function(link = "logit", link_phi = "log",
+                                   link_zoi = "logit", link_coi = "logit") {
+  slink <- substitute(link)
+  .brmsfamily("zero_one_inflated_beta", link = link, slink = slink,
+              link_phi = link_phi, link_zoi = link_zoi,
+              link_coi = link_coi)
 }
 
 #' @rdname brmsfamily
@@ -835,6 +875,11 @@ is_zero_inflated <- function(family, zi_beta = FALSE) {
           "zero_inflated_binomial", if (zi_beta) "zero_inflated_beta"))
 }
 
+is_zero_one_inflated <- function(family, zi_beta = FALSE) {
+  # indicate if family is for a zero one inflated model
+  any(family_names(family) %in% "zero_one_inflated_beta")
+}
+
 is_2PL <- function(family) {
   # do not remove to provide an informative error message
   # why the special 2PL implementation is not supported anymore
@@ -875,7 +920,7 @@ use_real <- function(family) {
       c("lognormal", "exgaussian", "inverse.gaussian", "beta", 
         "von_mises", "zero_inflated_beta", "hurdle_gamma", 
         "hurdle_lognormal", "wiener", "asym_laplace", 
-        "gen_extreme_value")
+        "gen_extreme_value", "zero_one_inflated_beta")
     )
 }
 
@@ -913,7 +958,8 @@ has_nu <- function(family) {
 
 has_phi <- function(family) {
   # indicate if family needs a phi parameter
-  any(family_names(family) %in% c("beta", "zero_inflated_beta"))
+  any(family_names(family) %in% 
+        c("beta", "zero_inflated_beta", "zero_one_inflated_beta"))
 }
 
 has_kappa <- function(family) {

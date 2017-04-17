@@ -35,6 +35,8 @@ of the \code{exgaussian} family);
 \code{quantile} (quantile parameter of the \code{asym_laplace} family);
 \code{zi} (zero-inflation probability); 
 \code{hu} (hurdle probability);
+\code{zoi} (zero-one-inflation probability);
+\code{coi} (conditional one-inflation probability);
 \code{disc} (discrimination) for ordinal models;
 \code{bs}, \code{ndt}, and \code{bias} (boundary separation,
 non-decision time, and initial bias of the \code{wiener}
@@ -215,8 +217,8 @@ models for all parameters of the assumed response distribution.
   Then, formula \code{yi | weights(wei) ~ predictors} 
   implements a weighted regression. 
   
-  The addition argument \code{disp} (short for dispersion) serves a
-  similar purpose than \code{weight}. However, it has a different 
+  (DEPRECATED) The addition argument \code{disp} (short for dispersion) 
+  serves a similar purpose than \code{weight}. However, it has a different 
   implementation and is less general as it is only usable for the
   families \code{gaussian}, \code{student}, \code{lognormal},
   \code{exgaussian}, \code{asym_laplace}, \code{Gamma}, 
@@ -228,6 +230,12 @@ models for all parameters of the assumed response distribution.
   is multiplied by the values given in \code{disp}. As \code{shape}
   can be understood as a precision parameter (inverse of the variance),
   higher values will lead to higher weights in this case.
+  Instead of using addition argument \code{disp}, you may 
+  equivalently use the distributional regression approach
+  by specifying \code{sigma ~ 1 + offset(log(xdisp))} or
+  \code{shape ~ 1 + offset(log(xdisp))}, where \code{xdisp} is
+  the variable being passed to \code{disp}.
+  
   
   For families \code{binomial} and \code{zero_inflated_binomial}, 
   addition should contain a variable indicating the number of trials 
@@ -326,16 +334,17 @@ models for all parameters of the assumed response distribution.
   
   The population-level intercept (if incorporated) is estimated separately 
   and not as part of population-level parameter vector \code{b}. 
-  also have to be specified separately
-  (see \code{\link[brms:set_prior]{set_prior}} for more details).
+  As a result, priors on the intercept also have to be specified separately.
   Furthermore, to increase sampling efficiency, the population-level 
   design matrix \code{X} is centered around its column means 
   \code{X_means} if the intercept is incorporated. 
   This leads to a temporary bias in the intercept equal to 
   \code{<X_means, b>}, where \code{<,>} is the scalar product. 
   The bias is corrected after fitting the model, but be aware 
-  that you are effectively defining a prior on the temporary
-  intercept of the centered design matrix not on the real intercept.
+  that you are effectively defining a prior on the intercept 
+  of the centered design matrix not on the real intercept.
+  For more details on setting priors on population-level intercepts,
+  see \code{\link[brms:set_prior]{set_prior}}.
   
   This behavior can be avoided by using the reserved 
   (and internally generated) variable \code{intercept}. 

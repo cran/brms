@@ -95,11 +95,15 @@
 #'   specified via \code{set_prior("<prior>", class = "Intercept")}.
 #'   Setting a prior on the intercept will not break vectorization
 #'   of the other population-level effects.
-#'   Note that technially, this prior is set on a temporary intercept
-#'   that results when internally centering all population-level predictors 
-#'   around zero to improve sampling efficiency. To treat the intercept
-#'   as an ordinary population-level effect, use \code{0 + intercept}
-#'   on the right-hand side of the model formula.
+#'   Note that technially, this prior is set on an intercept that
+#'   results when internally centering all population-level predictors 
+#'   around zero to improve sampling efficiency. On this centered 
+#'   intercept, specifying a prior is actually much easier and 
+#'   intuitive than on the original intercept, since the former 
+#'   represents the expected response value when all predictors 
+#'   are at their means. To treat the intercept as an ordinary 
+#'   population-level effect and avoid the centering parameterization, 
+#'   use \code{0 + intercept} on the right-hand side of the model formula.
 #'   
 #'   A special shrinkage prior to be applied on population-level effects 
 #'   is the horseshoe prior (Carvalho et al., 2009).
@@ -541,8 +545,7 @@ get_prior <- function(formula, data, family = NULL,
   prior <- empty_brmsprior()
   if (length(bterms$response) > 1L) {
     # priors for effects in multivariate models
-    for (r in c("", bterms$response)) {
-      # r = "" adds global priors affecting responses
+    for (r in bterms$response) {
       prior_eff <- prior_effects(
         bterms$auxpars[["mu"]], data = data,
         def_scale_prior = def_scale_prior,
@@ -562,6 +565,8 @@ get_prior <- function(formula, data, family = NULL,
     beta = "gamma(1, 0.1)", 
     zi = "beta(1, 1)", 
     hu = "beta(1, 1)", 
+    zoi = "beta(1, 1)",
+    coi = "beta(1, 1)",
     bs = "gamma(1, 1)", 
     ndt = "uniform(0, min_Y)", 
     bias = "beta(1, 1)", 

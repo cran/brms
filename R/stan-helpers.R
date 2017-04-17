@@ -392,6 +392,8 @@ stan_families <- function(family, bterms) {
     out$fun <- "  #include 'fun_zero_inflated_binomial.stan' \n"
   } else if (any(families %in% "zero_inflated_beta")) {
     out$fun <- "  #include 'fun_zero_inflated_beta.stan' \n"
+  } else if (any(families %in% "zero_one_inflated_beta")) {
+    out$fun <- "  #include 'fun_zero_one_inflated_beta.stan' \n"
   } else if (any(families %in% "hurdle_poisson")) {
     out$fun <- "  #include 'fun_hurdle_poisson.stan' \n"
   } else if (any(families %in% "hurdle_negbinomial")) {
@@ -544,6 +546,8 @@ stan_disp <- function(bterms, family) {
   stopifnot(is.family(family))
   out <- list()
   if (is.formula(bterms$adforms$disp)) {
+    warning2("Addition argument 'disp' is deprecated. ",
+             "See help(brmsformula) for more details.")
     par <- if (has_sigma(family)) "sigma"
            else if (has_shape(family)) "shape"
     if (!is.null(bterms[[par]])) {
@@ -616,13 +620,16 @@ stan_prior <- function(prior, class, coef = "", group = "",
   #   A character strings in stan language that defines priors 
   #   for a given class of parameters. If a parameter has has 
   #   no corresponding prior in prior, an empty string is returned.
-  # only consider user defined priors related to this class and group
   wsp <- collapse(rep(" ", wsp))
   prior_only <- isTRUE(attr(prior, "prior_only"))
   keep <- prior$class == class & 
-          (prior$coef %in% coef | !nzchar(prior$coef)) &
-          (prior$group == group | !nzchar(prior$group)) & 
-          (prior$nlpar %in% nlpar | !nzchar(prior$nlpar))
+    prior$coef %in% c(coef, "") & prior$group %in% c(group, "")
+  if (class %in% c("sd", "cor")) {
+    # only sd and cor parameters have global priors
+    keep <- keep & prior$nlpar %in% c(nlpar, "") 
+  } else {
+    keep <- keep & prior$nlpar %in% nlpar
+  }
   prior <- prior[keep, ]
   if (!nchar(class) && nrow(prior)) {
     # increment_log_prob statements are directly put into the Stan code
@@ -651,7 +658,7 @@ stan_prior <- function(prior, class, coef = "", group = "",
   individual_prior <- function(i, max_index) {
     # individual priors for each parameter of a class
     if (max_index > 1L || matrix) {
-      index <- paste0("[",i,"]")      
+      index <- paste0("[", i, "]")      
     } else {
       index <- ""
     }
@@ -933,9 +940,17 @@ stan_has_built_in_fun <- function(family) {
   link <- family$link
   par <- family$par
   family <- family$family
-  logit_families <- c("binomial", "bernoulli", "cumulative", "categorical")
+  log_families <- c(
+    "poisson", "negbinomial", "geometric", 
+    "zero_inflated_poisson", "zero_inflated_negbinomial",
+    "hurdle_poisson", "hurdle_negbinomial"
+  )
+  logit_families <- c(
+    "binomial", "bernoulli", "cumulative", "categorical",
+    "zero_inflated_binomial"
+  )
   isTRUE(
-    is_count(family) && link == "log" ||
+    family %in% log_families && link == "log" ||
     family %in% logit_families && link == "logit" ||
     isTRUE(par %in% c("zi", "hu")) && link == "logit"
   )
