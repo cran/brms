@@ -326,7 +326,7 @@
 #' @import methods
 #' @import stats   
 #' @export 
-brm <- function(formula, data, family = NULL, prior = NULL, 
+brm <- function(formula, data, family = gaussian(), prior = NULL, 
                 autocor = NULL, nonlinear = NULL, 
                 threshold = c("flexible", "equidistant"), 
                 cov_ranef = NULL, save_ranef = TRUE, save_mevars = FALSE, 
@@ -368,10 +368,12 @@ brm <- function(formula, data, family = NULL, prior = NULL,
     dots$is_newdata <- NULL
     # extract the compiled model
     x$fit <- rstan::get_stanmodel(x$fit)
-  } else {  # build new model
+  } else {  
+    # build new model
     # see validate.R and formula-helpers.R
-    formula <- amend_formula(formula, data = data, family = family, 
-                             nonlinear = nonlinear)
+    formula <- amend_formula(
+      formula, data = data, family = family, nonlinear = nonlinear
+    )
     family <- formula$family
     check_brm_input(nlist(family))
     bterms <- parse_bf(formula, autocor = autocor)
@@ -382,7 +384,7 @@ brm <- function(formula, data, family = NULL, prior = NULL,
       dots$data.name <- NULL
     }
     # see data-helpers.R
-    data <- update_data(data, family = family, bterms = bterms)
+    data <- update_data(data, bterms = bterms)
     # see priors.R
     prior <- check_prior(
       prior, formula = formula, data = data, family = family, 
@@ -409,20 +411,15 @@ brm <- function(formula, data, family = NULL, prior = NULL,
       sparse = sparse, cov_ranef = cov_ranef,
       sample_prior = sample_prior, knots = knots, 
       stan_funs = stan_funs, save_model = save_model, 
-      brm_call = TRUE
+      brm_call = TRUE, silent = silent
     )
     # generate standata before compiling the model to avoid
     # unnecessary compilations in case of invalid data
     standata <- standata(x, newdata = dots$is_newdata)
     message("Compiling the C++ model")
-    comp_expr <- expression(
-      x$fit <- rstan::stan_model(stanc_ret = x$model, save_dso = save_dso)
+    x$fit <- eval_silent(
+      rstan::stan_model(stanc_ret = x$model, save_dso = save_dso)
     )
-    if (silent) {
-      utils::capture.output(eval(comp_expr))
-    } else {
-      eval(comp_expr)
-    }
     x$model <- x$model$model_code
   }
   

@@ -9,14 +9,15 @@
 \method{marginal_effects}{brmsfit}(x, effects = NULL, conditions = NULL,
   int_conditions = NULL, re_formula = NA, robust = TRUE,
   probs = c(0.025, 0.975), method = c("fitted", "predict"),
-  surface = FALSE, resolution = 100, select_points = 0, too_far = 0,
-  ...)
+  spaghetti = FALSE, surface = FALSE, transform = NULL,
+  resolution = 100, select_points = 0, too_far = 0, ...)
 
 marginal_effects(x, ...)
 
 \method{plot}{brmsMarginalEffects}(x, ncol = NULL, points = FALSE,
-  rug = FALSE, jitter_width = 0, stype = c("contour", "raster"),
-  theme = bayesplot::theme_default(), ask = TRUE, plot = TRUE, ...)
+  rug = FALSE, mean = TRUE, jitter_width = 0, stype = c("contour",
+  "raster"), theme = bayesplot::theme_default(), ask = TRUE, plot = TRUE,
+  ...)
 }
 \arguments{
 \item{x}{An \R object usually of class \code{brmsfit}.}
@@ -62,10 +63,21 @@ intervals (defaults to 2.5 and 97.5 percent quantiles)}
 If \code{"fitted"}, plot marginal predictions of the regression curve. 
 If \code{"predict"}, plot marginal predictions of the responses.}
 
+\item{spaghetti}{Logical; Indicates whether predictions should
+be visualized via spagetti plots. Only applied for numeric
+predictors. If \code{TRUE}, it is recommended 
+to set argument \code{nsamples} to a relatively small value 
+(e.g. \code{100}) in order to reduce computation time.}
+
 \item{surface}{Logical; Indicates whether interactions or 
 two-dimensional smooths should be visualized as a surface. 
 Defaults to \code{FALSE}. The surface type can be controlled 
 via argument \code{stype} of the related plotting method.}
+
+\item{transform}{A function or a character string naming 
+a function to be applied on the predicted responses
+before summary statistics are computed. Only allowed
+if \code{method = "predict"}.}
 
 \item{resolution}{Number of support points used to generate 
 the plots. Higher resolution leads to smoother plots. 
@@ -111,6 +123,10 @@ determine, which points do match a condition.}
 values should be added via \code{\link[ggplot2:geom_rug]{geom_rug}}.
 Default is \code{FALSE}. Depends on \code{select_points} in the same
 way as \code{points} does.}
+
+\item{mean}{Logical; only relevant for spaghetti plots.
+If \code{TRUE} (the default), display the mean regression 
+line on top of the regression lines for each sample.}
 
 \item{jitter_width}{Only used if \code{points = TRUE}: 
 Amount of horizontal jittering of the data points.

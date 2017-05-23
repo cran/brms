@@ -40,10 +40,13 @@ stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE,
   # include measurement error variables
   meef <- get_me_labels(x, data = data)
   text_me <- stan_me(meef, ranef, prior = prior, nlpar = nlpar)
-  out <- collapse_lists(list(
-    out, text_fe, text_cs, text_mo, text_me, text_sm
-  ))
+  # include gaussian processes
+  gpef <- get_gp_labels(x, data = data)
+  text_gp <- stan_gp(gpef, prior = prior, nlpar = nlpar)
   
+  out <- collapse_lists(list(
+    out, text_fe, text_cs, text_mo, text_me, text_sm, text_gp
+  ))
   p <- usc(nlpar, "prefix")
   if (is.formula(x$offset)) {
     out$data <- paste0(out$data, "  vector[N] offset", p, "; \n")
@@ -51,7 +54,7 @@ stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE,
   # initialize and compute eta_<nlpar>
   out$modelC1 <- paste0(
     out$modelC1, "  ", eta, " = ", 
-    text_fe$eta, text_sm$eta,
+    text_fe$eta, text_sm$eta, text_gp$eta,
     if (center_X && !is_ordinal(x$family)) 
       paste0(" + temp", p, "_Intercept"),
     if (is.formula(x$offset)) paste0(" + offset", p),
@@ -402,7 +405,7 @@ stan_re <- function(id, ranef, prior, cov_ranef = NULL) {
     if (r$gtype[1] == "mm") {
       collapse(
         "  int<lower=1> J_", id, "_", ng, "[N]; \n",
-        "  real<lower=0> W_", id, "_", ng, "[N]; \n"
+        "  real W_", id, "_", ng, "[N]; \n"
       )
     } else {
       paste0("  int<lower=1> J_", id, "[N]; \n")
@@ -553,7 +556,7 @@ stan_mo <- function(monef, ranef, prior, nlpar = "") {
   #   monef: names of the monotonic effects
   #   prior: a data.frame containing user defined priors 
   #          as returned by check_prior
-  p <- if (nchar(nlpar)) paste0("_", nlpar) else ""
+  p <- usc(nlpar)
   out <- list()
   if (length(monef)) {
     I <- seq_along(monef)
@@ -662,7 +665,7 @@ stan_me <- function(meef, ranef, prior, nlpar = "") {
       # remove 'I' (identity) function calls that 
       # were used solely to separate formula terms
       I <- grepl("^I\\(", me_sp[[i]])
-      me_sp[[i]][I] <- substr(me_sp[[i]][I], 3,  nchar(me_sp[[i]][I]) - 1)
+      me_sp[[i]][I] <- substr(me_sp[[i]][I], 3, nchar(me_sp[[i]][I]) - 1)
       meef_terms[i] <- paste0(me_sp[[i]], collapse = ":")
     }
     new_me <- paste0("Xme", pK, "[n]")
@@ -716,6 +719,70 @@ stan_me <- function(meef, ranef, prior, nlpar = "") {
                  nlpar = nlpar, suffix = paste0("me", p)),
       collapse("  Xme", pK, " ~ normal(Xn", pK, ", noise", pK,"); \n")
     )
+  }
+  out
+}
+
+stan_gp <- function(gpef, prior, nlpar = "") {
+  # Stan code for latent gaussian processes
+  # Args:
+  #   gpef: names of the gaussian process terms
+  p <- usc(nlpar)
+  out <- list()
+  for (i in seq_along(gpef)) {
+    pi <- paste0(p, "_", i)
+    byvar <- attr(gpef, "byvars")[[i]]
+    by_levels <- attr(gpef, "by_levels")[[i]]
+    byfac <- length(by_levels) > 0L
+    bynum <- !byfac && !identical(byvar, "NA")
+    J <- seq_along(by_levels)
+    out$data <- paste0(out$data,
+      "  int<lower=1> Kgp", pi, "; \n",
+      "  int<lower=1> Mgp", pi, "; \n",
+      "  vector[Mgp", pi, "] Xgp", p, "_", i, "[N]; \n",
+      if (bynum) {
+        paste0("  vector[N] Cgp", p, "_", i, "; \n")
+      },
+      if (byfac) {
+        paste0(
+          "  int<lower=1> Igp", pi, "[Kgp", p, "_", i, "]; \n",
+          collapse(
+            "  int<lower=1> Jgp", pi, "_", J, "[Igp", pi, "[", J, "]]; \n"
+          )
+        )
+      }
+    )
+    out$par <- paste0(out$par,
+      "  // GP hyperparameters \n", 
+      "  vector<lower=0>[Kgp", pi, "] sdgp", pi, "; \n",
+      "  vector<lower=0>[Kgp", pi, "] lscale", pi, "; \n",
+      "  vector[N] zgp", pi, "; \n"
+    ) 
+    rgpef <- rename(gpef[i])
+    out$prior <- paste0(out$prior,
+      stan_prior(prior, class = "sdgp", coef = rgpef, 
+                 nlpar = nlpar, suffix = pi),
+      stan_prior(prior, class = "lscale", coef = rgpef, 
+                 nlpar = nlpar, suffix = pi),
+      collapse("  zgp", pi, " ~ normal(0, 1); \n")
+    )
+    if (byfac) {
+      Jgp <- paste0("Jgp", pi, "_", J)
+      eta <- paste0(ifelse(nzchar(nlpar), nlpar, "mu"), "[", Jgp, "]")
+      gp_args <- paste0(
+        "Xgp", pi, "[", Jgp, "], sdgp", pi, "[", J, "], ", 
+        "lscale", pi, "[", J, "], zgp", pi, "[", Jgp, "]"
+      )
+      out$modelCgp1 <- paste0(out$modelCgp1,
+        collapse("  ", eta, " = ", eta, " + gp(", gp_args, "); \n")
+      )
+    } else {
+      gp_args <- paste0(
+        "Xgp", pi, ", sdgp", pi, "[1], lscale", pi, "[1], zgp", pi
+      )
+      Cgp <- ifelse(bynum, paste0("Cgp", pi, " .* "), "")
+      out$eta <- paste0(out$eta, " + ", Cgp, "gp(", gp_args, ")")   
+    }
   }
   out
 }
@@ -807,7 +874,7 @@ stan_eta_mo <- function(monef, ranef, nlpar = "") {
       rpars <- ""
     }
     eta_mo <- paste0(eta_mo,
-      " + (bmo", p, "[", i, "]", rpars, ") * monotonic(",
+      " + (bmo", p, "[", i, "]", rpars, ") * mo(",
       "simplex", p, "_", i, ", Xmo", p, "[n, ", i, "])"
     )
   }

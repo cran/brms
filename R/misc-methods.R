@@ -1,5 +1,9 @@
 #' @export
 print.brmssummary <- function(x, digits = 2, ...) {
+  if (!is.null(x[["WAIC"]])) {
+    # deprecated as of 1.7.0
+    x[["waic"]] <- x[["WAIC"]]
+  }
   cat(" Family: ")
   if (is.family(x$family)) {
     cat(summary(x$family), "\n")
@@ -19,17 +23,23 @@ print.brmssummary <- function(x, digits = 2, ...) {
       x[args] <- x[paste0("n.", args)]
     }
     final_samples <- ceiling((x$iter - x$warmup) / x$thin * x$chains)
-    waic <- ifelse(is.numeric(x$WAIC), round(x$WAIC, digits = digits), x$WAIC)
+    if (is.numeric(x$loo)) {
+      x$loo <- round(x$loo, digits = digits)
+    }
+    if (is.numeric(x$waic)) {
+      x$waic <- round(x$waic, digits = digits)
+    }
     cat(paste0("Samples: ", x$chains, " chains, each with iter = ", x$iter, 
                "; warmup = ", x$warmup, "; thin = ", x$thin, "; \n",
                "         total post-warmup samples = ", final_samples, "\n"))
-    cat(paste0("   WAIC: ", waic, "\n \n"))
+    cat(paste0("    ICs: LOO = ", x$loo, "; WAIC = ", x$waic, "\n \n"))
     
     if (nrow(x$prior)) {
       cat("Priors: \n")
       print(x$prior, show_df = FALSE)
       cat("\n")
     }
+    
     if (length(x$splines)) {
       cat("Smooth Terms: \n")
       if (x$algorithm == "sampling") {
@@ -37,6 +47,16 @@ print.brmssummary <- function(x, digits = 2, ...) {
           round(x$splines[, "Eff.Sample"], digits = 0)
       }
       print(round(x$splines, digits = digits)) 
+      cat("\n")
+    }
+    
+    if (length(x$gp)) {
+      cat("Gaussian Process Terms: \n")
+      if (x$algorithm == "sampling") {
+        x$gp[, "Eff.Sample"] <- 
+          round(x$gp[, "Eff.Sample"], digits = 0)
+      }
+      print(round(x$gp, digits = digits)) 
       cat("\n")
     }
     
@@ -76,6 +96,16 @@ print.brmssummary <- function(x, digits = 2, ...) {
       cat("\n")
     }
     
+    if (length(x$mo)) {
+      cat("Simplex Parameters: \n")
+      if (x$algorithm == "sampling") {
+        x$mo[, "Eff.Sample"] <- 
+          round(x$mo[, "Eff.Sample"], digits = 0)
+      }
+      print(round(x$mo, digits = digits)) 
+      cat("\n")
+    }
+    
     if (nrow(x$spec_pars)) {
       cat("Family Specific Parameters: \n")
       if (x$algorithm == "sampling") {
@@ -96,65 +126,6 @@ print.brmssummary <- function(x, digits = 2, ...) {
     }
     cat("\n")
   }
-  invisible(x)
-}
-
-#' @rdname VarCorr.brmsfit
-#' @export
-as.data.frame.brmsVarCorr <- function(x, ...) {
-  estimates <- colnames(x[[1]]$sd)
-  groups <- names(x)
-  n_groups <- length(groups)
-  names_coef <- lapply(x, function(y) rownames(y$sd))
-  groups_col <- ulapply(1:n_groups, function(i) 
-    c(groups[i], rep("", length(names_coef[[i]]) - 1)))
-  max_cor <- max(ulapply(names_coef, length)) - 1
-  # basic data.frame to be used in fill_base_frame
-  base_frame <- as.data.frame(matrix(NA, nrow = length(groups_col),
-                                     ncol = 4 + 2 * max_cor))
-  names(base_frame) <- c("Group", "Name", "Std.Dev", rep("Cor", max_cor),
-                         rep("Cov", max_cor + 1))
-  base_frame[, 1:2] <- cbind(groups_col, unlist(names_coef))
-  
-  fill_base_frame <- function(estimate) {
-    # fills the base_frame with SD and COR estimates
-    # Args:
-    #   estimate: The estimate being applied on the SD and COR parameters
-    out <- base_frame
-    pos <- 1
-    for (i in 1:n_groups) {
-      len <- length(names_coef[[i]])
-      rows <- pos:(pos + len - 1)
-      out[rows, "Std.Dev"] <- x[[i]]$sd[, estimate]
-      if (len > 1) {
-        # covariances and correlations present; add correlations
-        cor_pos <- 4:(2 + len)
-        cormat <- x[[i]]$cor[[estimate]][2:len, 1:(len-1), drop = FALSE]
-        lt <- lower.tri(cormat, diag = TRUE)
-        out[rows[2:length(rows)], cor_pos][lt] <- cormat[lt]
-      }
-      # add covariances
-      cov_pos <- (4 + max_cor):(3 + max_cor + len)
-      covmat <- x[[i]]$cov[[estimate]]
-      lt <- lower.tri(covmat, diag = TRUE)
-      out[rows, cov_pos][lt] <- covmat[lt]
-      pos <- pos + len
-    }
-    out
-  }
-  
-  out <- do.call(rbind, lapply(estimates, fill_base_frame))
-  estimates_col <- ulapply(estimates, function(e)
-    c(e, rep("", length(groups_col) - 1)))
-  cbind(Estimate = estimates_col, out)
-}
-
-#' @export
-print.brmsVarCorr <- function(x, digits = 2, ...) {
-  dat <- as.data.frame(x)
-  dat[, 4:ncol(dat)] <- round(as.matrix(dat[, 4:ncol(dat)]), digits = digits)
-  dat[is.na(dat)] <- ""
-  print(dat, row.names = FALSE, ...)
   invisible(x)
 }
 
@@ -202,7 +173,7 @@ print.iclist <- function(x, digits = 2, ...) {
   invisible(x)
 }
 
-#' @rdname hypothesis
+#' @rdname brmshypothesis
 #' @export
 print.brmshypothesis <- function(x, digits = 2, chars = 20, ...) {
   # make sure rownames are not too long
@@ -220,4 +191,46 @@ print.brmshypothesis <- function(x, digits = 2, chars = 20, ...) {
 print.brmsMarginalEffects <- function(x, ...) {
   plot(x, ...)
 }
-  
+
+#' @export
+parnames.default <- function(x, ...) {
+  names(x)
+}
+
+#' @export
+posterior_samples.default <- function(x, pars = NA, exact_match = FALSE, ...) {
+  x <- as.data.frame(x)
+  if (!anyNA(pars)) {
+    pars <- extract_pars(
+      pars, all_pars = names(x), exact_match = exact_match, ...
+    )
+    x <- x[, pars, drop = FALSE]
+  }
+  if (!ncol(x)) {
+    x <- NULL
+  }
+  x
+}
+
+#' @export
+prior_samples.default <- function(x, pars = NA, exact_match = FALSE, ...) {
+  if (anyNA(pars)) {
+    pars <- "^prior_"
+    exact_match <- FALSE
+  } else {
+    if (exact_match) {
+      pars <- paste0("prior_", pars) 
+    } else {
+      hat <- substr(pars, 1, 1) == "^"
+      pars <- ifelse(hat, substr(pars, 2, nchar(pars)), pars)
+      pars <- paste0("^prior_", pars)  
+    }
+  }
+  posterior_samples(x, pars = pars, exact_match = exact_match, ...)
+}
+
+#' @rdname hypothesis
+#' @export
+hypothesis.default <- function(x, hypothesis, alpha = 0.05, ...) {
+  hypothesis_internal(x, hypothesis, alpha = alpha, ...)
+}

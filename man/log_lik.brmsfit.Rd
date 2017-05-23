@@ -9,7 +9,7 @@
 \method{log_lik}{brmsfit}(object, newdata = NULL, re_formula = NULL,
   allow_new_levels = FALSE, sample_new_levels = "uncertainty",
   incl_autocor = TRUE, subset = NULL, nsamples = NULL,
-  pointwise = FALSE, ...)
+  pointwise = FALSE, nug = NULL, ...)
 }
 \arguments{
 \item{object}{A fitted model object of class \code{brmsfit}.}
@@ -40,9 +40,11 @@ Bayesian power analysis.
 If \code{"old_levels"}, directly sample new levels from the
 existing levels.}
 
-\item{incl_autocor}{A flag indicating if autocorrelation
-parameters should be included in the predictions. 
-Defaults to \code{TRUE}.}
+\item{incl_autocor}{A flag indicating if ARMA autocorrelation
+parameters should be included in the predictions. Defaults to 
+\code{TRUE}. Setting it to \code{FALSE} will not affect other 
+correlation structures such as \code{\link[brms:cor_bsts]{cor_bsts}},
+or \code{\link[brms:cor_fixed]{cor_fixed}}.}
 
 \item{subset}{A numeric vector specifying
 the posterior samples to be used. 
@@ -60,6 +62,12 @@ required to compute the log-likelihood separately for each
 observation. The latter option is rarely useful when
 calling \code{log_lik} directly, but rather when computing
 \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.}
+
+\item{nug}{Small positive number for Gaussian process terms only. 
+For numerical reasons, the covariance matrix of a Gaussian 
+process might not be positive definite. Adding a very small 
+number to the matrix's diagonal often solves this problem. 
+If \code{NULL} (the default), \code{nug} is chosen internally.}
 
 \item{...}{Currently ignored}
 }

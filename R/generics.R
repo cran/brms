@@ -1,15 +1,18 @@
-brmsfit <- function(formula = NULL, family = "", link = "", data.name = "", 
-                    data = data.frame(), model = "", exclude = NULL,
-                    prior = brmsprior(), ranef = TRUE, autocor = NULL,
-                    threshold = "", cov_ranef = NULL, fit = NA, 
-                    algorithm = "sampling") {
+brmsfit <- function(formula = NULL, family = NULL, data = data.frame(), 
+                    data.name = "", model = "", prior = empty_brmsprior(), 
+                    autocor = NULL, threshold = "", ranef = empty_ranef(), 
+                    cov_ranef = NULL, loo = NULL, waic = NULL, fit = NA, 
+                    exclude = NULL, algorithm = "sampling") {
   # brmsfit class
   version <- list(
     brms = utils::packageVersion("brms"),
     rstan = utils::packageVersion("rstan")
   )
-  x <- nlist(formula, family, link, data.name, data, model, exclude, prior, 
-             ranef, autocor, threshold, cov_ranef, fit, algorithm, version)
+  x <- nlist(
+    formula, family, data, data.name, model, 
+    prior, autocor, threshold, ranef, cov_ranef, 
+    loo, waic, fit, exclude, algorithm, version
+  )
   class(x) <- "brmsfit"
   x
 }
@@ -23,29 +26,29 @@ is.brmsfit <- function(x) {
   inherits(x, "brmsfit")
 }
 
-brmssummary <- function(formula = NULL, family = "", link = "", 
+brmssummary <- function(formula = NULL, family = NULL, link = "", 
                         data.name = "", group = NULL, nobs = NULL, 
-                        ngrps = NULL, chains = 1, iter = 2000, 
-                        warmup = 500, thin = 1, sampler = "", 
-                        autocor = NULL, fixed = NULL, random = list(), 
+                        ngrps = NULL, chains = 4, iter = 2000, 
+                        warmup = 1000, thin = 1, sampler = "", 
+                        autocor = NULL, fixed = NULL, random = NULL, 
                         cor_pars = NULL, spec_pars = NULL, 
                         mult_pars = NULL, prior = empty_brmsprior(),
-                        WAIC = "Not computed", algorithm = "sampling") {
+                        loo = "Not computed", waic = "Not computed", 
+                        algorithm = "sampling") {
   # brmssummary class
   x <- nlist(formula, family, link, data.name, group, nobs, ngrps, chains, 
-             iter,  warmup, thin, sampler, autocor, fixed, random, cor_pars, 
-             spec_pars, mult_pars, prior, WAIC, algorithm)
+             iter, warmup, thin, sampler, autocor, fixed, random, cor_pars, 
+             spec_pars, mult_pars, prior, loo, waic, algorithm)
   class(x) <- "brmssummary"
   x
 }
 
-#' Non-linear hypothesis testing
+#' Non-Linear Hypothesis Testing
 #' 
 #' Perform non-linear hypothesis testing for all model parameters. 
 #' 
-#' @aliases hypothesis.brmsfit
-#' 
-#' @param x An \code{R} object typically of class \code{brmsfit}.
+#' @param x An \code{R} object. If it is no \code{brmsfit} object,
+#'  it must be coercible to a \code{data.frame}.
 #' @param hypothesis A character vector specifying one or more 
 #'  non-linear hypothesis concerning parameters of the model.
 #' @param class A string specifying the class of parameters being tested. 
@@ -61,19 +64,6 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #'  see 'Details' for more information).
 #' @param seed A single numeric value passed to \code{set.seed} 
 #'  to make results reproducible.
-#' @param ignore_prior A flag indicating if prior distributions 
-#'  should also be plotted. Only used if priors were specified on
-#'  the relevant parameters.
-#' @param digits Minimal number of significant digits, 
-#'   see \code{\link[base:print.default]{print.default}}.
-#' @param chars Maximum number of characters of each hypothesis
-#'  to print or plot. If \code{NULL}, print the full hypotheses.
-#'  Defaults to \code{20}.
-#' @param colors Two values specifying the colors of the posterior
-#'  and prior density respectively. If \code{NULL} (the default)
-#'  colors are taken from the current color scheme of 
-#'  the \pkg{bayesplot} package.
-#' @inheritParams plot.brmsfit
 #' @param ... Currently ignored.
 #' 
 #' @details Among others, \code{hypothesis} computes an 
@@ -111,8 +101,9 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #'  testing framework, we strongly argue against using arbitrary cutoffs 
 #'  (e.g., \code{p < .05}) to determine the 'existence' of an effect.
 #' 
-#' @return Summary statistics of the posterior distributions 
-#'  related to the hypotheses. 
+#' @return A \code{\link[brms:brmshypothesis]{brmshypothesis}} object.
+#' 
+#' @seealso \code{\link[brms:brmshypothesis]{brmshypothesis}}
 #' 
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
@@ -150,12 +141,48 @@ brmssummary <- function(formula = NULL, family = "", link = "",
 #' (hyp3 <- hypothesis(fit, c("diseaseGN = diseaseAN", 
 #'                            "2 * diseaseGN - diseasePKD = 0")))
 #' plot(hyp3, ignore_prior = TRUE)
+#' 
+#' ## use the default method
+#' dat <- as.data.frame(fit)
+#' hypothesis(dat, "b_age > 0")
 #' }
 #' 
 #' @export
-hypothesis <- function(x, hypothesis, ...) {
+hypothesis <- function(x, ...) {
   UseMethod("hypothesis")
 }
+
+#' Decriptions of \code{brmshypothesis} Objects
+#' 
+#' A \code{brmshypothesis} object contains posterior samples
+#' as well as summary statistics of non-linear hypotheses as 
+#' returned by \code{\link[brms:hypothesis]{hypothesis}}.
+#' 
+#' @name brmshypothesis
+#' 
+#' @param ignore_prior A flag indicating if prior distributions 
+#'  should also be plotted. Only used if priors were specified on
+#'  the relevant parameters.
+#' @param digits Minimal number of significant digits, 
+#'   see \code{\link[base:print.default]{print.default}}.
+#' @param chars Maximum number of characters of each hypothesis
+#'  to print or plot. If \code{NULL}, print the full hypotheses.
+#'  Defaults to \code{20}.
+#' @param colors Two values specifying the colors of the posterior
+#'  and prior density respectively. If \code{NULL} (the default)
+#'  colors are taken from the current color scheme of 
+#'  the \pkg{bayesplot} package.
+#' @param ... Currently ignored.
+#' @inheritParams plot.brmsfit
+#' 
+#' @details 
+#' The two most important elements of a \code{brmshypothesis} object are
+#' \code{hypothesis}, which is a data.frame containing the summary estimates
+#' of the hypotheses, and \code{samples}, which is a data.frame containing 
+#' the corresponding posterior samples.
+#' 
+#' @seealso \code{\link[brms:hypothesis]{hypothesis}}
+NULL
 
 #' Extract posterior samples
 #' 
@@ -181,16 +208,20 @@ hypothesis <- function(x, hypothesis, ...) {
 #'   If \code{NULL} (the default), all  posterior samples are returned.
 #' @param as.matrix Should the output be a \code{matrix} 
 #'   instead of a \code{data.frame}? Defaults to \code{FALSE}.
+#' @param as.array Should the output be an \code{array} 
+#'   instead of a \code{data.frame}? Defaults to \code{FALSE}.
 #' @param row.names,optional See \code{\link[base:as.data.frame]{as.data.frame}}.
-#' @param ... For \code{as.data.frame} and \code{as.matrix}:
+#' @param ... For \code{as.data.frame}, \code{as.matrix}, and \code{as.array}:
 #'   Further arguments to be passed to \code{posterior_samples}.
 #'   
 #' @details Currently there are methods for \code{brmsfit} objects.
-#'   \code{as.data.frame.brmsfit} and \code{as.matrix.brmsfit} are basically 
-#'   just aliases of \code{posterior_samples.brmsfit} and differ from
+#'   \code{as.data.frame.brmsfit}, \code{as.matrix.brmsfit}, and
+#'   \code{as.array.brmsfit} are basically aliases of 
+#'   \code{posterior_samples.brmsfit} and differ from
 #'   each other only in type of the returend object.
-#' @return A data frame (or matrix) containing the posterior samples, 
-#'   with one column per parameter.
+#' @return A data frame (matrix or array) containing the posterior samples, 
+#'   with one column per parameter. In case an array is returned,
+#'   it contains one additional dimension for the chains.
 #' 
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
@@ -345,6 +376,9 @@ ngrps <- function(object, ...) {
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the WAIC, the better the fit.
 #'  For \code{brmsfit} objects, \code{waic} is an alias of \code{WAIC}.
+#'  Use method \code{\link[brms:add_ic]{add_ic}} to store
+#'  information criteria in the fitted model object for later usage.
+#'  
 #' @return If just one object is provided, an object of class \code{ic}. 
 #'  If multiple objects are provided, an object of class \code{iclist}.
 #' 
@@ -399,6 +433,9 @@ WAIC <- function(x, ...) {
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the LOO, the better the fit.
 #'  For \code{brmsfit} objects, \code{loo} is an alias of \code{LOO}.
+#'  Use method \code{\link[brms:add_ic]{add_ic}} to store
+#'  information criteria in the fitted model object for later usage.
+#'  
 #' @return If just one object is provided, an object of class \code{ic}. 
 #'  If multiple objects are provided, an object of class \code{iclist}.
 #' 
@@ -434,6 +471,31 @@ WAIC <- function(x, ...) {
 #' @export
 LOO <- function(x, ...) {
   UseMethod("LOO")
+}
+
+#' Add information criteria to fitted model objects
+#' 
+#' @param x An \R object typically of class \code{brmsfit}.
+#' @param ic Names of the information criteria to compute.
+#'   Currently supported are \code{"loo"} and \code{"waic"}.
+#' @param ... Further arguments passed to 
+#'   \code{\link[brms:LOO]{LOO}} or \code{\link[brms:WAIC]{WAIC}}.
+#'   
+#' @return An object of the same class as \code{x}, but
+#'   with information criteria added for later usage.
+#'   
+#' @examples
+#' \dontrun{
+#' fit <- brm(count ~ Trt, epilepsy, poisson())
+#' # add both LOO and WAIC at once
+#' fit <- add_ic(fit, ic = c("loo", "waic"))
+#' print(fit$loo)
+#' print(fit$waic)
+#' }
+#' 
+#' @export
+add_ic <- function(x, ...) {
+  UseMethod("add_ic")
 }
 
 #' Interface to \pkg{shinystan}
@@ -600,10 +662,19 @@ stanplot <- function(object, ...) {
 #' @param method Either \code{"fitted"} or \code{"predict"}. 
 #'   If \code{"fitted"}, plot marginal predictions of the regression curve. 
 #'   If \code{"predict"}, plot marginal predictions of the responses.
+#' @param spaghetti Logical; Indicates whether predictions should
+#'   be visualized via spagetti plots. Only applied for numeric
+#'   predictors. If \code{TRUE}, it is recommended 
+#'   to set argument \code{nsamples} to a relatively small value 
+#'   (e.g. \code{100}) in order to reduce computation time.
 #' @param surface Logical; Indicates whether interactions or 
 #'   two-dimensional smooths should be visualized as a surface. 
 #'   Defaults to \code{FALSE}. The surface type can be controlled 
 #'   via argument \code{stype} of the related plotting method.
+#' @param transform A function or a character string naming 
+#'   a function to be applied on the predicted responses
+#'   before summary statistics are computed. Only allowed
+#'   if \code{method = "predict"}.
 #' @param resolution Number of support points used to generate 
 #'   the plots. Higher resolution leads to smoother plots. 
 #'   Defaults to \code{100}. If \code{surface} is \code{TRUE},
@@ -639,6 +710,9 @@ stanplot <- function(object, ...) {
 #'   values should be added via \code{\link[ggplot2:geom_rug]{geom_rug}}.
 #'   Default is \code{FALSE}. Depends on \code{select_points} in the same
 #'   way as \code{points} does.
+#' @param mean Logical; only relevant for spaghetti plots.
+#'   If \code{TRUE} (the default), display the mean regression 
+#'   line on top of the regression lines for each sample.
 #' @param jitter_width Only used if \code{points = TRUE}: 
 #'   Amount of horizontal jittering of the data points.
 #'   Mainly useful for ordinal models. Defaults to \code{0} that 
@@ -975,6 +1049,12 @@ make_smooth_list <- function(x, data, ...) {
   # compute smoothing objects based on the original data
   # as the basis for doing predictions with new data
   UseMethod("make_smooth_list")
+}
+
+make_gp_list <- function(x, data, ...) {
+  # compute objects for GP terms based on the original data
+  # as the basis for doing predictions with new data
+  UseMethod("make_gp_list")
 }
 
 check_prior_special <- function(x, ...) {

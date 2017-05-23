@@ -1,11 +1,9 @@
-update_data <- function(data, family, bterms,
-                        na.action = na.omit,
+update_data <- function(data, bterms, na.action = na.omit,
                         drop.unused.levels = TRUE,
                         terms_attr = NULL, knots = NULL) {
   # Update data for use in brms functions
   # Args:
   #   data: the original data.frame
-  #   family: the model family
   #   bterms: object of class brmsterms
   #   na.action: function defining how to treat NAs
   #   drop.unused.levels: indicates if unused factor levels
@@ -37,9 +35,9 @@ update_data <- function(data, family, bterms,
     bterms$allvars <- terms(bterms$allvars)
     attributes(bterms$allvars)[names(terms_attr)] <- terms_attr
     if (isTRUE(attr(bterms$formula, "old_mv"))) {
-      data <- melt_data(data, family = family, bterms = bterms)
+      data <- melt_data(data, bterms = bterms)
     } else {
-      check_data_old_mv(data, family = family, bterms = bterms)
+      check_data_old_mv(data, bterms = bterms)
     }
     data <- data_rsv_intercept(data, bterms = bterms)
     missing_vars <- setdiff(all.vars(bterms$allvars), names(data))
@@ -67,14 +65,14 @@ update_data <- function(data, family, bterms,
   data
 }
 
-melt_data <- function(data, family, bterms) {
+melt_data <- function(data, bterms) {
   # add reserved variables to the data
   # and transform it into long format for mv models
   # DEPRECATED as of brms 1.0.0
   # Args:
   #   data: a data.frame
-  #   family: the model family
   #   bterms: object of class brmsterms
+  family <- bterms$family
   response <- bterms$response
   nresp <- length(response)
   if (is_mv(family, response = response)) {
@@ -132,12 +130,11 @@ melt_data <- function(data, family, bterms) {
   data
 }
 
-check_data_old_mv <- function(data, family, bterms) {
+check_data_old_mv <- function(data, bterms) {
   # check if the deprecated MV syntax was used in a new model
   # Args:
   #   see update_data
-  rsv_vars <- rsv_vars(family, nresp = length(bterms$response),
-                       old_mv = TRUE)
+  rsv_vars <- rsv_vars(bterms, incl_intercept = FALSE)
   rsv_vars <- setdiff(rsv_vars, names(data))
   used_rsv_vars <- intersect(rsv_vars, all.vars(bterms$allvars))
   if (length(used_rsv_vars)) {
@@ -234,9 +231,7 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
   #                    or just return the updated newdata?
   # Returns:
   #   updated data.frame being compatible with formula(fit)
-  if (!incl_autocor) {
-    fit$autocor <- NULL
-  }
+  fit <- remove_autocor(fit, incl_autocor)
   if (is.null(newdata)) {
     # to shorten expressions in S3 methods such as predict.brmsfit
     if (return_standata) {
@@ -358,11 +353,7 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
     }
     # brms:::update_data expects all original variables to be present
     # even if not actually used later on
-    rsv_vars <- rsv_vars(
-      family(fit), nresp = length(bterms$response),
-      rsv_intercept = has_rsv_intercept(bterms$formula),
-      old_mv = attr(bterms$formula, "old_mv")
-    )
+    rsv_vars <- rsv_vars(bterms)
     used_vars <- unique(c(names(newdata), all.vars(bterms$allvars), rsv_vars))
     all_vars <- all.vars(str2formula(names(model.frame(fit))))
     unused_vars <- setdiff(all_vars, used_vars)
@@ -392,7 +383,7 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
       old_levels = old_levels, save_order = TRUE, 
       omit_response = !check_response,
       only_response = only_response,
-      old_cat <- is_old_categorical(fit)
+      old_cat = is_old_categorical(fit)
     )
     old_terms <- attr(model.frame(fit), "terms")
     terms_attr <- c("variables", "predvars")
@@ -408,8 +399,9 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
       names(Jmo) <- sub("^Jmo$", "mu", sub("^Jmo_", "", names(Jmo)))
       control[["Jmo"]] <- Jmo 
     }
-    control$smooth <- make_smooth_list(bterms, model.frame(fit))
-    if (is(fit$autocor, "cov_fixed")) {
+    control$smooths <- make_smooth_list(bterms, model.frame(fit))
+    control$gps <- make_gp_list(bterms, model.frame(fit))
+    if (is(fit$autocor, "cor_fixed")) {
       median_V <- median(diag(fit$autocor$V), na.rm = TRUE)
       fit$autocor$V <- diag(median_V, nrow(newdata))
     }
@@ -502,33 +494,63 @@ make_smooth_list.btl <- function(x, data, ...) {
     gam_args <- list(data = data, knots = knots, 
                      absorb.cons = TRUE, modCon = 3)
     sm_labels <- get_sm_labels(x)
-    smooth <- named_list(sm_labels)
+    out <- named_list(sm_labels)
     for (i in seq_along(sm_labels)) {
       sc_args <- c(list(eval_smooth(sm_labels[i])), gam_args)
-      smooth[[i]] <- do.call(mgcv::smoothCon, sc_args)
+      out[[i]] <- do.call(mgcv::smoothCon, sc_args)
     }
   } else {
-    smooth <- list()
+    out <- list()
   }
-  smooth
+  out
 }
 
 #' @export
 make_smooth_list.btnl <- function(x, data, ...) {
-  smooth <- named_list(names(x$nlpars))
-  for (i in seq_along(smooth)) {
-    smooth[[i]] <- make_smooth_list(x$nlpars[[i]], data, ...)
+  out <- named_list(names(x$nlpars))
+  for (i in seq_along(out)) {
+    out[[i]] <- make_smooth_list(x$nlpars[[i]], data, ...)
   }
-  smooth
+  out
 }
 
 #' @export
 make_smooth_list.brmsterms <- function(x, data, ...) {
-  smooth <- named_list(names(x$auxpars))
-  for (i in seq_along(smooth)) {
-    smooth[[i]] <- make_smooth_list(x$auxpars[[i]], data, ...)
+  out <- named_list(names(x$auxpars))
+  for (i in seq_along(out)) {
+    out[[i]] <- make_smooth_list(x$auxpars[[i]], data, ...)
   }
-  smooth
+  out
+}
+
+#' @export
+make_gp_list.btl <- function(x, data, ...) {
+  gpef <- get_gp_labels(x)
+  out <- named_list(gpef)
+  for (i in seq_along(gpef)) {
+    gp <- eval2(gpef[i])
+    Xgp <- do.call(cbind, lapply(gp$term, eval2, data))
+    out[[i]] <- list(dmax = sqrt(max(diff_quad(Xgp))))
+  }
+  out
+}
+
+#' @export
+make_gp_list.btnl <- function(x, data, ...) {
+  out <- named_list(names(x$nlpars))
+  for (i in seq_along(out)) {
+    out[[i]] <- make_gp_list(x$nlpars[[i]], data, ...)
+  }
+  out
+}
+
+#' @export
+make_gp_list.brmsterms <- function(x, data, ...) {
+  out <- named_list(names(x$auxpars))
+  for (i in seq_along(out)) {
+    out[[i]] <- make_gp_list(x$auxpars[[i]], data, ...)
+  }
+  out
 }
 
 arr_design_matrix <- function(Y, r, group)  { 

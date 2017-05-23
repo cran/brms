@@ -3,6 +3,8 @@
 #' Generate Stan code for \pkg{brms} models
 #' 
 #' @inheritParams brm
+#' @param silent logical; If \code{TRUE}, warnings of
+#'   the Stan parser will be suppressed.
 #' @param ... Other arguments for internal usage only
 #' 
 #' @return A character string containing the fully commented \pkg{Stan} code 
@@ -17,12 +19,12 @@
 #'               data = epilepsy, family = "poisson")
 #'
 #' @export
-make_stancode <- function(formula, data, family = NULL, 
+make_stancode <- function(formula, data, family = gaussian(), 
                           prior = NULL, autocor = NULL, nonlinear = NULL,
                           threshold = c("flexible", "equidistant"),
                           sparse = FALSE,  cov_ranef = NULL, 
                           sample_prior = FALSE, stan_funs = NULL, 
-                          save_model = NULL, ...) {
+                          save_model = NULL, silent = FALSE, ...) {
   dots <- list(...)
   # use deprecated arguments if specified
   cov_ranef <- use_alias(cov_ranef, dots$cov.ranef)
@@ -44,7 +46,7 @@ make_stancode <- function(formula, data, family = NULL,
   )
   prior_only <- identical(sample_prior, "only")
   sample_prior <- if (prior_only) FALSE else sample_prior
-  data <- update_data(data, family = family, bterms = bterms)
+  data <- update_data(data, bterms = bterms)
   
   # flags to indicate the family type
   is_categorical <- is_categorical(family)
@@ -98,7 +100,7 @@ make_stancode <- function(formula, data, family = NULL,
   text_disp <- stan_disp(bterms, family = family)
   kron <- stan_needs_kronecker(ranef, names_cov_ranef = names(cov_ranef))
   text_misc_funs <- stan_misc_functions(family, prior, kronecker = kron)
-  text_monotonic <- stan_monotonic(text_effects)
+  text_pred_funs <- stan_pred_functions(text_effects)
     
   # get priors for all parameters in the model
   text_prior <- paste0(
@@ -116,7 +118,7 @@ make_stancode <- function(formula, data, family = NULL,
     "// generated with brms ", utils::packageVersion("brms"), "\n",
     "functions { \n",
       text_misc_funs,
-      text_monotonic,
+      text_pred_funs,
       text_autocor$fun,
       text_ordinal$fun,
       text_families$fun,
@@ -246,6 +248,7 @@ make_stancode <- function(formula, data, family = NULL,
       text_families$modelD,
       text_lp_pre$modelD,
       text_effects$modelC1,
+      text_effects$modelCgp1,
       text_mixture$modelC1,
       text_autocor$modelC1, 
       text_disp$modelC1,
@@ -292,8 +295,12 @@ make_stancode <- function(formula, data, family = NULL,
     temp_file <- tempfile(fileext = ".stan")
     cat(complete_model, file = temp_file) 
     isystem <- system.file("chunks", package = "brms")
-    complete_model <- rstan::stanc_builder(
-      file = temp_file, isystem = isystem, obfuscate_model_name = TRUE
+    complete_model <- eval_silent(
+      rstan::stanc_builder(
+        file = temp_file, isystem = isystem, 
+        obfuscate_model_name = TRUE
+      ),
+      type = "message"
     )
     complete_model$model_name <- name_model(family)
     class(complete_model$model_code) <- c("character", "brmsmodel")

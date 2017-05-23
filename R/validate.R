@@ -86,6 +86,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
   }
   auxpars <- is_auxpar_name(names(x$pforms), family, bterms = y)
   auxpars <- names(x$pforms)[auxpars]
+  # amend when generalizing non-linear models to auxiliary parameters
   nlpars <- setdiff(names(x$pforms), auxpars)
   if (isTRUE(x[["nl"]])) {
     if (is.mixfamily(family) || is_ordinal(family) || is_categorical(family)) {
@@ -96,9 +97,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
     auxpars <- setdiff(auxpars, "mu")
   } else {
     if (length(nlpars)) {
-      nlpars <- collapse_comma(nlpars)
-      stop2("Prediction of parameter(s) ", nlpars,
-            " is not allowed for this model.")
+      stop2("Parameter '", nlpars[1], "' is not part of the model.")
     }
   }
   
@@ -144,7 +143,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
             "addition argument 'weights'.")
     }
     if (length(y$auxpars) > 1L) {
-      stop2("Auxiliary parameter cannot yet be ", 
+      stop2("Auxiliary parameters cannot yet be ", 
             "predicted in multivariate models.")
     }
   }
@@ -193,11 +192,15 @@ parse_lf <- function(formula, family = NULL) {
   if (is.formula(sm_form)) {
     y[["sm"]] <- sm_form
   }
+  gp_form <- parse_gp(formula)
+  if (is.formula(gp_form)) {
+    y[["gp"]] <- gp_form
+  }
   offset_form <- parse_offset(formula)
   if (is.formula(offset_form)) {
     y[["offset"]] <- offset_form
   }
-  rm_pos <- list(mo_form, cs_form, me_form, sm_form)
+  rm_pos <- list(mo_form, cs_form, me_form, sm_form, gp_form)
   rm_pos <- c(lapply(rm_pos, attr, "pos"), list(pos_re_terms))
   fe_terms <- all_terms[!Reduce("|", rm_pos)]
   int_term <- ifelse(attr(terms, "intercept") == 1, "1", "0")
@@ -216,8 +219,8 @@ parse_lf <- function(formula, family = NULL) {
   y$re <- parse_re(re_terms)
   lformula <- c(
     y[c("fe", "cs", "mo", "me")], 
-    attr(y$sm, "allvars"), y$re$form,
-    lapply(y$re$gcall, "[[", "allvars"),
+    attr(y$sm, "allvars"), attr(y$gp, "allvars"),
+    y$re$form, lapply(y$re$gcall, "[[", "allvars"),
     str2formula(all.vars(y$offset))
   )
   y$allvars <- allvars_formula(lformula)
@@ -372,9 +375,10 @@ parse_sm <- function(formula) {
     covars <- byvars <- NULL
     allvars <- ~ 1
   }
-  structure(sm_terms, pos = pos_sm_terms, 
-            covars = covars, byvars = byvars,  
-            allvars = allvars)
+  structure_not_null(
+    sm_terms, pos = pos_sm_terms, covars = covars, 
+    byvars = byvars, allvars = allvars
+  )
 }
 
 parse_me <- function(formula) {
@@ -394,6 +398,33 @@ parse_me <- function(formula) {
     attr(me_terms, "rsv_intercept") <- TRUE
   }
   structure(me_terms, pos = pos_me_terms)
+}
+
+parse_gp <- function(formula) {
+  # extract terms for gaussian processes
+  # Args:
+  #   formula: a formula object
+  all_terms <- all_terms(formula)
+  pos_gp_terms <- grepl_expr("^gp\\([^:]*\\)$", all_terms)
+  gp_terms <- all_terms[pos_gp_terms]
+  if (length(gp_terms)) {
+    eterms <- lapply(gp_terms, eval2)
+    covars <- lapply(eterms, "[[", "term")
+    byvars <- lapply(eterms, "[[", "by")
+    allvars <- str2formula(unlist(c(covars, byvars)))
+    allvars <- str2formula(all.vars(allvars))
+    if (!length(all.vars(allvars))) {
+      stop2("No variable supplied to function 'gp'.")
+    }
+    gp_terms <- str2formula(gp_terms)
+  } else {
+    byvars <- NULL
+    allvars <- ~ 1
+  }
+  structure_not_null(
+    gp_terms, pos = pos_gp_terms, 
+    byvars = byvars, allvars = allvars
+  )
 }
 
 parse_offset <- function(formula) {
@@ -705,7 +736,8 @@ check_re_formula <- function(re_formula, formula) {
       new <- new[found, ]
       if (nrow(new)) {
         forms <- ulapply(new$form, formula2str, rm = 1)
-        re_terms <- paste("(", forms, "|", new$group, ")")
+        groups <- ulapply(new$gcall, "[[", "label")
+        re_terms <- paste("(", forms, "|", groups, ")")
         re_formula <- formula(paste("~", paste(re_terms, collapse = "+")))
       } else {
         re_formula <- ~ 1
@@ -797,7 +829,8 @@ allvars_formula <- function(lformula) {
   # Args:
   #   lformula: list of formulas or character strings
   out <- collapse(ulapply(rmNULL(lformula), plus_rhs))
-  str2formula(c(out, all.vars(parse(text = out)))) 
+  out <- str2formula(c(out, all.vars(parse(text = out))))
+  update(out, ~ .)
 }
 
 plus_rhs <- function(x) {
@@ -949,7 +982,7 @@ get_all_effects.btl <- function(x, ...) {
   byvars <- attr(x$sm, "byvars")
   svars <- mapply(c, covars, byvars, SIMPLIFY = FALSE)
   alist <- lapply(svars, int_formula)
-  get_var_combs(x$fe, x$mo, x$cs, x$me, alist = alist)
+  get_var_combs(x$fe, x$mo, x$cs, x$me, x$gp, alist = alist)
 }
 
 #' @export
@@ -983,7 +1016,7 @@ get_sm_labels <- function(x, data = NULL, covars = FALSE,
     sm_form <- x[["sm"]] 
   }
   if (!is.formula(sm_form)) {
-    return(NULL)
+    return(character(0))
   }
   return_covars <- covars
   term_labels <- rename(attr(terms(sm_form), "term.labels"), " ", "")
@@ -996,7 +1029,7 @@ get_sm_labels <- function(x, data = NULL, covars = FALSE,
       covars[[i]] <- c(covars[[i]], byvars[[i]])
     }
     if (combine) {
-      sms <- paste0(sfuns, ulapply(covars, collapse))
+      sms <- paste0(sfuns, rename(ulapply(covars, collapse)))
     } else {
       sms <- covars
     }
@@ -1029,7 +1062,7 @@ get_sm_labels <- function(x, data = NULL, covars = FALSE,
 get_me_labels <- function(x, data) {
   # get labels of measurement error terms
   # Args:
-  #   x: either a formula or a list containing an element "sm"
+  #   x: either a formula or a list containing an element "me"
   #   data: data frame containing the noisy variables
   if (is.formula(x)) {
     x <- parse_bf(x, check_response = FALSE)
@@ -1038,13 +1071,57 @@ get_me_labels <- function(x, data) {
     me_form <- x[["me"]]
   }
   if (!is.formula(me_form)) {
-    return(NULL)
+    return(character(0))
   }
   mm <- get_model_matrix(me_form, data, rename = FALSE)
   not_one <- apply(mm, 2, function(x) any(x != 1))
   uni_me <- get_matches_expr("^me\\([^:]*\\)$", colnames(mm))
   uni_me <- unique(gsub("[[:space:]]", "", uni_me))
   structure(colnames(mm), not_one = not_one, uni_me = uni_me)
+}
+
+get_gp_labels <- function(x, data = NULL, covars = FALSE) {
+  # get labels of gaussian process terms
+  # Args:
+  #   x: either a formula or a list containing an element "gp"
+  #   covars: should the conbined names of the covariates be 
+  #           returned instead of the full term names?
+  if (is.formula(x)) {
+    x <- parse_bf(x, check_response = FALSE)
+    gp_form <- x$auxpars$mu[["gp"]]
+  } else {
+    gp_form <- x[["gp"]]
+  }
+  if (!is.formula(gp_form)) {
+    return(character(0))
+  }
+  byvars = attr(gp_form, "byvars")
+  gp_terms <- all_terms(gp_form)
+  by_levels <- named_list(gp_terms)
+  out <- rep(NA, length(gp_terms))
+  for (i in seq_along(gp_terms)) {
+    gp <- eval2(gp_terms[i])
+    if (covars) {
+      out[i] <- paste0("gp", collapse(gp$term))
+      if (gp$by != "NA") {
+        out[i] <- paste0(out[i], gp$by)
+      }
+    } else {
+      out[i] <- gp$label
+    }
+    if (!is.null(data)) {
+      if (gp$by != "NA") {
+        Cgp <- get(gp$by, data)
+        if (!is.numeric(Cgp)) {
+          by_levels[[i]] <- levels(factor(Cgp))
+        }
+      }
+    }
+  }
+  if (covars) {
+    out <- rename(out)
+  }
+  structure_not_null(out, byvars = byvars, by_levels = by_levels)
 }
 
 all_terms <- function(formula) {
@@ -1132,13 +1209,17 @@ has_rsv_intercept <- function(formula) {
   # can handle non-linear formulae
   # Args:
   #   formula: a formula object
-  formula <- as.formula(formula)
-  try_terms <- try(terms(formula), silent = TRUE)
-  if (is(try_terms, "try-error")) {
+  formula <- try(as.formula(formula), silent = TRUE)
+  if (is(formula, "try-error")) {
     out <- FALSE
   } else {
-    has_intercept <- attr(try_terms, "intercept")
-    out <- !has_intercept && "intercept" %in% all.vars(rhs(formula))
+    try_terms <- try(terms(formula), silent = TRUE)
+    if (is(try_terms, "try-error")) {
+      out <- FALSE
+    } else {
+      has_intercept <- attr(try_terms, "intercept")
+      out <- !has_intercept && "intercept" %in% all.vars(rhs(formula))
+    }
   }
   out
 }
@@ -1281,25 +1362,28 @@ empty_ranef <- function() {
   )
 }
 
-rsv_vars <- function(family, nresp = 1L, rsv_intercept = FALSE,
-                     old_mv = FALSE) {
+rsv_vars <- function(bterms, incl_intercept = TRUE) {
   # returns names of reserved variables
   # Args:
-  #   family: the model family
-  #   nresp: number of response variables
-  #   rsv_intercept: is the reserved variable "intercept" used?
-  if (isTRUE(old_mv)) {
+  #   bterms: object of class brmsterms
+  #   incl_intercept: treat variable 'intercept' as reserved?
+  stopifnot(is.brmsterms(bterms))
+  nresp <- length(bterms$response)
+  family <- bterms$family
+  old_mv <- isTRUE(attr(bterms$formula, "old_mv"))
+  rsv_intercept <- any(ulapply(bterms$auxpars, has_rsv_intercept))
+  if (old_mv) {
     if (is_linear(family) && nresp > 1L || is_categorical(family)) {
       rsv <- c("trait", "response")
     } else if (is_forked(family)) {
       rsv <- c("trait", "response", "main", "spec")
     } else {
-      rsv <- NULL
+      rsv <- character(0)
     }
   } else {
-    rsv <- NULL
+    rsv <- character(0)
   }
-  if (isTRUE(rsv_intercept)) {
+  if (incl_intercept && rsv_intercept) {
     rsv <- c(rsv, "intercept")
   }
   rsv

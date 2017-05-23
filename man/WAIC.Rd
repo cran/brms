@@ -11,7 +11,7 @@
 \method{WAIC}{brmsfit}(x, ..., compare = TRUE, newdata = NULL,
   re_formula = NULL, allow_new_levels = FALSE,
   sample_new_levels = "uncertainty", subset = NULL, nsamples = NULL,
-  pointwise = NULL)
+  pointwise = NULL, nug = NULL)
 
 WAIC(x, ...)
 }
@@ -66,6 +66,12 @@ requires much less working memory. Accordingly, if one runs
 into memory issues, \code{pointwise = TRUE} is the way to go.
 By default, \code{pointwise} is automatically chosen based on 
 the size of the model.}
+
+\item{nug}{Small positive number for Gaussian process terms only. 
+For numerical reasons, the covariance matrix of a Gaussian 
+process might not be positive definite. Adding a very small 
+number to the matrix's diagonal often solves this problem. 
+If \code{NULL} (the default), \code{nug} is chosen internally.}
 }
 \value{
 If just one object is provided, an object of class \code{ic}. 
@@ -79,6 +85,8 @@ based on the posterior likelihood using the \pkg{loo} package.
 When comparing models fitted to the same data, 
  the smaller the WAIC, the better the fit.
  For \code{brmsfit} objects, \code{waic} is an alias of \code{WAIC}.
+ Use method \code{\link[brms:add_ic]{add_ic}} to store
+ information criteria in the fitted model object for later usage.
 }
 \section{Methods (by class)}{
 \itemize{

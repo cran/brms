@@ -264,8 +264,8 @@ me <- function(x, sdx = NULL) {
 #' @aliases cse
 #' 
 #' @param expr Expression containing predictors,
-#'  for which category specific effects should
-#'  be estimated. For evaluation, \R formula syntax is applied.
+#'  for which category specific effects should be estimated. 
+#'  For evaluation, \R formula syntax is applied.
 #'  
 #' @details For detailed documentation see \code{help(brmsformula)}
 #'   as well as \code{vignette("brms_overview")}.
@@ -300,8 +300,8 @@ cse <- function(expr) {
 #' @aliases mono monotonic
 #' 
 #' @param expr Expression containing predictors,
-#'  for which monotonic effects should
-#'  be estimated. For evaluation, \R formula syntax is applied.
+#'  for which monotonic effects should be estimated. 
+#'  For evaluation, \R formula syntax is applied.
 #'  
 #' @details For detailed documentation see \code{help(brmsformula)}
 #'   as well as \code{vignette("brms_monotonic")}.
@@ -347,6 +347,110 @@ monotonic <- function(expr) {
   deparse_no_string(substitute(expr))
 }
 
+#' Set up Gaussian process terms in \pkg{brms}
+#' 
+#' Function used to set up a Gaussian process term in \pkg{brms}.
+#' The function does not evaluate its arguments --
+#' it exists purely to help set up a model with Gaussian process terms.
+#' 
+#' @param ... One or more predictors for the Gaussian process.
+#' @param by A numeric or factor variable of the same length as 
+#'   each predictor. In the numeric vector case, the elements multiply 
+#'   the values returned by the Gaussian process. In the factor variable 
+#'   case, a separate Gaussian process is fitted for each factor level.
+#' @param cov Name of the covariance kernel. By default, 
+#'   the exponentiated-quadratic kernel \code{"exp_quad"} is used.
+#' @param scale Logical; If \code{TRUE} (the default), predictors are
+#'   scaled so that the maximum Euclidean distance between two points
+#'   is 1. Since the default prior on \code{lscale} expects scaled
+#'   predictors, it is recommended to manually specify priors
+#'   on \code{lscale}, if \code{scale} is set to \code{FALSE}.
+#'   
+#' @details A Gaussian process is a stochastic process, whichs
+#'  describes the relation between one or more predictors 
+#'  \eqn{x = (x_1, ..., x_d)} and a response \eqn{f(x)}, where 
+#'  \eqn{d} is the number of predictors. A Gaussian process is the
+#'  generalization of the multivariate normal distribution
+#'  to an infinite number of dimensions. Thus, it can be
+#'  interpreted as a prior over functions. Any finite sample 
+#'  realized from this stochastic process is jointly multivariate 
+#'  normal, with a covariance matrix defined by the covariance
+#'  kernel \eqn{k_p(x)}, where \eqn{p} is the vector of parameters
+#'  of the Gaussian process:
+#'  \deqn{f(x) ~ MVN(0, k_p(x))}
+#'  The smoothness and general behavior of the function \eqn{f} 
+#'  depends only on the choice of covariance kernel. 
+#'  For a more detailed introduction to Gaussian processes,
+#'  see \url{https://en.wikipedia.org/wiki/Gaussian_process}.
+#'  
+#'  Below, we describe the currently supported covariance kernels:
+#'  \itemize{
+#'    \item{"exp_quad": }{The exponentiated-quadratic kernel is defined as
+#'    \eqn{k(x_i, x_j) = sdgp^2 exp(- || x_i - x_j || / (2 lscale^2)},
+#'    where \eqn{|| . ||} is the Euclidean norm, \eqn{sdgp} is a 
+#'    standard deviation parameter, and \eqn{lscale} is characteristic 
+#'    length-scale parameter. The latter practically measures how close two 
+#'    points \eqn{x_i} and \eqn{x_j} have to be to influence each other 
+#'    substantially.}
+#'  }
+#'
+#'  In the current implementation, \code{"exp_quad"} is the only supported 
+#'  covariance kernel. More options will follow in the future.
+#'  
+#' @return An object of class \code{'gpterm'}, which is a list 
+#'   of arguments to be interpreted by the formula 
+#'   parsing functions of \code{brms}.
+#'   
+#' @examples
+#' \dontrun{
+#' # simulate data using the mgcv package
+#' dat <- mgcv::gamSim(1, n = 30, scale = 2)
+#' 
+#' # fit a simple gaussian process model
+#' fit1 <- brm(y ~ gp(x2), dat, chains = 2)
+#' summary(fit1)
+#' me1 <- marginal_effects(fit1, nsamples = 200, spaghetti = TRUE)
+#' plot(me1, ask = FALSE, points = TRUE)
+#' 
+#' # fit a more complicated gaussian process model
+#' fit2 <- brm(y ~ gp(x0) + x1 + gp(x2) + x3, dat, chains = 2)
+#' summary(fit2)
+#' me2 <- marginal_effects(fit2, nsamples = 200, spaghetti = TRUE)
+#' plot(me2, ask = FALSE, points = TRUE)
+#' 
+#' # fit a multivariate gaussian process model
+#' fit3 <- brm(y ~ gp(x1, x2), dat, chains = 2)
+#' summary(fit3)
+#' me3 <- marginal_effects(fit3, nsamples = 200, spaghetti = TRUE)
+#' plot(me3, ask = FALSE, points = TRUE)
+#' 
+#' # compare model fit
+#' LOO(fit1, fit2, fit3)
+#' 
+#' # simulate data with a factor covariate
+#' dat2 <- mgcv::gamSim(4, n = 90, scale = 2)
+#' 
+#' # fit separate gaussian processes for different levels of 'fac'
+#' fit4 <- brm(y ~ gp(x2, by = fac), dat2, chains = 2)
+#' summary(fit4)
+#' plot(marginal_effects(fit4), points = TRUE)
+#' }
+#' 
+#' @seealso \code{\link[brms:brmsformula]{brmsformula}}
+#' @export
+gp <- function(..., by = NA, cov = "exp_quad", scale = TRUE) {
+  cov <- match.arg(cov, choices = c("exp_quad"))
+  label <- deparse(match.call())
+  vars <- as.list(substitute(list(...)))[-1]
+  by <- deparse(substitute(by)) 
+  scale <- as.logical(scale)
+  if (anyNA(scale) || length(scale) != 1L) {
+    stop2("'scale' should be either TRUE or FALSE.")
+  }
+  term <- ulapply(vars, deparse, backtick = TRUE, width.cutoff = 500)
+  structure(nlist(term, label, by, cov, scale), class = "gpterm")
+}
+
 #' Set up basic grouping terms in \pkg{brms}
 #' 
 #' Function used to set up a basic grouping term in \pkg{brms}.
@@ -372,6 +476,7 @@ monotonic <- function(expr) {
 #' 
 #' @export
 gr <- function(...) {
+  label <- deparse(match.call())
   groups <- as.character(as.list(substitute(list(...)))[-1])
   if (length(groups) > 1L) {
     stop2("Grouping structure 'gr' expects only a single grouping term")
@@ -381,7 +486,7 @@ gr <- function(...) {
           "only variable names combined by the symbol ':'")
   }
   allvars <- str2formula(groups)
-  nlist(groups, allvars, type = "")
+  nlist(groups, allvars, label, type = "")
 }
 
 #' Set up multi-membership grouping terms in \pkg{brms}
@@ -393,8 +498,11 @@ gr <- function(...) {
 #' @inheritParams gr
 #' @param weights A matrix specifying the weights of each member.
 #'  It should have as many columns as grouping terms specified in \code{...}.
-#'  Weights are standardized in order to sum to one per row.
 #'  If \code{NULL} (the default), equally weights are used. 
+#' @param scale Logical; if \code{TRUE} (the default), 
+#'  weights are standardized in order to sum to one per row.
+#'  If negative weights are specified, \code{scale} needs
+#'  to be set to \code{FALSE}.
 #'  
 #' @seealso \code{\link[brms:brmsformula]{brmsformula}}
 #'  
@@ -416,7 +524,8 @@ gr <- function(...) {
 #' }
 #'   
 #' @export
-mm <- function(..., weights = NULL) {
+mm <- function(..., weights = NULL, scale = TRUE) {
+  label <- deparse(match.call())
   groups <- as.character(as.list(substitute(list(...)))[-1])
   for (i in seq_along(groups)) {
     if (illegal_group_expr(groups[i])) {
@@ -424,14 +533,19 @@ mm <- function(..., weights = NULL) {
             "only variable names combined by the symbol ':'")
     }
   }
+  scale <- as.logical(scale)
+  if (anyNA(scale) || length(scale) != 1L) {
+    stop2("'scale' should be either TRUE or FALSE.")
+  }
   weights <- substitute(weights)
   weightvars <- all.vars(weights)
   allvars <- str2formula(c(groups, weightvars))
   if (!is.null(weights)) {
     weights <- str2formula(deparse_no_string(weights))
+    attr(weights, "scale") <- scale
     weightvars <- str2formula(weightvars)
   }
-  nlist(groups, weights, weightvars, allvars, type = "mm")
+  nlist(groups, weights, weightvars, allvars, label, type = "mm")
 }
 
 rhs <- function(x) {

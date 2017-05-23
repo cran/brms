@@ -340,3 +340,12 @@ check_autocor <- function(autocor) {
   stop_not_cor_brms(autocor)
   autocor
 }
+
+remove_autocor <- function(x, keep = FALSE) {
+  # convenience function to ignore autocorrelation terms
+  # currently only excludes ARMA structures
+  if (!keep && is.cor_arma(x$autocor)) {
+    x$autocor <- cor_arma()
+  }
+  x
+}

@@ -126,6 +126,9 @@ stan_autocor <- function(autocor, bterms, family, prior) {
   }
   if (Karr) {
     # autoregressive effects of the response
+    if (length(bterms$auxpars[["mu"]]$nlpars)) {
+      stop2("Cannot use the ARR structure in non-linear models.")
+    }
     out$data <- paste0(out$data,
       "  // data needed for ARR effects \n",
       "  int<lower=1> Karr; \n",
@@ -149,7 +152,8 @@ stan_autocor <- function(autocor, bterms, family, prior) {
     }
   }
   if (is.cor_bsts(autocor)) {
-    if (is_mv || family$family %in% c("bernoulli", "categorical")) {
+    if (is_mv || is_ordinal(family) ||
+        family$family %in% c("bernoulli", "categorical")) {
       stop2("The bsts structure is not yet implemented for this family.")
     }
     if (length(bterms$auxpars[["mu"]]$nlpars)) {
@@ -402,8 +406,6 @@ stan_families <- function(family, bterms) {
     out$fun <- "  #include 'fun_hurdle_gamma.stan' \n"
   } else if (any(families %in% "hurdle_lognormal")) {
     out$fun <- "  #include 'fun_hurdle_lognormal.stan' \n"
-  } else if (any(families %in% "exgaussian")) {
-    out$fun <- "  #include 'fun_exgaussian.stan' \n"
   } else if (any(families %in% "inverse.gaussian")) {
     out$fun <- "  #include 'fun_inv_gaussian.stan' \n"
     out$tdataD <- "  #include 'tdataD_inv_gaussian.stan' \n"
@@ -560,12 +562,14 @@ stan_disp <- function(bterms, family) {
   out
 }
 
-stan_monotonic <- function(x) {
-  # add the monotonic function to Stan's functions block
-  if (grepl("[^[:alnum:]]monotonic\\(", collapse(x))) {
-    out <- "  #include fun_monotonic.stan \n"
-  } else {
-    out <- ""
+stan_pred_functions <- function(x) {
+  # add certain predictor functions to Stan's functions block
+  out <- ""
+  if (grepl("[^[:alnum:]]mo\\(", collapse(x))) {
+    out <- paste0(out, "  #include fun_monotonic.stan \n")
+  } 
+  if (grepl("[^[:alnum:]]gp\\(", collapse(x))) {
+    out <- paste0(out, "  #include fun_gaussian_process.stan \n")
   }
   out
 }
@@ -672,10 +676,12 @@ stan_prior <- function(prior, class, coef = "", group = "",
     } else { # base prior for this parameter
       coef_prior <- base_prior 
     }  
-    if (nchar(coef_prior) > 0) {  # implies a proper prior
+    if (nchar(coef_prior) > 0) {  
+      # implies a proper prior
       out <- paste0(wsp, class, index, " ~ ", coef_prior, "; \n")
     } else {
-      out <- ""  # implies an improper flat prior
+      # implies an improper flat prior
+      out <- ""
     }
     return(out)
   }
@@ -773,7 +779,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
     prior <- gsub(" ", "", paste0("\n", prior))
     pars <- get_matches("\\\n[^~]+", prior)
     pars <- gsub("\\\n|to_vector\\(|\\)", "", pars)
-    regex <- "^(z|zs|zb|Xme|hs)_?|^increment_log_prob\\(|^target ?(\\+=)"
+    regex <- "^(z|zs|zb|zgp|Xme|hs)_?|^increment_log_prob\\(|^target ?(\\+=)"
     take <- !grepl(regex, pars)
     pars <- rename(pars[take], symbols = c("^L_", "^Lrescor"), 
                    subs = c("cor_", "rescor"), fixed = FALSE)
@@ -792,7 +798,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
     # special treatment of lkj_corr_cholesky priors
     args <- ifelse(
       grepl("corr_cholesky$", dis), 
-      paste0("(2,", substr(args, 2, nchar(args)-1), "[1, 2];"),
+      paste0("(2,", substr(args, 2, nchar(args) - 1), "[1, 2];"),
       args
     )
     dis <- sub("corr_cholesky$", "corr", dis)

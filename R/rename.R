@@ -90,7 +90,9 @@ change_effects.btl <- function(x, data, pars, dims, nlpar = "",
   change_mo <- change_mo(monef, pars, nlpar = nlpar)
   meef <- get_me_labels(x, data)
   change_me <- change_me(meef, pars, dims = dims, nlpar = nlpar)
-  c(change_fe, change_sm, change_cs, change_mo, change_me)
+  gpef <- get_gp_labels(x, data = data, covars = TRUE)
+  change_gp <- change_gp(gpef, pars, dims = dims, nlpar = nlpar)
+  c(change_fe, change_sm, change_cs, change_mo, change_me, change_gp)
 }
 
 change_effects.btnl <- function(x, data, pars, dims, ...) {
@@ -235,6 +237,50 @@ change_me <- function(meef, pars, dims, nlpar = "") {
   change
 }
 
+change_gp <- function(gpef, pars, dims, nlpar = "") {
+  change <- list()
+  p <- usc(nlpar, "prefix")
+  for (i in seq_along(gpef)) {
+    # rename GP hyperparameters
+    by_levels = attr(gpef, "by_levels")[[i]]
+    gp_names <- paste0(gpef[i], usc(by_levels))
+    sdgp <- paste0("sdgp", p)
+    sdgp_old <- paste0(sdgp, "_", i)
+    sdgp_pos <- grepl(paste0("^", sdgp_old, "\\["), pars)
+    sdgp_names <- paste0(sdgp, "_", gp_names)
+    lscale <- paste0("lscale", p)
+    lscale_old <- paste0(lscale, "_", i)
+    lscale_pos <- grepl(paste0("^", lscale_old, "\\["), pars)
+    lscale_names <- paste0(lscale, "_", gp_names)
+    change <- lc(change, 
+      nlist(pos = sdgp_pos, oldname = sdgp_old, 
+            pnames = sdgp_names, fnames = sdgp_names),
+      nlist(pos = lscale_pos, oldname = lscale_old, 
+            pnames = lscale_names, fnames = lscale_names)
+    )
+    change <- c(change,
+      change_prior(class = sdgp_old, pars = pars, 
+                   names = gpef[i], new_class = sdgp),
+      change_prior(class = lscale_old, pars = pars, 
+                   names = gpef[i], new_class = lscale)
+    )
+    zgp <- paste0("zgp", p)
+    zgp_old <- paste0(zgp, "_", i)
+    zgp_pos <- grepl(paste0("^", zgp_old, "\\["), pars)
+    if (any(zgp_pos)) {
+      # users may choose not to save zgp
+      zgp_new <- paste0(zgp, "_", gpef[i])
+      fnames <- paste0(zgp_new, "[", seq_len(sum(zgp_pos)), "]")
+      change_zgp <- nlist(
+        pos = zgp_pos, oldname = zgp_old, pnames = zgp_new, 
+        fnames = fnames, dims = dims[[zgp]]
+      )
+      change <- lc(change, change_zgp)
+    }
+  }
+  change
+}
+
 change_sm <- function(smooths, pars, nlpar = "") {
   # helps in renaming smoothing term parameters
   # Args:
@@ -247,7 +293,6 @@ change_sm <- function(smooths, pars, nlpar = "") {
   if (length(smooths)) {
     stopifnot(!is.null(attr(smooths, "nbases")))
     p <- usc(nlpar, "prefix")
-    smooths <- rename(smooths)
     sds <- paste0("sds", p)
     sds_names <- paste0(sds, "_", smooths)
     s <- paste0("s", p)
@@ -313,7 +358,8 @@ change_re <- function(ranef, pars, dims) {
       change <- c(change,
         change_prior(
           class = paste0("sd_", id), pars = pars,
-          new_class = paste0("sd_", g), names = suffix
+          new_class = paste0("sd_", g), 
+          names = paste0("_", suffix)
         )
       )
       # rename group-level correlations
@@ -613,8 +659,9 @@ rm_int_fe <- function(fixef, stancode, nlpar = "") {
   # identifies if the intercept has to be removed from fixef
   # and returns adjusted fixef names
   p <- usc(nlpar, "suffix")
-  regex <- paste0("b_", p, "Intercept = temp_", p, "Intercept")
-  if (grepl(regex, stancode, fixed = TRUE)) {
+  int <- paste0("b_", p, "Intercept = temp_", p, "Intercept")
+  loclev <- "vector[N] loclev;"
+  if (any(ulapply(c(int, loclev), grepl, stancode, fixed = TRUE))) {
     fixef <- setdiff(fixef, "Intercept")
   } 
   fixef
@@ -742,8 +789,9 @@ reorder_pars <- function(x) {
   #   x: brmsfit object
   all_classes <- c(
     "b", "bmo", "bcs", "bme", "ar", "ma", "arr", "sd", "cor", 
-    "sds", auxpars(), "temp", "sigmaLL", "rescor", "delta",
-    "lasso", "simplex", "r", "s", "loclev", "Xme", "prior", "lp"
+    "sds", "sdgp", "lscale", auxpars(), "temp", "sigmaLL", 
+    "rescor", "delta", "lasso", "simplex", "r", "s", "zgp", 
+    "loclev", "Xme", "prior", "lp"
   )
   # reorder parameter classes
   class <- get_matches("^[^[:digit:]_]+", x$fit@sim$pars_oi)

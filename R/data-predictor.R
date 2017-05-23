@@ -2,7 +2,7 @@
 data_effects.btl <- function(x, data, ranef = empty_ranef(), 
                              prior = brmsprior(), knots = NULL, 
                              nlpar = "", not4stan = FALSE, 
-                             smooth = NULL, Jmo = NULL) {
+                             smooths = NULL, gps = NULL, Jmo = NULL) {
   # prepare data for all types of effects fpr use in Stan
   # Args:
   #   data: the data passed by the user
@@ -13,30 +13,31 @@ data_effects.btl <- function(x, data, ranef = empty_ranef(),
   #   knots: optional knot values for smoothing terms
   #   nlpar: optional character string naming a non-linear parameter
   #   not4stan: is the data for use in S3 methods only?
-  #   smooth: optional list of smoothing objects based on 
-  #           the original data
+  #   smooths: optional list of smooth objects based on the original data
+  #   gps: optional list of GP objects based on the original data
   #   Jmo: optional precomputed values of Jmo for monotonic effects
   # Returns:
   #   A named list of data to be passed to Stan
   nlpar <- check_nlpar(nlpar)
   data_fe <- data_fe(x, data = data, knots = knots,
                      nlpar = nlpar, not4stan = not4stan,
-                     smooth = smooth)
+                     smooths = smooths)
   data_mo <- data_mo(x, data = data, ranef = ranef,
                      prior = prior, Jmo = Jmo, nlpar = nlpar)
   data_re <- data_re(ranef, data = data, nlpar = nlpar,
                      not4stan = not4stan)
   data_me <- data_me(x, data = data, nlpar = nlpar)
   data_cs <- data_cs(x, data = data, nlpar = nlpar)
+  data_gp <- data_gp(x, data = data, nlpar = nlpar, gps = gps)
   data_offset <- data_offset(x, data = data, nlpar = nlpar)
-  c(data_fe, data_mo, data_re, data_me, data_cs, data_offset)
+  c(data_fe, data_mo, data_re, data_me, data_cs, data_gp, data_offset)
 }
 
 #' @export 
 data_effects.btnl <- function(x, data, ranef = empty_ranef(), 
                               prior = brmsprior(), knots = NULL, 
                               nlpar = "", not4stan = FALSE, 
-                              smooth = NULL, Jmo = NULL) {
+                              smooths = NULL, gps = NULL, Jmo = NULL) {
   # prepare data for non-linear parameters for use in Stan
   # matrix of covariates appearing in the non-linear formula
   out <- list()
@@ -62,8 +63,8 @@ data_effects.btnl <- function(x, data, ranef = empty_ranef(),
       data_effects(
         x$nlpars[[nlp]], data, ranef = ranef,
         prior = prior, knots = knots, nlpar = nlp,
-        not4stan = not4stan, smooth = smooth[[nlp]], 
-        Jmo = Jmo
+        not4stan = not4stan, smooths = smooths[[nlp]], 
+        gps = gps, Jmo = Jmo
       )
     )
   }
@@ -71,7 +72,7 @@ data_effects.btnl <- function(x, data, ranef = empty_ranef(),
 }
 
 data_fe <- function(bterms, data, knots = NULL, nlpar = "", 
-                    not4stan = FALSE, smooth = NULL) {
+                    not4stan = FALSE, smooths = NULL) {
   # prepare data for fixed effects for use in Stan 
   # Args: see data_effects
   stopifnot(length(nlpar) == 1L)
@@ -84,13 +85,13 @@ data_fe <- function(bterms, data, knots = NULL, nlpar = "",
   X <- get_model_matrix(rhs(bterms$fe), data, cols2remove = cols2remove)
   sm_labels <- get_sm_labels(bterms)
   if (length(sm_labels)) {
-    stopifnot(is.null(smooth) || length(smooth) == length(sm_labels))
+    stopifnot(is.null(smooths) || length(smooths) == length(sm_labels))
     Xs <- Zs <- list()
-    new_smooths <- is.null(smooth)
+    new_smooths <- is.null(smooths)
     if (new_smooths) {
-      smooth <- named_list(sm_labels)
+      smooths <- named_list(sm_labels)
       for (i in seq_along(sm_labels)) {
-        smooth[[i]] <- mgcv::smoothCon(
+        smooths[[i]] <- mgcv::smoothCon(
           eval_smooth(sm_labels[i]), data = data, 
           knots = knots, absorb.cons = TRUE
         )
@@ -98,11 +99,11 @@ data_fe <- function(bterms, data, knots = NULL, nlpar = "",
     }
     by_levels <- named_list(sm_labels)
     ns <- 0
-    for (i in seq_along(smooth)) {
+    for (i in seq_along(smooths)) {
       # may contain multiple terms when 'by' is a factor
-      for (j in seq_along(smooth[[i]])) {
+      for (j in seq_along(smooths[[i]])) {
         ns <- ns + 1
-        sm <- smooth[[i]][[j]]
+        sm <- smooths[[i]][[j]]
         if (length(sm$by.level)) {
           by_levels[[i]][j] <- sm$by.level
         }
@@ -226,12 +227,18 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
       ngs <- length(gs)
       weights <- id_ranef$gcall[[1]]$weights
       if (is.formula(weights)) {
+        scale <- isTRUE(attr(weights, "scale"))
         weights <- as.matrix(eval_rhs(weights, data))
         if (!identical(dim(weights), c(nrow(data), ngs))) {
           stop2("Grouping structure 'mm' expects 'weights' to be a matrix ", 
                 "with as many columns as grouping factors.")
         }
-        weights <- sweep(weights, 1, rowSums(weights), "/")
+        if (scale) {
+          if (any(weights < 0)) {
+            stop2("Cannot scale negative weights.")
+          }         
+          weights <- sweep(weights, 1, rowSums(weights), "/")
+        }
       } else {
         # all members get equal weights by default
         weights <- matrix(1 / ngs, nrow = nrow(data), ncol = ngs)
@@ -327,6 +334,57 @@ data_me <- function(bterms, data, nlpar = "") {
   }
   out
 }
+
+data_gp <- function(bterms, data, nlpar = "", gps = NULL) {
+  # prepare data for Gaussian process terms
+  # Args:
+  #   see data_effects.btl
+  out <- list()
+  gpef <- get_gp_labels(bterms)
+  if (length(gpef)) {
+    p <- usc(nlpar, "prefix")
+    for (i in seq_along(gpef)) {
+      pi <- paste0(p, "_", i)
+      gp <- eval2(gpef[i])
+      Xgp <- lapply(gp$term, eval2, data)
+      out[[paste0("Mgp", pi)]] <- length(Xgp)
+      invalid <- ulapply(Xgp, function(x)
+        !is.numeric(x) || isTRUE(length(dim(x)) > 1L)
+      )
+      if (any(invalid)) {
+        stop2("Predictors of Gaussian processes should be numeric vectors.")
+      }
+      Xgp <- do.call(cbind, Xgp)
+      if (gp$scale) {
+        # scale predictor for easier specification of priors
+        if (!is.null(gps)) {
+          # scale Xgp based on the original data
+          Xgp <- Xgp / gps[[i]]$dmax
+        } else {
+          dmax <- sqrt(max(diff_quad(Xgp)))
+          Xgp <- Xgp / dmax
+        }
+      }
+      out[[paste0("Xgp", pi)]] <- Xgp
+      out[[paste0("Kgp", pi)]] <- 1L
+      if (gp$by != "NA") {
+        Cgp <- get(gp$by, data)
+        if (is.numeric(Cgp)) {
+          out[[paste0("Cgp", pi)]] <- Cgp
+        } else {
+          Cgp <- factor(Cgp)
+          lCgp <- levels(Cgp)
+          Jgp <- lapply(lCgp, function(x) which(Cgp == x))
+          out[[paste0("Kgp", pi)]] <- length(Jgp)
+          out[[paste0("Igp", pi)]] <- lengths(Jgp)
+          Jgp_names <- paste0("Jgp", pi, "_", seq_along(Jgp))
+          out <- c(out, setNames(Jgp, Jgp_names))
+        }
+      }
+    }
+  }
+  out
+} 
 
 data_offset <- function(bterms, data, nlpar = "") {
   # prepare data of offsets for use in Stan

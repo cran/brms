@@ -18,6 +18,21 @@ p <- function(x, i = NULL, row = TRUE) {
   }
 }
 
+select_indices <- function(x, i) {
+  # select indices and restart indexing at 1
+  # Args:
+  #   x: list of index vectors
+  #   i: vector of indices to select
+  if (!is.null(i)) {
+    x <- as.list(x)
+    si <- sort(i)
+    for (j in seq_along(x)) {
+      x[[j]] <- match(intersect(i, x[[j]]), si)
+    }
+  }
+  x
+}
+
 isNULL <- function(x) {
   # check if an object is NULL
   is.null(x) || ifelse(is.vector(x), all(sapply(x, is.null)), FALSE)
@@ -249,6 +264,22 @@ deparse_no_string <- function(x) {
 eval2 <- function(text, ...) {
   # evaluate a string
   eval(parse(text = text), ...)
+}
+
+eval_silent <- function(expr, type = "output", silent = TRUE, ...) {
+  # evaluate an expression without printing output or messages
+  # Args:
+  #   expr: expression to be evaluated
+  #   type: type of output to be suppressed (see ?sink)
+  #   silent: actually evaluate silently?
+  expr <- substitute(expr)
+  envir <- parent.frame()
+  if (silent) {
+    utils::capture.output(out <- eval(expr, envir), type = type, ...)
+  } else {
+    out <- eval(expr, envir)
+  }
+  out
 }
 
 eval_smooth <- function(x) {
@@ -487,6 +518,40 @@ log1m_inv_logit <- function(x) {
   log(1 - inv_logit(x))
 }
 
+cov_exp_quad <- function(x, x_new = NULL, sdgp = 1, lscale = 1) {
+  diff_quad <- diff_quad(x = x, x_new = x_new)
+  sdgp^2 * exp(-diff_quad / (2 * lscale^2))
+}
+
+diff_quad <- function(x, x_new = NULL) {
+  # compute squared differences
+  # Args:
+  #   x: vector or matrix
+  #   x_new: optional vector of matrix with the same ncol as x
+  # Returns:
+  #   An nrow(x) times nrow(x_new) matrix
+  # Details:
+  #   If matrices are passed results are summed over the columns
+  x <- as.matrix(x)
+  if (is.null(x_new)) {
+    x_new <- x
+  } else {
+    x_new <- as.matrix(x_new)
+  }
+  .diff_quad <- function(x1, x2) {
+    (x1 - x2)^2
+  }
+  out <- 0
+  for (i in seq_len(ncol(x))) {
+    out <- out + outer(x[, i], x_new[, i], .diff_quad)
+  }
+  out
+}
+
+scale_unit <- function(x, lb = min(x), ub = max(x)) {
+  (x - lb) / (ub - lb)
+}
+
 fabs <- function(x) {
   abs(x)
 }
@@ -569,8 +634,8 @@ expect_match2 <- function(object, regexp, ..., all = TRUE) {
   testthat::expect_match(object, regexp, fixed = TRUE, ..., all = all)
 }
 
-# startup messages for brms
 .onAttach <- function(libname, pkgname) {
+  # startup messages for brms
   packageStartupMessage(paste0(
     "Loading 'brms' package (version ", utils::packageVersion("brms"), "). ",
     "Useful instructions \n", 

@@ -381,20 +381,23 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
     stop2("All arguments of set_prior must be of length 1.")
   }
     
-  valid_classes <- c("Intercept", "b", "sd", "sds", "simplex", "cor", "L", 
-                     "ar", "ma", "arr", "sigmaLL", "rescor", "Lrescor", 
-                     "delta", "theta", if (!check) "")
+  valid_classes <- c("Intercept", "b", "sd", "sds", "sdgp", "lscale",
+                     "simplex", "cor", "L", "ar", "ma", "arr", "sigmaLL", 
+                     "rescor", "Lrescor", "delta", "theta", if (!check) "")
   if (!(class %in% valid_classes || auxpar_class(class) %in% auxpars())) {
     stop2("'", class, "' is not a valid parameter class.")
   }
   if (nchar(group) && !class %in% c("sd", "cor", "L")) {
     stop2("Argument 'group' is not meaningful for class '", class, "'.")
   }
-  coef_classes <- c("Intercept", "b", "sd", "sds", "sigma", "simplex")
+  coef_classes <- c(
+    "Intercept", "b", "sd", "sds", "sigma", 
+    "simplex", "sdgp", "lscale"
+  )
   if (nchar(coef) && !class %in% coef_classes) {
     stop2("Argument 'coef' ia not meaningful for class '", class, "'.")
   }
-  if (nchar(nlpar) && !class %in% valid_classes[1:5]) {
+  if (nchar(nlpar) && !class %in% valid_classes[1:7]) {
     stop2("Argument 'nlpar' is not meaningful for class '", class, "'.")
   }
   is_arma <- class %in% c("ar", "ma")
@@ -509,7 +512,7 @@ prior_string <- function(prior, ...) {
 #'               prior = prior)
 #' 
 #' @export
-get_prior <- function(formula, data, family = NULL,
+get_prior <- function(formula, data, family = gaussian(),
                       autocor = NULL, nonlinear = NULL,
                       threshold = c("flexible", "equidistant"), 
                       internal = FALSE) {
@@ -521,7 +524,7 @@ get_prior <- function(formula, data, family = NULL,
   threshold <- match.arg(threshold)
   autocor <- check_autocor(autocor)
   bterms <- parse_bf(formula, family = family)
-  data <- update_data(data, family = family, bterms = bterms)
+  data <- update_data(data, bterms = bterms)
   ranef <- tidy_ranef(bterms, data)
   
   # ensure that RE and residual SDs only have a weakly informative prior by default
@@ -646,7 +649,12 @@ get_prior <- function(formula, data, family = NULL,
 #' @export
 prior_effects.btl <- function(x, data, nlpar = "", spec_intercept = TRUE,
                               def_scale_prior = "", ...) {
-  # TODO: doc
+  # collect default priors for various kinds of effects
+  # Args:
+  #   spec_intercept: special parameter class for the Intercept?
+  #   def_scale_prior: default prior for SD parameters
+  # Return:
+  #   An object of class brmsprior 
   nlpar <- check_nlpar(nlpar)
   fixef <- colnames(data_fe(x, data)$X)
   spec_intercept <- has_intercept(x$fe) && spec_intercept
@@ -658,14 +666,17 @@ prior_effects.btl <- function(x, data, nlpar = "", spec_intercept = TRUE,
   smooths <- get_sm_labels(x)
   prior_sm <- prior_sm(smooths, def_scale_prior, nlpar = nlpar)
   csef <- colnames(get_model_matrix(x$cs, data = data))
-  prior_cs <- prior_cs(csef, fixef = fixef)
-  prior_me <- prior_me(get_me_labels(x, data))
-  rbind(prior_fe, prior_mo, prior_sm, prior_cs, prior_me)
+  prior_cs <- prior_cs(csef, fixef = fixef, nlpar = nlpar)
+  prior_me <- prior_me(get_me_labels(x, data), nlpar = nlpar)
+  prior_gp <- prior_gp(get_gp_labels(x), def_scale_prior, nlpar = nlpar)
+  rbind(prior_fe, prior_mo, prior_sm, prior_cs, prior_me, prior_gp)
 }
 
 #' @export
 prior_effects.btnl <- function(x, data, def_scale_prior = "", ...) {
-  # TODO: doc
+  # collect default priors for non-linear parameters
+  # Args:
+  #   see prior_effects.btl
   nlpars <- names(x$nlpars)
   prior <- empty_brmsprior()
   for (i in seq_along(nlpars)) {
@@ -727,7 +738,7 @@ prior_mo <- function(monef, fixef = NULL, nlpar = "") {
   prior
 }
 
-prior_cs <- function(csef, fixef = NULL) {
+prior_cs <- function(csef, fixef = NULL, nlpar = "") {
   # priors for category spcific effects parameters
   # Args:
   #   csef: names of the category specific effects
@@ -736,6 +747,7 @@ prior_cs <- function(csef, fixef = NULL) {
   #   an object of class brmsprior
   prior <- empty_brmsprior()
   if (length(csef)) {
+    stopifnot(!nzchar(nlpar))
     invalid <- intersect(fixef, csef)
     if (length(invalid)) {
       stop2("Variables cannot be modeled as fixed and ", 
@@ -756,6 +768,22 @@ prior_me <- function(meef, nlpar = "") {
   if (length(meef)) {
     prior <- brmsprior(
       class = "b", coef = c("", rename(meef)), nlpar = nlpar
+    )
+  }
+  prior
+}
+
+prior_gp <- function(gpef, def_scale_prior, nlpar = "") {
+  # default priors of coefficients of noisy terms
+  # Args:
+  #   meef: terms containing noisy variables
+  prior <- empty_brmsprior()
+  if (length(gpef)) {
+    prior <- rbind(
+      brmsprior(class = "sdgp", prior = def_scale_prior, nlpar = nlpar),
+      brmsprior(class = "sdgp", coef = gpef, nlpar = nlpar),
+      brmsprior(class = "lscale", prior = "normal(0, 0.5)", nlpar = nlpar),
+      brmsprior(class = "lscale", coef = gpef, nlpar = nlpar)
     )
   }
   prior

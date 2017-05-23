@@ -2,6 +2,56 @@
 \title{brms News}
 \encoding{UTF-8}
 
+
+\section{CHANGES IN VERSION 1.7.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Fit latent Gaussian processes of one
+      or more covariates via function \code{gp} 
+      specified in the model formula (#221).
+      \item Rework methods \code{fixef}, \code{ranef},
+      \code{coef}, and \code{VarCorr} to be more flexible 
+      and consistent with other post-processing methods (#200).
+      \item Generalize method \code{hypothesis} to be
+      applicable on all objects coercible to a 
+      \code{data.frame} (#198).
+      \item Visualize predictions via spaghetti 
+      plots using argument \code{spaghetti} in
+      \code{marginal_effects} and \code{marginal_smooths}.
+      \item Introduce method \code{add_ic} to
+      store and reuse information criteria in 
+      fitted model objects (#220).
+      \item Allow for negative weights in 
+      multi-membership grouping structures.
+      \item Introduce an \code{as.array} method
+      for \code{brmsfit} objects.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Show output of \R code in HTML vignettes thanks
+      to Ben Goodrich (#158).
+      \item Resolve citations in PDF vignettes thanks
+      to Thomas Kluth (#223).
+      \item Improve sampling efficiency for
+      \code{exgaussian} models thanks to
+      Alex Forrence (#222).
+      \item Also transform data points when using argument 
+      \code{transform} in \code{marginal_effects}
+      thanks to Markus Gesmann.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix an unexpected error in \code{marginal_effects}
+      occuring for some models with autocorrelation terms 
+      thanks to Markus Gesmann.
+      \item Fix multiple problems occuring for models with  
+      the \code{cor_bsts} structure thanks to Andrew Ellis.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.6.1}{
   \subsection{NEW FEATURES}{
     \itemize{

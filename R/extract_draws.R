@@ -3,29 +3,25 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
                                   allow_new_levels = FALSE, 
                                   sample_new_levels = "uncertainty",
                                   incl_autocor = TRUE, subset = NULL, 
-                                  nsamples = NULL, ...) {
+                                  nsamples = NULL, nug = NULL, ...) {
   # extract all data and posterior draws required in (non)linear_predictor
   # Args:
-  #   incl_autocor: include autocorrelation parameters in the output?
-  #   other arguments: see doc of logLik.brmsfit
+  #   see doc of logLik.brmsfit
   # Returns:
   #   A named list to be interpreted by linear_predictor
-  sample_new_levels <- match.arg(
-    sample_new_levels, c("uncertainty", "gaussian", "old_levels")
-  )
+  snl_options <- c("uncertainty", "gaussian", "old_levels")
+  sample_new_levels <- match.arg(sample_new_levels, snl_options)
+  x <- remove_autocor(x, incl_autocor)
   bterms <- parse_bf(formula(x), family = family(x))
   subset <- subset_samples(x, subset, nsamples)
   nsamples <- nsamples(x, subset = subset)
-  newd_args <- nlist(
-    fit = x, newdata, re_formula, allow_new_levels, incl_autocor
-  )
+  newd_args <- nlist(fit = x, newdata, re_formula, allow_new_levels)
   draws <- nlist(
     f = prepare_family(x), nsamples = nsamples,
     data = do.call(amend_newdata, c(newd_args, list(...)))
   )
   args <- c(newd_args, nlist(
-    sample_new_levels, subset, 
-    nsamples, C = draws$data[["C"]]
+    sample_new_levels, subset, nsamples, nug, C = draws$data[["C"]]
   ))
   keep <- !grepl("^(X|Z|J|C)", names(draws$data))
   draws$data <- subset_attr(draws$data, keep)
@@ -87,7 +83,7 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
     draws$rescor <- do.call(as.matrix, c(am_args, pars = "^rescor_"))
     draws$Sigma <- get_cov_matrix(sd = draws$sigma, cor = draws$rescor)$cov
   }
-  if (incl_autocor && use_cov(x$autocor)) {
+  if (use_cov(x$autocor)) {
     # only include autocor samples on the top-level of draws 
     # when using the covariance formulation of ARMA structures
     draws <- c(draws, 
@@ -124,8 +120,9 @@ extract_draws.btnl <- function(x, C, nlpar = "", ...) {
 extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL, 
                               allow_new_levels = FALSE, 
                               sample_new_levels = FALSE,
-                              incl_autocor = TRUE, subset = NULL, nlpar = "",
-                              smooths_only = FALSE, mv = FALSE, ...) {
+                              incl_autocor = TRUE, subset = NULL, 
+                              nlpar = "", smooths_only = FALSE, 
+                              mv = FALSE, nug = NULL, ...) {
   # extract draws of all kinds of effects
   # Args:
   #   fit: a brmsfit object
@@ -137,6 +134,7 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
   #   A named list to be interpreted by linear_predictor
   dots <- list(...)
   stopifnot(is.brmsfit(fit), is.brmsformula(fit$formula))
+  fit <- remove_autocor(fit, incl_autocor)
   nlpar <- check_nlpar(nlpar)
   nsamples <- nsamples(fit, subset = subset)
   fit$formula$formula <- update(fit$formula$formula, rhs(x$formula))
@@ -156,7 +154,7 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
   usc_nlpar <- usc(usc(nlpar))
   newd_args <- nlist(
     fit, newdata, re_formula, allow_new_levels, 
-    incl_autocor, check_response = FALSE
+    check_response = FALSE
   )
   draws <- list(data = do.call(amend_newdata, newd_args), 
                 old_cat = is_old_categorical(fit))
@@ -170,22 +168,30 @@ extract_draws.btl <- function(x, fit, newdata = NULL, re_formula = NULL,
   }
   
   args <- nlist(x = fit, subset)
+  new <- !is.null(newdata)
   fixef <- colnames(draws$data[["X"]])
   monef <- colnames(draws$data[["Xmo"]])
   csef <- colnames(draws$data[["Xcs"]])
   meef <- get_me_labels(bterms$auxpars$mu, fit$data)
-  smooths <- rename(get_sm_labels(bterms$auxpars$mu, fit$data, covars = TRUE))
+  smooths <- get_sm_labels(bterms$auxpars$mu, fit$data, covars = TRUE)
+  gpef <- get_gp_labels(bterms$auxpars$mu, fit$data, covars = TRUE)
+  sdata_old <- NULL
+  if (length(gpef) && new) {
+    oldd_args <- newd_args[!names(newd_args) %in% "newdata"]
+    sdata_old <- do.call(amend_newdata, c(oldd_args, list(newdata = NULL)))
+  }
   draws <- c(draws,
     extract_draws_fe(fixef, args, nlpar = nlpar, old_cat = draws$old_cat),
     extract_draws_mo(monef, args, sdata = draws$data, nlpar = nlpar),
     extract_draws_cs(csef, args, nlpar = nlpar, old_cat = draws$old_cat),
-    extract_draws_me(meef, args, sdata = draws$data, nlpar = nlpar,
-                     is_newdata = !is.null(newdata)),
+    extract_draws_me(meef, args, sdata = draws$data, nlpar = nlpar, new = new),
     extract_draws_sm(smooths, args, sdata = draws$data, nlpar = nlpar),
+    extract_draws_gp(gpef, args, sdata = draws$data, sdata_old = sdata_old, 
+                     nlpar = nlpar, new = new, nug = nug),
     extract_draws_re(new_ranef, args, sdata = draws$data, nlpar = nlpar,
                      sample_new_levels = sample_new_levels)
   )
-  if (incl_autocor && !use_cov(fit$autocor) && (!nzchar(nlpar) || mv)) {
+  if (!use_cov(fit$autocor) && (!nzchar(nlpar) || mv)) {
     # only include autocorrelation parameters in draws for mu
     draws <- c(draws, 
       extract_draws_autocor(fit, newdata = newdata, subset = subset)
@@ -280,21 +286,21 @@ extract_draws_cs <- function(csef, args, nlpar = "", old_cat = 0L) {
 }
 
 extract_draws_me <- function(meef, args, sdata, nlpar = "",
-                             is_newdata = FALSE) {
+                             new = FALSE) {
   # extract draws of noise-free effects
   # Args:
   #   meef: names of the noise free effects
   #   args: list of arguments passed to as.matrix.brmsfit
   #   sdata: list returned by make_standata
   #   nlpar: name of a non-linear parameter
-  #   is_newdata: logical; are new data specified?
+  #   new: logical; are new data specified?
   # Returns: 
   #   A named list to be interpreted by linear_predictor
   stopifnot("x" %in% names(args))
   nlpar_usc <- usc(nlpar, "suffix")
   draws <- list()
   if (length(meef)) {
-    if (is_newdata) {
+    if (new) {
       stop2("Predictions with noise-free variables are not yet ",
             "possible when passing new data.")
     }
@@ -373,6 +379,53 @@ extract_draws_sm <- function(smooths, args, sdata, nlpar = "") {
         draws[["s"]][[smooths[i]]][[j]] <- 
           do.call(as.matrix, c(args, list(pars = s_pars)))
       }
+    }
+  }
+  draws
+}
+
+extract_draws_gp <- function(gpef, args, sdata, sdata_old = NULL,
+                             nlpar = "", new = FALSE, nug = NULL) {
+  # extract draws for gaussian processes
+  # Args:
+  #   gpef: names of the gaussian process terms
+  stopifnot("x" %in% names(args))
+  nlpar_usc <- usc(nlpar, "suffix")
+  draws <- list()
+  if (length(gpef)) {
+    draws[["gp"]] <- named_list(gpef)
+    if (is.null(nug)) {
+      nug <- ifelse(new, 1e-8, 1e-11)
+    }
+    for (i in seq_along(gpef)) {
+      gp <- list()
+      by_levels <- attr(gpef, "by_levels")[[i]]
+      gp_names <- paste0(gpef[i], usc(by_levels))
+      sdgp <- paste0("^sdgp_", nlpar_usc, gp_names)
+      gp[["sdgp"]] <- do.call(as.matrix, c(args, list(pars = sdgp)))
+      lscale <- paste0("^lscale_", nlpar_usc, gp_names)
+      gp[["lscale"]] <- do.call(as.matrix, c(args, list(pars = lscale)))
+      zgp <- paste0("^zgp_", nlpar_usc, gpef[i], "\\[")
+      gp[["zgp"]] <- do.call(as.matrix, c(args, list(pars = zgp)))
+      gp[["bynum"]] <- sdata[[paste0("Cgp_", i)]]
+      Jgp_pos <- grepl(paste0("^Jgp_", i), names(sdata))
+      if (new) {
+        gp[["x"]] <- sdata_old[[paste0("Xgp_", i)]]
+        gp[["x_new"]] <- sdata[[paste0("Xgp_", i)]]
+        gp[["Jgp"]] <- sdata_old[Jgp_pos]
+        gp[["Jgp_new"]] <- sdata[Jgp_pos]
+        # computing GPs for new data requires the old GP terms
+        gp[["yL"]] <- gp_predictor(
+          x = gp[["x"]], sdgp = gp[["sdgp"]],
+          lscale = gp[["lscale"]], zgp = gp[["zgp"]], 
+          Jgp = gp[["Jgp"]]
+        )
+      } else {
+        gp[["x"]] <- sdata[[paste0("Xgp_", i)]]
+        gp[["Jgp"]] <- sdata[Jgp_pos]
+      }
+      gp[["nug"]] <- nug
+      draws[["gp"]][[i]] <- gp
     }
   }
   draws

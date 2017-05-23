@@ -2,7 +2,8 @@
 #' @method plot brmsMarginalEffects
 #' @export 
 plot.brmsMarginalEffects <- function(x, ncol = NULL, points = FALSE, 
-                                     rug = FALSE, jitter_width = 0,
+                                     rug = FALSE, mean = TRUE, 
+                                     jitter_width = 0,
                                      stype = c("contour", "raster"),
                                      theme = bayesplot::theme_default(), 
                                      ask = TRUE, plot = TRUE, ...) {
@@ -48,26 +49,56 @@ plot.brmsMarginalEffects <- function(x, ncol = NULL, points = FALSE,
       # plot effects of single predictors / smooths
       # as well as two-way interactions
       gvar <- if (length(effects) == 2L) effects[2]
+      spaghetti <- attr(x[[i]], "spaghetti")
       plots[[i]] <- ggplot(x[[i]]) + 
-        aes_string(x = effects[1], y = "estimate__",
-                   ymin = "lower__", ymax = "upper__", 
-                   colour = gvar, fill = gvar) + 
+        aes_string(x = effects[1], y = "estimate__", colour = gvar) +
         ylab(response)
+      if (is.null(spaghetti)) {
+        plots[[i]] <- plots[[i]] +
+          aes_string(ymin = "lower__", ymax = "upper__", fill = gvar)  
+      }
+      # extract suggested colors for later use
+      colors <- ggplot_build(plots[[i]])
+      colors <- unique(colors$data[[1]][["colour"]])
       if (points) {
-        # show the data as points in the plot
         # add points first so that they appear behind the regression lines
         aes_points <- aes_string(x = effects[1], y = "resp__")
         if (is.factor(attr(x[[i]], "points")[, gvar])) {
           aes_points$colour <- parse(text = gvar)[[1]]
         }
         plots[[i]] <- plots[[i]] + 
-          geom_jitter(aes_points, shape = 1, size = 4 / ncond^0.25,
+          geom_jitter(aes_points, size = 2 / ncond^0.25,
                       data = attr(x[[i]], "points"), inherit.aes = FALSE,
                       height = 0, width = jitter_width)
       }
+      if (!is.null(spaghetti)) {
+        # add a regression line for each sample separately
+        spaghetti_args <- list(
+          aes_string(group = "sample__", colour = gvar),
+          data = spaghetti, stat = "identity", size = 0.5
+        )
+        if (length(effects) == 1L) {
+          spaghetti_args$colour <- alpha("blue", 0.1)
+        } else {
+          # workaround to get transparent lines
+          plots[[i]] <- plots[[i]] +
+            scale_color_manual(values = alpha(colors, 0.1))
+        }
+        plots[[i]] <- plots[[i]] +
+          do.call(geom_smooth, spaghetti_args)
+      }
       if (is.numeric(x[[i]][, effects[1]])) {
         # smooth plots for numeric predictors
-        plots[[i]] <- plots[[i]] + geom_smooth(stat = "identity")
+        smooth_args <- list(stat = "identity")
+        if (!is.null(spaghetti)) {
+          # display a white mean regression line
+          smooth_args$mapping <- aes_string(group = gvar)
+          smooth_args$colour <- alpha("white", 0.8)
+        }
+        if (mean || is.null(spaghetti)) {
+          plots[[i]] <- plots[[i]] + 
+            do.call(geom_smooth, smooth_args)
+        }
         if (rug) {
           plots[[i]] <- plots[[i]] +
             geom_rug(aes_string(x = effects[1]),
@@ -94,13 +125,15 @@ plot.brmsMarginalEffects <- function(x, ncol = NULL, points = FALSE,
     plots[[i]] <- plots[[i]] + theme
     if (plot) {
       plot(plots[[i]])
-      if (i == 1) devAskNewPage(ask = ask)
+      if (i == 1) {
+        devAskNewPage(ask = ask)
+      }
     }
   }
   invisible(plots)
 }
 
-#' @rdname hypothesis
+#' @rdname brmshypothesis
 #' @method plot brmshypothesis
 #' @export
 plot.brmshypothesis <- function(x, N = 5, ignore_prior = FALSE,

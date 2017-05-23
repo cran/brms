@@ -74,10 +74,9 @@ restructure <- function(x, rstr_summary = FALSE) {
   version <- x$version$brms
   if (version < utils::packageVersion("brms")) {
     # element 'nonlinear' deprecated as of brms > 0.9.1
-    # element 'partial' deprecated as of brms > 0.8.0
     x$formula <- SW(amend_formula(
-      formula(x), data = model.frame(x), family = family(x), 
-      partial = x$partial, nonlinear = x$nonlinear
+      formula(x), data = model.frame(x), 
+      family = family(x), nonlinear = x$nonlinear
     ))
     x$nonlinear <- x$partial <- NULL
     x$formula[["old_mv"]] <- is_old_mv(x)
@@ -219,6 +218,7 @@ prepare_conditions <- function(x, conditions = NULL, effects = NULL,
     lapply(get_effect(bterms, "me"), rhs),
     lapply(get_effect(bterms, "sm"), rhs),
     lapply(get_effect(bterms, "cs"), rhs),
+    lapply(get_effect(bterms, "gp"), rhs),
     lapply(get_effect(bterms, "offset"), rhs),
     re$form, lapply(re$gcall, "[[", "weightvars"),
     bterms$adforms[c("se", "disp", "trials", "cat")],
@@ -433,14 +433,16 @@ get_estimate <- function(coef, samples, margin = 2, to.array = FALSE, ...) {
 }
 
 get_summary <- function(samples, probs = c(0.025, 0.975),
-                        robust = FALSE) {
+                        robust = FALSE, keep_names = FALSE) {
   # summarizes parameter samples based on mean, sd, and quantiles
   # Args: 
   #   samples: a matrix or data.frame containing the samples to be summarized. 
   #            rows are samples, columns are parameters
   #   probs: quantiles to be computed
+  #   robust: return median and mas instead of mean and sd?
+  #   keep_names: keep dimnames of the samples?
   # Returns:
-  #   a N x C matric where N is the number of observations and C 
+  #   a N x C matrix where N is the number of observations and C 
   #   is equal to \code{length(probs) + 2}.
   if (robust) {
     coefs <- c("median", "mad", "quantile")
@@ -448,17 +450,34 @@ get_summary <- function(samples, probs = c(0.025, 0.975),
     coefs <- c("mean", "sd", "quantile")
   }
   if (length(dim(samples)) == 2L) {
-    out <- do.call(cbind, lapply(coefs, get_estimate, samples = samples,
-                                 probs = probs, na.rm = TRUE))
+    out <- lapply(
+      coefs, get_estimate, samples = samples, 
+      probs = probs, na.rm = TRUE
+    )
+    out <- do.call(cbind, out)
+    if (keep_names) {
+      rownames(out) <- colnames(samples)
+    } else {
+      rownames(out) <- seq_len(nrow(out))
+    }
   } else if (length(dim(samples)) == 3L) {
-    out <- abind(lapply(seq_len(dim(samples)[3]), function(i)
-      do.call(cbind, lapply(coefs, get_estimate, samples = samples[, , i],
-                            probs = probs))), along = 3)
-    dimnames(out) <- list(NULL, NULL, paste0("P(Y = ", 1:dim(out)[3], ")")) 
+    fun3dim <- function(i) {
+      do.call(cbind, lapply(
+        coefs, get_estimate, samples = samples[, , i], 
+        probs = probs, ra.rm = TRUE
+      ))
+    }
+    out <- abind(lapply(seq_len(dim(samples)[3]), fun3dim), along = 3)
+    if (keep_names) {
+      dimnames(out)[c(1, 3)] <- dimnames(samples)[c(2, 3)]
+    } else {
+      dimnames(out)[c(1, 3)] <- list(
+        seq_len(nrow(out)), paste0("P(Y = ", seq_len(dim(out)[3]), ")")
+      )  
+    }
   } else { 
     stop("Dimension of 'samples' must be either 2 or 3.") 
   }
-  rownames(out) <- seq_len(nrow(out))
   colnames(out) <- c("Estimate", "Est.Error", paste0(probs * 100, "%ile"))
   out  
 }
@@ -840,7 +859,8 @@ default_plot_pars <- function() {
   # list all parameter classes to be included in plots by default
   c(fixef_pars(), "^sd_", "^cor_", "^sigma_", "^rescor_", 
     paste0("^", auxpars(), "[[:digit:]]*$"), "^delta$",
-    "^theta", "^ar", "^ma", "^arr", "^sigmaLL", "^sds_")
+    "^theta", "^ar", "^ma", "^arr", "^sigmaLL", "^sds_",
+    "^sdgp_", "^lscale_")
 }
 
 extract_pars <- function(pars, all_pars, exact_match = FALSE,
@@ -911,10 +931,14 @@ compute_ic <- function(x, ic = c("waic", "loo", "psislw"),
 #' 
 #' @param ... At least two objects returned by 
 #'   \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.
-#' @param x A list of at least two objects returned by
-#'   \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.
-#'   This argument can be used as an alternative to specifying the 
-#'   models in \code{...}.
+#'   Alternatively, \code{brmsfit} objects with information 
+#'   criteria precomputed via \code{\link[brms:add_ic]{add_ic}}
+#'   may be passed, as well.
+#' @param x A \code{list} containing the same types of objects as
+#'   can be passed via \code{...}.
+#' @param ic The name of the information criterion to be extracted 
+#'   from \code{brmsfit} objects. Ignored if information 
+#'   criterion objects are only passed directly.
 #'   
 #' @return An object of class \code{iclist}.
 #' 
@@ -923,6 +947,7 @@ compute_ic <- function(x, ic = c("waic", "loo", "psislw"),
 #' @seealso 
 #'   \code{\link[brms:WAIC]{WAIC}}, 
 #'   \code{\link[brms:LOO]{LOO}},
+#'   \code{\link[brms:add_ic]{add_ic}},
 #'   \code{\link[loo:compare]{compare}}
 #'   
 #' @examples 
@@ -942,28 +967,29 @@ compute_ic <- function(x, ic = c("waic", "loo", "psislw"),
 #' }
 #' 
 #' @export
-compare_ic <- function(..., x = NULL) {
-  # compare information criteria of different models
-  # Args:
-  #   x: A list containing loo objects
-  #   ic: the information criterion to be computed
-  # Returns:
-  #   A matrix with differences in the ICs 
-  #   as well as corresponding standard errors
+compare_ic <- function(..., x = NULL, ic = c("loo", "waic")) {
+  ic <- match.arg(ic)
   if (!(is.null(x) || is.list(x))) {
     stop2("Argument 'x' should be a list.")
   }
   x$ic_diffs__ <- NULL
   x <- c(list(...), x)
+  for (i in seq_along(x)) {
+    # extract precomputed values from brmsfit objects
+    if (is.brmsfit(x[[i]]) && !is.null(x[[i]][[ic]])) {
+      x[[i]] <- x[[i]][[ic]]
+    }
+  }
   if (!all(sapply(x, inherits, "ic"))) {
-    stop2("All inputs should have class 'ic'.")
+    stop2("All inputs should have class 'ic' ", 
+          "or contain precomputed 'ic' objects.")
   }
   if (length(x) < 2L) {
     stop2("Expecting at least two objects.")
   }
   ics <- unname(sapply(x, function(y) names(y)[3]))
   if (!all(sapply(ics, identical, ics[1]))) {
-    stop2("All inputs should be from the the same criterion.")
+    stop2("All inputs should be from the same criterion.")
   }
   names(x) <- ulapply(x, "[[", "model_name")
   n_models <- length(x)
@@ -1044,6 +1070,17 @@ set_pointwise <- function(x, pointwise = NULL, newdata = NULL,
   pointwise
 }
 
+is.ic <- function(x) {
+  # objects of class 'ic' are returned by LOO and WAIC
+  inherits(x, "ic")
+}
+
+args_not_for_add_ic <- function() {
+  # arguments of WAIC and LOO not usable in add_ic
+  c("newdata", "re_formula", "subset", "nsamples",
+    "allow_new_levels", "sample_new_levels")
+}
+
 match_response <- function(models) {
   # compare the response parts of multiple brmsfit objects
   # Args:
@@ -1085,16 +1122,16 @@ find_names <- function(x) {
   # Args:
   #   x: a character string
   # Notes:
-  #   does not use the R parser itself to allow for 
-  #   square brackets and kommas at the end of names
-  #   currently only used in hypothesis.brmsfit
+  #   Does not use the R parser itself to allow for double points, 
+  #   square brackets and kommas at the end of names.
+  #   currently only used in 'hypothesis_internal'
   # Returns:
   #   all valid variable names within the string
   if (!is.character(x) || length(x) > 1) {
     stop2("Argument 'x' must be a character string of length one.")
   }
   x <- gsub(" ", "", x)
-  reg_all <- paste0("([^([:digit:]|[:punct:])]|\\.)[[:alnum:]_\\.]*", 
+  reg_all <- paste0("([^([:digit:]|[:punct:])]|\\.)[[:alnum:]_\\.\\:]*", 
                     "(\\[[^],]+(,[^],]+)*\\])?")
   pos_all <- gregexpr(reg_all, x)[[1]]
   reg_fun <- "([^([:digit:]|[:punct:])]|\\.)[[:alnum:]_\\.]*\\("
@@ -1149,7 +1186,8 @@ evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"),
 }
 
 make_point_frame <- function(mf, effects, conditions, groups, 
-                             family, select_points = 0) {
+                             family, select_points = 0, 
+                             transform = NULL) {
   # helper function for marginal_effects.brmsfit
   # allowing add data points to the marginal plots
   # Args:
@@ -1181,15 +1219,17 @@ make_point_frame <- function(mf, effects, conditions, groups,
       cond <- cond[, not_na, drop = FALSE]
       mf_tmp <- mf[, not_na, drop = FALSE]
       if (ncol(mf_tmp)) {
-        is_num <- sapply(mf_tmp, is.numeric)
+        is_num <- sapply(mf_tmp, is.numeric) 
+        is_num <- is_num & !names(mf_tmp) %in% groups
         if (sum(is_num)) {
+          # handle numeric variables
           stopifnot(select_points >= 0)
           if (select_points > 0) {
             for (v in names(mf_tmp)[is_num]) {
               min <- min(mf_tmp[, v])
               max <- max(mf_tmp[, v])
-              unit <- (mf_tmp[, v] - min) / (max - min)
-              unit_cond <- (cond[, v] - min) / (max - min)
+              unit <- scale_unit(mf_tmp[, v], min, max)
+              unit_cond <- scale_unit(cond[, v], min, max)
               unit_diff <- abs(unit - unit_cond)
               close_enough <- unit_diff <= select_points
               mf_tmp[close_enough, v] <- cond[, v]
@@ -1198,21 +1238,23 @@ make_point_frame <- function(mf, effects, conditions, groups,
           } else {
             # take all numeric values if select_points is zero
             cond <- cond[, !is_num, drop = FALSE]
-            mf_tmp <- mf[, !is_num, drop = FALSE]
+            mf_tmp <- mf_tmp[, !is_num, drop = FALSE]
           }
         }
       }
       if (ncol(mf_tmp)) {
+        # handle factors and grouping variables
         # do it like base::duplicated
         K <- do.call("paste", c(mf_tmp, sep = "\r")) %in%
              do.call("paste", c(cond, sep = "\r"))
       } else {
         K <- seq_len(nrow(mf))
       }
-      points[[i]]$cond__[K] <- rownames(conditions)[i] 
+      # cond__ allows to assign points to conditions
+      points[[i]]$cond__[K] <- rownames(conditions)[i]
     }
     points <- do.call(rbind, points)
-    # cond__ allows to assign points to conditions
+    points <- points[!is.na(points$cond__), , drop = FALSE]
     points$cond__ <- factor(points$cond__, rownames(conditions))
   }
   if (!is.numeric(points$resp__)) {
@@ -1221,7 +1263,110 @@ make_point_frame <- function(mf, effects, conditions, groups,
       points$resp__ <- points$resp__ - 1
     }
   }
-  na.omit(points)
+  if (!is.null(transform)) {
+    points$resp__ <- do.call(transform, list(points$resp__))
+  }
+  points
+}
+
+hypothesis_internal <- function(x, hypothesis, class = "", alpha = 0.05, ...) {
+  # internal function to evaluate hypotheses
+  # Args:
+  #   x: the primary object passed to the hypothesis method;
+  #      Needs to be a brmsfit object or coercible to a data.frame
+  #   hypothesis: Vector of character strings containing the hypotheses
+  #   class: prefix of the parameters in the hypotheses
+  #   alpha: alpha-level
+  # Returns:
+  #   an object of class 'brmshypothesis'
+  if (!is.character(hypothesis)) {
+    stop2("Argument 'hypothesis' must be a character vector.")
+  }
+  if (!is.character(class) || length(class) != 1L) {
+    stop2("Argument 'class' must be a single character string.")
+  }
+  if (length(alpha) != 1L || alpha < 0 || alpha > 1) {
+    stop2("Argument 'alpha' must be a single value in [0,1].")
+  }
+  
+  .eval_hypothesis <- function(h) {
+    stopifnot(length(h) == 1L && is.character(h))
+    # parse hypothesis string
+    h <- gsub("[ \t\r\n]", "", h)
+    sign <- get_matches("=|<|>", h)
+    lr <- get_matches("[^=<>]+", h)
+    if (length(sign) != 1L || length(lr) != 2L) {
+      stop2("Every hypothesis must be of the form 'left (= OR < OR >) right'.")
+    }
+    h <- paste0("(", lr[1], ")")
+    h <- paste0(h, ifelse(lr[2] != "0", paste0("-(", lr[2], ")"), ""))
+    varsH <- unique(find_names(h))
+    parsH <- paste0(class, varsH)
+    miss_pars <- setdiff(parsH, pars)
+    if (length(miss_pars)) {
+      miss_pars <- collapse_comma(miss_pars)
+      stop2("Some parameters cannot be found in the model: \n", miss_pars)
+    }
+    # rename hypothesis for correct evaluation
+    h_renamed <- rename(h, c(":", "[", "]", ","),  c("___", ".", ".", ".."))
+    # get posterior and prior samples
+    symbols <- c(paste0("^", class), ":", "\\[", "\\]", ",")
+    subs <- c("", "___", ".", ".", "..")
+    samples <- posterior_samples(x, pars = parsH, exact_match = TRUE)
+    names(samples) <- rename(names(samples), symbols, subs, fixed = FALSE)
+    samples <- as.matrix(eval2(h_renamed, samples))
+    prior_samples <- prior_samples(x, pars = parsH, fixed = TRUE)
+    if (!is.null(prior_samples) && ncol(prior_samples) == length(varsH)) {
+      names(prior_samples) <- rename(
+        names(prior_samples), symbols, subs, fixed = FALSE
+      )
+      prior_samples <- as.matrix(eval2(h_renamed, prior_samples))
+    } else {
+      prior_samples <- NULL
+    }
+    # summarize hypothesis
+    wsign <- switch(sign, "=" = "equal", "<" = "less", ">" = "greater")
+    probs <- switch(sign, 
+      "=" = c(alpha / 2, 1 - alpha / 2), 
+      "<" = c(0, 1 - alpha), ">" = c(alpha, 1)
+    )
+    sm <- lapply(
+      c("mean", "sd", "quantile", "evidence_ratio"), 
+      get_estimate, samples = samples, probs = probs, 
+      wsign = wsign, prior_samples = prior_samples
+    )
+    sm <- as.data.frame(matrix(unlist(sm), nrow = 1))
+    if (sign == "<") {
+      sm[1, 3] <- -Inf
+    } else if (sign == ">") {
+      sm[1, 4] <- Inf
+    }
+    sm <- cbind(sm, ifelse(!(sm[1, 3] <= 0 && 0 <= sm[1, 4]), '*', ''))
+    rownames(sm) <- paste(h, sign, "0")
+    cl <- (1 - alpha) * 100
+    colnames(sm) <- c(
+      "Estimate", "Est.Error", paste0("l-", cl, "% CI"),
+      paste0("u-", cl, "% CI"), "Evid.Ratio", "Star"
+    )
+    if (is.null(prior_samples)) {
+      prior_samples <- as.matrix(rep(NA, nrow(samples)))
+    }
+    return(nlist(summary = sm, samples, prior_samples))
+  }
+  
+  pars <- parnames(x)[grepl("^", class, parnames(x))]
+  hlist <- lapply(hypothesis, .eval_hypothesis)
+  hs <- do.call(rbind, lapply(hlist, function(h) h$summary))
+  samples <- do.call(cbind, lapply(hlist, function(h) h$samples))
+  samples <- cbind(as.data.frame(samples), Type = "Posterior")
+  prior_samples <- do.call(cbind, lapply(hlist, function(h) h$prior_samples))
+  prior_samples <- cbind(as.data.frame(prior_samples), Type = "Prior")
+  samples <- rbind(samples, prior_samples)
+  names(samples) <- c(paste0("H", seq_along(hlist)), "Type")
+  class <- sub("_+$", "", class)
+  out <- nlist(hypothesis = hs, samples, class, alpha)
+  class(out) <- "brmshypothesis"
+  out
 }
 
 add_samples <- function(x, newpar, dim = numeric(0), dist = "norm", ...) {
