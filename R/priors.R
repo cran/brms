@@ -1,6 +1,8 @@
 #' Prior Definitions for \pkg{brms} Models
 #'
 #' Define priors for specific parameters or classes of parameters
+#' 
+#' @aliases brmsprior brmsprior-class
 #'
 #' @param prior A character string defining a distribution in \pkg{Stan} language
 #' @param class The parameter class. Defaults to \code{"b"} 
@@ -89,8 +91,8 @@
 #'   In case of the default intercept parameterization 
 #'   (discussed in the 'Details' section of 
 #'   \code{\link[brms:brmsformula]{brmsformula}}),
-#'   general priors on class \code{"b"} will not affect the intercept.
-#'   Instead, the intercept has its own parameter class 
+#'   general priors on class \code{"b"} will \emph{not} affect 
+#'   the intercept. Instead, the intercept has its own parameter class 
 #'   named \code{"Intercept"} and priors can thus be 
 #'   specified via \code{set_prior("<prior>", class = "Intercept")}.
 #'   Setting a prior on the intercept will not break vectorization
@@ -106,53 +108,9 @@
 #'   use \code{0 + intercept} on the right-hand side of the model formula.
 #'   
 #'   A special shrinkage prior to be applied on population-level effects 
-#'   is the horseshoe prior (Carvalho et al., 2009).
-#'   It is symmetric around zero with fat tails and an infinitely large spike
-#'   at zero. This makes it ideal for sparse models that have 
-#'   many regression coefficients, although only a minority of them is non-zero. 
-#'   The horseshoe prior can be applied on all population-level effects at once 
-#'   (excluding the intercept) by using \code{set_prior("horseshoe(1)")}.
-#'   The \code{1} implies that the student-t prior of the local shrinkage 
-#'   parameters has 1 degrees of freedom. This may, however, lead to an 
-#'   increased number of divergent transition in \pkg{Stan}.
-#'   Accordingly, increasing the degrees of freedom to slightly higher values 
-#'   (e.g., \code{3}) may often be a better option, although the prior 
-#'   no longer resembles a horseshoe in this case. 
-#'   Further, the scale of the global shrinkage parameter plays an important role
-#'   in amount of shrinkage applied. It defaults to \code{1},
-#'   but this may result in too few shrinkage (Piironen & Vehtari, 2016).
-#'   It is thus possible to change the scale using argument \code{scale_global}
-#'   of the horseshoe prior, for instance \code{horseshoe(1, scale_global = 0.5)}.
-#'   In linear models, \code{scale_global} will internally be multiplied by the 
-#'   residual standard deviation parameter \code{sigma}. See Piironen and 
-#'   Vehtari (2016) for recommendations how to properly set the global scale.
-#'   The degrees of freedom of the global shrinkage prior may also be 
-#'   adjusted via argument \code{df_global}. 
-#'   To make sure that shrinkage can equally affect all coefficients, 
-#'   predictors should be one the same scale. 
-#'   Generally, models with horseshoe priors a more likely than other models
-#'   to have divergent transitions so that increasing \code{adapt_delta} 
-#'   from \code{0.8} to values closer to \code{1} will often be necessary.
-#'   See the documentation of \code{\link[brms:brm]{brm}} for instructions
-#'   on how to increase \code{adapt_delta}. \cr
-#'   
-#'   Another shrinkage prior is the so-called \emph{lasso} prior.
-#'   It is the Bayesian equivalent to the LASSO method for performing
-#'   variable selection (Park & Casella, 2008).
-#'   With this prior, independent Laplace (i.e. double exponential) priors 
-#'   are placed on the population-level effects. 
-#'   The scale of the Laplace priors depends on a tuning parameter
-#'   that controls the amount of shrinkage. In \pkg{brms}, the inverse
-#'   of the tuning parameter is used so that smaller values imply
-#'   more shrinkage. The inverse tuning parameter has a chi-square distribution
-#'   and with degrees of freedom controlled via argument \code{df}
-#'   of function \code{lasso} (defaults to \code{1}). For instance,
-#'   one can specify a lasso prior using \code{set_prior("lasso(1)")}.
-#'   To make sure that shrinkage can equally affect all coefficients, 
-#'   predictors should be one the same scale.
-#'   If you do not want to standarized all variables,
-#'   you can adjust the general scale of the lasso prior via argument
-#'   \code{scale}, for instance, \code{lasso(1, scale = 10)}.
+#'   is the horseshoe prior. See \code{\link[brms:horseshoe]{horseshoe}}
+#'   for details. Another shrinkage prior is the so-called lasso prior.
+#'   See \code{\link[brms:lasso]{lasso}} for details.
 #'   
 #'   In non-linear models, population-level effects are defined separately 
 #'   for each non-linear parameter. Accordingly, it is necessary to specify
@@ -311,20 +269,9 @@
 #'
 #' @seealso \code{\link[brms:get_prior]{get_prior}}
 #' 
-#' @references 
-#' Carvalho, C. M., Polson, N. G., & Scott, J. G. (2009). 
-#'   Handling sparsity via the horseshoe. 
-#'   In International Conference on Artificial Intelligence and Statistics (pp. 73-80).
-#' 
+#' @references
 #' Gelman A. (2006). Prior distributions for variance parameters in hierarchical models.
 #'    Bayesian analysis, 1(3), 515 -- 534.
-#'    
-#' Park, T., & Casella, G. (2008). The Bayesian Lasso. Journal of the American 
-#'    Statistical Association, 103(482), 681-686.
-#'    
-#' Piironen J. & Vehtari A. (2016). On the Hyperprior Choice for the Global 
-#'    Shrinkage Parameter in the Horseshoe Prior. 
-#'    \url{https://arxiv.org/pdf/1610.05559v1.pdf}
 #' 
 #' @examples
 #' ## use alias functions
@@ -381,9 +328,11 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
     stop2("All arguments of set_prior must be of length 1.")
   }
     
-  valid_classes <- c("Intercept", "b", "sd", "sds", "sdgp", "lscale",
-                     "simplex", "cor", "L", "ar", "ma", "arr", "sigmaLL", 
-                     "rescor", "Lrescor", "delta", "theta", if (!check) "")
+  valid_classes <- c(
+    "Intercept", "b", "sd", "sds", "sdgp", "lscale", "simplex", "cor", 
+    "L", "ar", "ma", "arr", "lagsar", "errorsar", "car", "sdcar", 
+    "sigmaLL", "rescor", "Lrescor", "delta", "theta", if (!check) ""
+  )
   if (!(class %in% valid_classes || auxpar_class(class) %in% auxpars())) {
     stop2("'", class, "' is not a valid parameter class.")
   }
@@ -517,11 +466,11 @@ get_prior <- function(formula, data, family = gaussian(),
                       threshold = c("flexible", "equidistant"), 
                       internal = FALSE) {
   # note that default priors are stored in this function
+  family <- check_family(family, threshold = threshold)
   formula <- amend_formula(formula, data = data, family = family, 
                            nonlinear = nonlinear)
   family <- formula$family
   link <- family$link
-  threshold <- match.arg(threshold)
   autocor <- check_autocor(autocor)
   bterms <- parse_bf(formula, family = family)
   data <- update_data(data, bterms = bterms)
@@ -557,6 +506,13 @@ get_prior <- function(formula, data, family = gaussian(),
       prior <- rbind(prior, prior_eff)
     }
     bterms$auxpars[["mu"]] <- NULL
+    # add "global" priors for population-level effects
+    # in 1.8.0 as users keep asking about this
+    for (cl in c("b", "Intercept")) {
+      if (any(with(prior, class == cl & coef == ""))) {
+        prior <- rbind(prior, brmsprior(class = cl)) 
+      }
+    }
   }
   # priors for auxiliary parameters
   def_auxprior <- c(
@@ -574,6 +530,7 @@ get_prior <- function(formula, data, family = gaussian(),
     ndt = "uniform(0, min_Y)", 
     bias = "beta(1, 1)", 
     xi = "normal(0, 2.5)",
+    alpha = "normal(0, 4)",
     disc = NA,
     mu = NA
   )
@@ -600,7 +557,7 @@ get_prior <- function(formula, data, family = gaussian(),
   )
   prior <- rbind(prior, prior_re)
   # prior for the delta parameter for equidistant thresholds
-  if (is_ordinal(family) && threshold == "equidistant") {
+  if (is_ordinal(family) && is_equal(family$threshold, "equidistant")) {
     prior <- rbind(prior, brmsprior(class = "delta"))
   }
   # priors for mixture models
@@ -634,6 +591,22 @@ get_prior <- function(formula, data, family = gaussian(),
   }
   if (get_arr(autocor)) {
     prior <- rbind(prior, brmsprior(class = "arr"))
+  }
+  if (is.cor_sar(autocor)) {
+    if (identical(autocor$type, "lag")) {
+      prior <- rbind(prior, brmsprior(class = "lagsar"))
+    }
+    if (identical(autocor$type, "error")) {
+      prior <- rbind(prior, brmsprior(class = "errorsar"))
+    }
+  }
+  if (is.cor_car(autocor)) {
+    prior <- rbind(prior, 
+      brmsprior(def_scale_prior, class = "sdcar")
+    )
+    if (identical(autocor$type, "escar")) {
+      prior <- rbind(prior, brmsprior(class = "car"))
+    }
   }
   if (is(autocor, "cor_bsts")) {
     prior <- rbind(prior, 
@@ -869,9 +842,9 @@ prior_sm <- function(smooths, def_scale_prior, nlpar = "") {
 }
 
 check_prior <- function(prior, formula, data = NULL, family = NULL, 
-                        sample_prior = FALSE, autocor = NULL, 
-                        threshold = "flexible", check_rows = NULL, 
-                        warn = FALSE) {
+                        sample_prior = c("no", "yes", "only"), 
+                        autocor = NULL, threshold = "flexible", 
+                        check_rows = NULL, warn = FALSE) {
   # check prior input and amend it if needed
   # Args:
   #   same as the respective parameters in brm
@@ -879,11 +852,11 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
   #   warn: passed to check_prior_content
   # Returns:
   #   a data.frame of prior specifications to be used in stan_prior (see stan.R)
-  prior_only <- identical(sample_prior, "only")
+  sample_prior <- check_sample_prior(sample_prior)
   if (isTRUE(attr(prior, "checked"))) {
     # prior has already been checked; no need to do it twice
     # attributes may still need to be updated
-    attr(prior, "prior_only") <- prior_only
+    attr(prior, "sample_prior") <- sample_prior
     return(prior)
   }
   formula <- bf(formula)
@@ -914,10 +887,11 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
     invalid <- which(!1:nrow(prior) %in% (valid - nrow(all_priors)))
     if (length(invalid)) {
       msg_priors <- .print_prior(prior[invalid, ])
-      message("The following priors don't correspond to any ", 
-              "model parameter \nand will thus not affect the results: \n",
-              collapse(.print_prior(prior[invalid, ]), "\n"))
-      prior <- prior[-invalid, ]
+      stop2(
+        "The following priors do not correspond ", 
+        "to any model parameter: \n",
+        collapse(.print_prior(prior[invalid, ]), "\n")
+      )
     }
   }
   prior$prior <- sub("^(lkj|lkj_corr)\\(", "lkj_corr_cholesky(", prior$prior)
@@ -926,7 +900,7 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
   nlpars <- names(bterms$auxpars$mu$nlpars)
   for (nlp in nlpars) {
     nlp_prior <- prior$prior[with(prior, nlpar == nlp & class == "b")]
-    if (!any(as.logical(nchar(nlp_prior)))) {
+    if (!any(nzchar(nlp_prior))) {
       stop2("Priors on population-level effects are required in ",
             "non-linear models,\nbut none were found for parameter ", 
             "'", nlp, "'. \nSee help(set_prior) for more details.")
@@ -938,11 +912,24 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
   prior <- rbind(prior, all_priors)
   prior <- prior[!duplicated(prior[, 2:5]), ]
   rows2remove <- NULL
+  # copy over the global population-level prior in MV models
+  if (length(bterms$response) > 1L) {
+    for (cl in c("b", "Intercept")) {
+      g_index <- with(prior, nlpar == "" & class == cl & coef == "")
+      for (resp in bterms$response) {
+        r_index <- with(prior, nlpar == resp & class == cl & coef == "")
+        if (isTRUE(!nzchar(prior$prior[r_index]))) {
+          prior$prior[r_index] <- prior$prior[g_index]
+        }
+      }
+      rows2remove <- c(rows2remove, which(g_index))
+    }
+  }
   # special treatment of population-level intercepts
   int_index <- which(prior$class == "Intercept")
   if (length(int_index)) {
     int_prior <- prior[int_index, ]
-    bint_index <- which(prior$class == "b" & prior$coef %in% "Intercept")
+    bint_index <- with(prior, class == "b" & coef %in% "Intercept")
     bint_prior <- prior[bint_index, ]
     for (t in int_index) {
       tb <- match(prior$nlpar[t], bint_prior$nlpar) 
@@ -961,7 +948,7 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
         }
       }
     }
-    rows2remove <- c(rows2remove, bint_index)
+    rows2remove <- c(rows2remove, which(bint_index))
   }
   # prepare priors of monotonic effects
   mo_forms <- get_effect(bterms, "mo")
@@ -996,7 +983,7 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
   prior <- prior[with(prior, order(nlpar, class, group, coef)), ]
   prior <- rbind(prior, prior_no_checks)
   rownames(prior) <- NULL
-  attr(prior, "prior_only") <- prior_only
+  attr(prior, "sample_prior") <- sample_prior
   attr(prior, "checked") <- TRUE
   prior
 }
@@ -1007,8 +994,8 @@ check_prior_content <- function(prior, family = gaussian(), warn = TRUE) {
   #  prior: A brmsprior object
   #  family: the model family
   #  warn: logical; print boundary warnings?
-  if (!is(prior, "brmsprior")) {
-    return(invisible(NULL))
+  if (!is.brmsprior(prior)) {
+    return(invisible(TRUE))
   }
   stopifnot(is.family(family))
   family <- family$family
@@ -1089,12 +1076,17 @@ check_prior_content <- function(prior, family = gaussian(), warn = TRUE) {
                "parameters is not recommended.")
     }
   }
-  invisible(NULL)
+  invisible(TRUE)
 }
 
 #' @export
-check_prior_special.brmsterms <- function(x, prior, ...) {
-  stopifnot(is.brmsprior(prior))
+check_prior_special.brmsterms <- function(x, prior = NULL, ...) {
+  if (isTRUE(attr(prior, "checked"))) {
+    return(prior) 
+  }
+  if (is.null(prior)) {
+    prior <- empty_brmsprior()
+  }
   simple_sigma <- has_sigma(x$family, x) && is.null(x$auxpars$sigma)
   for (ap in names(x$auxpars)) {
     allow_autoscale <- simple_sigma && identical(ap, "mu") 
@@ -1155,28 +1147,46 @@ check_prior_special.btl <- function(x, prior, nlpar = "",
       if (grepl("^horseshoe\\(", b_prior)) {
         hs <- eval2(b_prior)
         prior$prior[b_index] <- ""
-        prior_special$hs_df <- attr(hs, "df")
-        prior_special$hs_df_global <- attr(hs, "df_global")
-        scale_global <- attr(hs, "scale_global")
-        autoscale <- isTRUE(attr(hs, "autoscale"))
-        if (autoscale && allow_autoscale) {
-          scale_global <- paste(scale_global, "* sigma")
-        }
-        prior_special$hs_scale_global <- scale_global
+        hs_obj_names <- c(
+          "df", "df_global", "df_slab", "scale_global", 
+          "scale_slab", "par_ratio", "autoscale"
+        )
+        hs_att <- attributes(hs)[hs_obj_names]
+        names(hs_att) <- paste0("hs_", names(hs_att))
+        prior_special <- c(prior_special, hs_att)
+        prior_special$hs_autoscale <- 
+          isTRUE(prior_special$hs_autoscale) && allow_autoscale
       } else if (grepl("^lasso\\(", b_prior)) {
         lasso <- eval2(b_prior)
+        # the parameterization via double_exponential appears to be more
+        # efficient than an indirect parameterization via normal and 
+        # exponential distributions; tested on 2017-06-09
+        usc_nlpar <- usc(nlpar)
         lasso_scale <- paste0(
-          attr(lasso, "scale"), " * lasso_inv_lambda", usc(nlpar)
+          "lasso_scale", usc_nlpar, " * lasso_inv_lambda", usc_nlpar
         )
-        lasso_prior <- paste0("double_exponential(0, ", lasso_scale, ")")
+        lasso_prior <- paste0(
+          "double_exponential(0, ", lasso_scale, ")"
+        )
         prior$prior[b_index] <- lasso_prior
-        prior_special$lasso_df <- attr(lasso, "df")
-        prior_special$lasso_scale <- attr(lasso, "scale")
+        lasso_att <- attributes(lasso)
+        prior_special$lasso_df <- lasso_att[["df"]]
+        prior_special$lasso_scale <- lasso_att[["scale"]]
       }
     }
   }
   attributes(prior)$special[[nlpar_original]] <- prior_special
   prior
+}
+
+check_sample_prior <- function(sample_prior) {
+  # validate argument 'sample_prior'
+  options <- c("no", "yes", "only")
+  if (!is.character(sample_prior)) {
+    sample_prior <- as_one_logical(sample_prior)
+    sample_prior <- if (sample_prior) "yes" else "no"
+  }
+  match.arg(sample_prior, options)
 }
 
 get_bound <- function(prior, class = "b", coef = "", 
@@ -1277,7 +1287,6 @@ dirichlet <- function(...) {
   out
 }
 
-
 #' Set up a horseshoe prior in \pkg{brms}
 #' 
 #' Function used to set up a horseshoe prior for population-level effects 
@@ -1292,6 +1301,15 @@ dirichlet <- function(...) {
 #'   multiplied by the residual standard deviation parameter \code{sigma}.
 #' @param df_global Degrees of freedom of student-t prior of the 
 #'   global shrinkage parameter. Defaults to \code{1}.
+#' @param scale_slab Scale of the student-t prior of the regularization
+#'   parameter. Defaults to \code{2}. 
+#' @param df_slab Degrees of freedom of the student-t prior of 
+#'   the regularization parameter. Defaults to \code{4}. 
+#' @param par_ratio Ratio of the expected number of non-zero coefficients 
+#'   to the expected number of zero coefficients. If specified,
+#'   \code{scale_global} is ignored and internally computed as
+#'   \code{par_ratio / sqrt(N)}, where \code{N} is the total number 
+#'   of observations in the data.
 #' @param autoscale Logical; indicating whether the horseshoe
 #'   prior should be scaled using the residual standard deviation
 #'   \code{sigma} if possible and sensible (defaults to \code{TRUE}).
@@ -1301,20 +1319,72 @@ dirichlet <- function(...) {
 #' @return A character string obtained by \code{match.call()} with
 #'   additional arguments.
 #'   
-#' @details See \code{\link[brms:set_prior]{set_prior}} for more details
-#'   about the horseshoe prior.
+#' @details 
+#'   The horseshoe prior is a special shrinkage prior initially proposed by
+#'   Carvalho et al. (2009).
+#'   It is symmetric around zero with fat tails and an infinitely large spike
+#'   at zero. This makes it ideal for sparse models that have 
+#'   many regression coefficients, although only a minority of them is non-zero. 
+#'   The horseshoe prior can be applied on all population-level effects at once 
+#'   (excluding the intercept) by using \code{set_prior("horseshoe(1)")}.
+#'   The \code{1} implies that the student-t prior of the local shrinkage 
+#'   parameters has 1 degrees of freedom. This may, however, lead to an 
+#'   increased number of divergent transition in \pkg{Stan}.
+#'   Accordingly, increasing the degrees of freedom to slightly higher values 
+#'   (e.g., \code{3}) may often be a better option, although the prior 
+#'   no longer resembles a horseshoe in this case. 
+#'   Further, the scale of the global shrinkage parameter plays an important role
+#'   in amount of shrinkage applied. It defaults to \code{1},
+#'   but this may result in too few shrinkage (Piironen & Vehtari, 2016).
+#'   It is thus possible to change the scale using argument \code{scale_global}
+#'   of the horseshoe prior, for instance \code{horseshoe(1, scale_global = 0.5)}.
+#'   In linear models, \code{scale_global} will internally be multiplied by the 
+#'   residual standard deviation parameter \code{sigma}. See Piironen and 
+#'   Vehtari (2016) for recommendations how to properly set the global scale.
+#'   The degrees of freedom of the global shrinkage prior may also be 
+#'   adjusted via argument \code{df_global}. 
+#'   Piironen and Vehtari (2017) recommend to specifying the ratio of the 
+#'   expected number of non-zero coefficients to the expected number of zero 
+#'   coefficients \code{par_ratio} rather than \code{scale_global} directly.
+#'   As proposed by Piironen and Vehtari (2017), an additional regularization 
+#'   is applied that only affects non-zero coefficients. The amount of
+#'   regularization can be controlled via \code{scale_slab} and \code{df_slab}.
+#'   To make sure that shrinkage can equally affect all coefficients, 
+#'   predictors should be one the same scale. 
+#'   Generally, models with horseshoe priors a more likely than other models
+#'   to have divergent transitions so that increasing \code{adapt_delta} 
+#'   from \code{0.8} to values closer to \code{1} will often be necessary.
+#'   See the documentation of \code{\link[brms:brm]{brm}} for instructions
+#'   on how to increase \code{adapt_delta}. 
+#'   
+#' @references 
+#' Carvalho, C. M., Polson, N. G., & Scott, J. G. (2009). 
+#'   Handling sparsity via the horseshoe. 
+#'   In International Conference on Artificial Intelligence and Statistics (pp. 73-80).
+#'    
+#' Piironen J. & Vehtari A. (2016). On the Hyperprior Choice for the Global 
+#'    Shrinkage Parameter in the Horseshoe Prior. 
+#'    \url{https://arxiv.org/pdf/1610.05559v1.pdf}
+#'    
+#' Piironen, J., and Vehtari, A. (2017). Sparsity information and regularization
+#'    in the horseshoe and other shrinkage priors. 
+#'    \url{https://arxiv.org/abs/1707.01694}    
 #'   
 #' @seealso \code{\link[brms:set_prior]{set_prior}}
 #'   
 #' @examples 
-#' set_prior(horseshoe(df = 3, scale_global = 2))
+#' set_prior(horseshoe(df = 3, par_ratio = 0.1))
 #' 
 #' @export
-horseshoe <- function(df = 1, scale_global = 1, df_global = 1, autoscale = TRUE) {
-  out <- deparse(match.call())
-  df <- round(as.numeric(df)[1], 5)
-  df_global <- round(as.numeric(df_global)[1], 5)
-  scale_global <- round(as.numeric(scale_global)[1], 5)
+horseshoe <- function(df = 1, scale_global = 1, df_global = 1, 
+                      scale_slab = 2, df_slab = 4, par_ratio = NULL,
+                      autoscale = TRUE) {
+  out <- deparse(match.call(), width.cutoff = 500L)
+  df <- as.numeric(df)
+  df_global <- as.numeric(df_global)
+  df_slab <- as.numeric(df_slab)
+  scale_global <- as.numeric(scale_global)
+  scale_slab <- as.numeric(scale_slab)
   if (!isTRUE(df > 0)) {
     stop2("Invalid horseshoe prior: Degrees of freedom of ", 
           "the local priors must be a single positive number.")
@@ -1327,11 +1397,28 @@ horseshoe <- function(df = 1, scale_global = 1, df_global = 1, autoscale = TRUE)
     stop2("Invalid horseshoe prior: Scale of the global ", 
           "prior must be a single positive number.")
   }
+  if (!isTRUE(df_slab > 0)) {
+    stop2("Invalid horseshoe prior: Degrees of freedom of ", 
+          "the slab part must be a single positive number.")
+  }
+  if (!isTRUE(scale_slab > 0)) {
+    stop2("Invalid horseshoe prior: Scale of the slab ", 
+          "part must be a single positive number.")
+  }
+  if (!is.null(par_ratio)) {
+    par_ratio <- as.numeric(par_ratio)
+    if (!isTRUE(par_ratio > 0 && par_ratio <= 1)) {
+      stop2("Argument 'par_ratio' must be within [0, 1].")
+    }
+  }
   autoscale <- as.logical(autoscale)
-  if (length(autoscale) != 1L) {
+  if (length(autoscale) != 1L || is.na(autoscale)) {
     stop2("Argument 'autoscale' must be either TRUE or FALSE.")
   }
-  att <- nlist(df, df_global, scale_global, autoscale)
+  att <- nlist(
+    df, df_global, df_slab, scale_global, 
+    scale_slab, par_ratio, autoscale
+  )
   attributes(out)[names(att)] <- att
   out
 }
@@ -1349,9 +1436,28 @@ horseshoe <- function(df = 1, scale_global = 1, df_global = 1, autoscale = TRUE)
 #' @return A character string obtained by \code{match.call()} with
 #'   additional arguments.
 #'   
-#' @details See \code{\link[brms:set_prior]{set_prior}} for more details
-#'   about the lasso prior.
-#'   
+#' @details  
+#'   The lasso prior is the Bayesian equivalent to the LASSO method for performing
+#'   variable selection (Park & Casella, 2008).
+#'   With this prior, independent Laplace (i.e. double exponential) priors 
+#'   are placed on the population-level effects. 
+#'   The scale of the Laplace priors depends on a tuning parameter
+#'   that controls the amount of shrinkage. In \pkg{brms}, the inverse
+#'   of the tuning parameter is used so that smaller values imply
+#'   more shrinkage. The inverse tuning parameter has a chi-square distribution
+#'   and with degrees of freedom controlled via argument \code{df}
+#'   of function \code{lasso} (defaults to \code{1}). For instance,
+#'   one can specify a lasso prior using \code{set_prior("lasso(1)")}.
+#'   To make sure that shrinkage can equally affect all coefficients, 
+#'   predictors should be one the same scale.
+#'   If you do not want to standarized all variables,
+#'   you can adjust the general scale of the lasso prior via argument
+#'   \code{scale}, for instance, \code{lasso(1, scale = 10)}.
+#' 
+#' @references
+#' Park, T., & Casella, G. (2008). The Bayesian Lasso. Journal of the American 
+#'    Statistical Association, 103(482), 681-686.
+#'    
 #' @seealso \code{\link[brms:set_prior]{set_prior}}
 #'   
 #' @examples 
@@ -1359,9 +1465,9 @@ horseshoe <- function(df = 1, scale_global = 1, df_global = 1, autoscale = TRUE)
 #' 
 #' @export
 lasso <- function(df = 1, scale = 1) {
-  out <- deparse(match.call())
-  df <- round(as.numeric(df)[1], 5)
-  scale <- round(as.numeric(scale)[1], 5)
+  out <- deparse(match.call(), width.cutoff = 500L)
+  df <- as.numeric(df)
+  scale <- as.numeric(scale)
   if (!isTRUE(df > 0)) {
     stop2("Invalid lasso prior: Degrees of freedom of the shrinkage ", 
           "parameter prior must be a single positive number.")

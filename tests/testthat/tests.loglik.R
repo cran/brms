@@ -32,11 +32,11 @@ test_that("loglik for location shift models works as expected", {
   expect_equal(ll, as.matrix(ll_gaussian * draws$data$weights[1]))
 })
 
-test_that("loglik for lognormal and exgaussian models works as expected", {
+test_that("loglik for various skewed normal models works as expected", {
   ns <- 50
   draws <- list(sigma = rchisq(ns, 3), beta = rchisq(ns, 3),
                 mu = matrix(rnorm(ns*2), ncol = 2),
-                f = lognormal())
+                alpha = rnorm(ns), f = lognormal())
   draws$data <- list(Y = rlnorm(ns))
   ll_lognormal <- dlnorm(x = draws$data$Y[1], mean = draws$mu[, 1], 
                          sd = draws$sigma, log = TRUE)
@@ -48,6 +48,13 @@ test_that("loglik for lognormal and exgaussian models works as expected", {
                                log = TRUE)
   ll <- loglik_exgaussian(1, draws = draws)
   expect_equal(ll, ll_exgaussian)
+  
+  ll_skew_normal <- dskew_normal(
+    x = draws$data$Y[1], mu = draws$mu[, 1],
+    sigma = draws$sigma, alpha = draws$alpha, log = TRUE
+  )
+  ll <- as.numeric(loglik_skew_normal(1, draws = draws))
+  expect_equal(ll, ll_skew_normal)
 })
 
 test_that("loglik of aysm_laplace models runs without errors", {
@@ -108,6 +115,30 @@ test_that("loglik for ARMA covariance models runs without errors", {
   draws$f$link <- "identity"
   ll <- loglik_cauchy_cov(1, draws = draws)
   expect_equal(length(ll), ns)
+})
+
+test_that("loglik for SAR models runs without errors", {
+  draws <- list(
+    mu = matrix(rnorm(30), nrow = 3),
+    nu = matrix(rep(2, 3)),
+    sigma = matrix(rep(10, 3)),
+    lagsar = matrix(c(0.3, 0.5, 0.7)),
+    nsamples = 3
+  )
+  draws$data <- list(Y = rnorm(10), W = diag(10), N = 10)
+  draws$f$link <- "identity"
+  
+  ll <- loglik_gaussian_lagsar(1, draws = draws)
+  expect_equal(length(ll), 3)
+  ll <- loglik_student_lagsar(1, draws = draws)
+  expect_equal(length(ll), 3)
+  
+  draws$errorsar <- draws$lagsar
+  draws$lagsar <- NULL
+  ll <- loglik_gaussian_errorsar(1, draws = draws)
+  expect_equal(length(ll), 3)
+  ll <- loglik_student_errorsar(1, draws = draws)
+  expect_equal(length(ll), 3)
 })
 
 test_that("loglik for 'cor_fixed' models runs without errors", {

@@ -31,22 +31,6 @@ stan_llh.default <- function(family, bterms, data, autocor,
   bounds <- get_bounds(bterms$adforms$trunc, data = data)
   has_trunc <- any(bounds$lb > -Inf) || any(bounds$ub < Inf)
   llh_adj <- stan_llh_adj(bterms$adforms)
-
-  if (is_mv) {
-    # prepare for use of a multivariate likelihood
-    family <- paste0(family, "_mv")
-  } else if (use_cov(autocor)) {
-    # ARMA effects in covariance matrix formulation
-    if (llh_adj) {
-      stop2("Invalid addition arguments for this model.")
-    }
-    family <- paste0(family, "_cov")
-  } else if (is.cor_fixed(autocor)) {
-    if (has_se || llh_adj) {
-      stop2("Invalid addition arguments for this model.")
-    }
-    family <- paste0(family, "_fixed")
-  }
   
   auxpars <- names(bterms$auxpars)
   reqn <- llh_adj || is_categorical || is_ordinal || 
@@ -65,12 +49,42 @@ stan_llh.default <- function(family, bterms, data, autocor,
   for (ap in setdiff(auxpars(), c("mu", "sigma", "shape"))) {
     p[[ap]] <- paste0(ap, mix, if (reqn && ap %in% auxpars) "[n]")
   }
+  if (family == "skew_normal") {
+    # required because of CP parameterization of mu and sigma
+    nomega <- if (reqn && any(c("sigma", "alpha") %in% auxpars)) "[n]"
+    p$omega <- paste0("omega", mix, nomega)
+  }
   ord_args <- sargs(p$mu, if (has_cs) "mucs[n]", "temp_Intercept", p$disc)
   usc_logit <- stan_llh_auxpar_usc_logit(c("zi", "hu"), bterms)
   trials <- ifelse(llh_adj || is_zero_inflated, "trials[n]", "trials")
+  
+  if (is_mv) {
+    # prepare for use of a multivariate likelihood
+    family <- paste0(family, "_mv")
+  } else if (use_cov(autocor)) {
+    # ARMA effects in covariance matrix formulation
+    if (llh_adj) {
+      stop2("Invalid addition arguments for this model.")
+    }
+    str_add(family) <- "_cov"
+  } else if (is.cor_sar(autocor)) {
+    if (has_se || llh_adj) {
+      stop2("Invalid addition arguments for this model.")
+    }
+    if (identical(autocor$type, "lag")) {
+      str_add(family) <- "_lagsar"
+    } else if (identical(autocor$type, "error")) {
+      str_add(family) <- "_errorsar"
+    }
+  } else if (is.cor_fixed(autocor)) {
+    if (has_se || llh_adj) {
+      stop2("Invalid addition arguments for this model.")
+    }
+    str_add(family) <- "_fixed"
+  }
+  
   simplify <- stan_has_built_in_fun(nlist(family, link)) &&
     !has_trunc && !has_cens && !"disc" %in% auxpars
-  
   if (simplify) { 
     llh_pre <- switch(family,
       poisson = c(
@@ -141,6 +155,14 @@ stan_llh.default <- function(family, bterms, data, autocor,
         "multi_normal_cholesky", 
         sargs(p$mu, "LV")
       ),
+      gaussian_lagsar = c(
+        "normal_lagsar",
+        sargs(p$mu, p$sigma, "lagsar", "W")
+      ),
+      gaussian_errorsar = c(
+        "normal_errorsar",
+        sargs(p$mu, p$sigma, "errorsar", "W")
+      ),
       student = c(
         "student_t", 
         sargs(p$nu, p$mu, p$sigma)
@@ -158,6 +180,14 @@ stan_llh.default <- function(family, bterms, data, autocor,
         "multi_student_t", 
         sargs(p$nu, p$mu, "V")
       ),
+      student_lagsar = c(
+        "student_t_lagsar",
+        sargs(p$nu, p$mu, p$sigma, "lagsar", "W")
+      ),
+      student_errorsar = c(
+        "student_t_errorsar",
+        sargs(p$nu, p$mu, p$sigma, "errorsar", "W")
+      ),
       asym_laplace = c(
         "asym_laplace",
         sargs(p$mu, p$sigma, p$quantile)
@@ -165,6 +195,10 @@ stan_llh.default <- function(family, bterms, data, autocor,
       lognormal = c(
         "lognormal", 
         sargs(p$mu, p$sigma)
+      ),
+      skew_normal = c(
+        "skew_normal",
+        sargs(p$mu, p$omega, p$alpha)
       ),
       poisson = c(
         "poisson", 

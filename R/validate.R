@@ -84,6 +84,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
     stop2("All 'mu' parameters are specified so that ",
           "the right-hand side of 'formula' is unused.")
   }
+  
   auxpars <- is_auxpar_name(names(x$pforms), family, bterms = y)
   auxpars <- names(x$pforms)[auxpars]
   # amend when generalizing non-linear models to auxiliary parameters
@@ -122,7 +123,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
           "families 'sratio', 'cratio', and 'acat'.")
   }
   # parse autocor formula
-  y$time <- parse_time(autocor$formula)
+  y$time <- parse_time(autocor)
   
   # make a formula containing all required variables
   lhsvars <- if (resp_rhs_all) all.vars(y$respform)
@@ -206,9 +207,6 @@ parse_lf <- function(formula, family = NULL) {
   int_term <- ifelse(attr(terms, "intercept") == 1, "1", "0")
   fe_terms <- paste(c(int_term, fe_terms), collapse = "+")
   y[["fe"]] <- str2formula(fe_terms)
-  if (is_ordinal(family)) {
-    y[["fe"]] <- update.formula(y[["fe"]], . ~ . + 1)
-  }
   if (has_rsv_intercept(y[["fe"]])) {
     attr(y[["fe"]], "rsv_intercept") <- TRUE
   }
@@ -515,24 +513,26 @@ parse_resp <- function(formula, keep_dot_usc = FALSE) {
   out
 }
 
-parse_time <- function(formula) {
+parse_time <- function(autocor) {
   # extract time and grouping variables for autocorrelation structures
   # Args:
-  #   formula: a one sided formula of the form ~ time|group 
-  #            typically taken from a cor_brms object
+  #   autocor: object of class 'cor_brms'
   # Returns: 
   #   a list with elements time, group, and all, where all contains a 
   #   formula with all variables in formula
+  formula <- autocor$formula
   if (is.null(formula)) {
-    formula <- ~ 1
+    formula <- ~ 1 
   }
-  formula <- as.formula(formula)
   if (!is.null(lhs(formula))) {
-    stop2("Autocorrelation formula must be one-sided.")
+    stop2("Autocorrelation formulas must be one-sided.")
   }
   formula <- formula2str(formula)
   time <- as.formula(paste("~", gsub("~|\\|[[:print:]]*", "", formula)))
   time <- all.vars(time)
+  if (is.cor_car(autocor) && length(time) > 0L) {
+    stop2("The CAR structure should not contain a 'time' variable.")
+  }
   if (length(time) > 1L) {
     stop2("Autocorrelation structures may only contain 1 time variable.")
   }
@@ -805,13 +805,13 @@ ad_families <- function(x) {
       "inverse.gaussian", "binomial", "poisson", 
       "geometric", "negbinomial", "exponential", 
       "weibull", "gamma", "exgaussian", "frechet",
-      "asym_laplace", "gen_extreme_value"
+      "asym_laplace", "gen_extreme_value", "skew_normal"
     ),
     trunc = c(
       "gaussian", "student", "cauchy", "lognormal", 
       "binomial", "poisson", "geometric", "negbinomial",
       "exponential", "weibull", "gamma", "inverse.gaussian",
-      "exgaussian", "frechet", "asym_laplace",
+      "exgaussian", "frechet", "asym_laplace", "skew_normal",
       "gen_extreme_value"
     ),
     disp = c(
@@ -1450,7 +1450,7 @@ exclude_pars <- function(bterms, data = NULL, ranef = empty_ranef(),
   }
   out <- c(
     "temp_Intercept1", "ordered_Intercept", "Rescor", "Lrescor", 
-    "Sigma", "LSigma", "res_cov_matrix", "theta",
+    "Sigma", "LSigma", "res_cov_matrix", "theta", "zcar",
     intersect(auxpars(), names(bterms$auxpars))
   )
   if (length(bterms$response) > 1L) {

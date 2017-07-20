@@ -107,6 +107,8 @@ test_that("all S3 methods have reasonable ouputs", {
   
   fi <- fitted(fit4)
   expect_equal(dim(fi), c(nobs(fit4), 4, 4))
+  fi <- fitted(fit4, newdata = fit4$data[1, ])
+  expect_equal(dim(fi), c(1, 4, 4))
   
   fi <- fitted(fit5)
   expect_equal(dim(fi), c(nobs(fit5), 4))
@@ -142,12 +144,12 @@ test_that("all S3 methods have reasonable ouputs", {
   hyp <- hypothesis(fit1, c("Intercept > Trt", "Trt:Age = -1"))
   expect_equal(dim(hyp$hypothesis), c(2, 6))
   expect_output(print(hyp), "(Intercept)-(Trt) > 0", fixed = TRUE)
-  expect_silent(p <- plot(hyp, plot = FALSE))
+  expect_true(is(plot(hyp, plot = FALSE)[[1]], "ggplot"))
   
   hyp <- hypothesis(fit1, "Intercept = 0", class = "sd", group = "visit")
   expect_true(is.numeric(hyp$hypothesis$Evid.Ratio[1]))
   expect_output(print(hyp), "class sd_visit:", fixed = TRUE)
-  expect_silent(p <- plot(hyp, ignore_prior = TRUE, plot = FALSE))
+  expect_true(is(plot(hyp, ignore_prior = TRUE, plot = FALSE)[[1]], "ggplot"))
   
   hyp <- hypothesis(fit1, "0 > r_visit[4,Intercept]", class = "", alpha = 0.01)
   expect_equal(dim(hyp$hypothesis), c(1, 6))
@@ -515,7 +517,7 @@ test_that("all S3 methods have reasonable ouputs", {
                c("N", "Y", "nb_1", "knots_1", "Zs_1_1", "K", "X", 
                  "Kmo", "Xmo", "Jmo", "con_simplex_1", "Z_1_1", "Z_1_2", 
                  "offset", "K_sigma", "X_sigma", "J_1", "N_1", "M_1", 
-                 "NC_1", "tg", "Kar", "Kma", "Karma", "prior_only"))
+                 "NC_1", "Kar", "Kma", "J_lag", "prior_only"))
   expect_equal(names(standata(fit2)),
                c("N", "Y", "C_1", "K_a", "X_a", "Z_1_a_1",
                  "K_b", "X_b", "Z_1_b_2", "J_1", "N_1", "M_1",

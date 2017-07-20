@@ -78,11 +78,11 @@ linear_predictor <- function(draws, i = NULL) {
   # incorporate group-level effects
   group <- names(draws[["r"]])
   for (g in group) {
-    eta_re <- re_predictor(
-      Z = p(draws[["Z"]][[g]], i), 
-      r = draws[["r"]][[g]]
-    )
-    eta <- eta + eta_re
+    eta <- eta + 
+      re_predictor(
+        Z = p(draws[["Z"]][[g]], i),
+        r = draws[["r"]][[g]]
+      )
   }
   # incorporate smooths
   smooths <- names(draws[["s"]])
@@ -126,9 +126,14 @@ linear_predictor <- function(draws, i = NULL) {
       ma = draws[["ma"]], eta = eta, link = draws$f$link
     )
   }
-  if (!is.null(draws$loclev)) {
+  if (!is.null(draws[["rcar"]])) {
+    eta <- eta + 
+      re_predictor(Z = p(draws[["Zcar"]], i), r = draws[["rcar"]])
+  }
+  if (!is.null(draws[["loclev"]])) {
     eta <- eta + p(draws$loclev, i, row = FALSE)
   }
+  # incorporate category specific effects
   if (is_ordinal(draws$f)) {
     if (!is.null(draws[["cs"]]) || !is.null(draws[["rcs"]])) {
       ncat <- draws$data$ncat
@@ -152,6 +157,7 @@ linear_predictor <- function(draws, i = NULL) {
         b = draws[["cs"]], eta = eta, 
         ncat = ncat, r = rcs
       )
+      rm(rcs)
     } else {
       eta <- array(eta, dim = c(dim(eta), draws$data$ncat - 1))
     } 
@@ -432,30 +438,32 @@ arma_predictor <- function(standata, eta, ar = NULL, ma = NULL,
   #   link: the link function as character string
   # Returns:
   #   new linear predictor samples updated by ARMA effects
+  if (is.null(ar) && is.null(ma)) {
+    return(eta)
+  }
   S <- nrow(eta)
   Kar <- ifelse(is.null(ar), 0, ncol(ar))
   Kma <- ifelse(is.null(ma), 0, ncol(ma))
-  K <- max(Kar, Kma, 1)
+  K <- max(standata$J_lag, 1)
   Ks <- 1:K
   Y <- link(standata$Y, link)
   N <- length(Y)
-  tg <- c(rep(0, K), standata$tg)
   E <- array(0, dim = c(S, K, K + 1))
   e <- matrix(0, nrow = S, ncol = K)
   zero_mat <- e
   zero_vec <- rep(0, S)
   for (n in 1:N) {
     if (Kma) {
-      # add MA effects
+      # add MA correlations
       eta[, n] <- eta[, n] + rowSums(ma * E[, 1:Kma, K])
     }
     e[, K] <- Y[n] - eta[, n]
-    if (n < N) {
-      I <- which(n < N & tg[n + 1 + K] == tg[n + 1 + K - Ks])
+    I <- seq_len(standata$J_lag[n])
+    if (length(I)) {
       E[, I, K + 1] <- e[, K + 1 - I]
     }
     if (Kar) {
-      # add AR effects
+      # add AR correlations
       eta[, n] <- eta[, n] + rowSums(ar * E[, 1:Kar, K])
     }
     # allows to keep the object size of e and E small

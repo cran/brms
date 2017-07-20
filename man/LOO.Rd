@@ -8,10 +8,11 @@
 \alias{loo}
 \title{Compute the LOO information criterion}
 \usage{
-\method{LOO}{brmsfit}(x, ..., compare = TRUE, newdata = NULL,
-  re_formula = NULL, allow_new_levels = FALSE,
-  sample_new_levels = "uncertainty", subset = NULL, nsamples = NULL,
-  pointwise = NULL, nug = NULL, cores = 1, wcp = 0.2, wtrunc = 3/4)
+\method{LOO}{brmsfit}(x, ..., compare = TRUE, reloo = FALSE,
+  newdata = NULL, re_formula = NULL, allow_new_levels = FALSE,
+  sample_new_levels = "uncertainty", new_objects = list(), subset = NULL,
+  nsamples = NULL, pointwise = NULL, nug = NULL, k_threshold = 0.7,
+  update_args = list(), cores = 1, wcp = 0.2, wtrunc = 3/4)
 
 LOO(x, ...)
 }
@@ -23,6 +24,10 @@ LOO(x, ...)
 \item{compare}{A flag indicating if the information criteria
 of the models should be compared to each other
 via \code{\link[brms:compare_ic]{compare_ic}}.}
+
+\item{reloo}{Logical; Indicate whether 
+\code{\link[brms:reloo]{reloo}} should be applied
+on problematic observations. Defaults to \code{FALSE}.}
 
 \item{newdata}{An optional data.frame for which to evaluate predictions.
 If \code{NULL} (default), the orginal data of the model is used.}
@@ -50,6 +55,12 @@ Bayesian power analysis.
 If \code{"old_levels"}, directly sample new levels from the
 existing levels.}
 
+\item{new_objects}{A named \code{list} of objects containing 
+new data, which cannot be passed via argument \code{newdata}.
+Currently, only required for objects passed to 
+\code{\link[brms:cor_sar]{cor_sar}} and 
+\code{\link[brms:cor_fixed]{cor_fixed}}.}
+
 \item{subset}{A numeric vector specifying
 the posterior samples to be used. 
 If \code{NULL} (the default), all samples are used.}
@@ -73,6 +84,16 @@ process might not be positive definite. Adding a very small
 number to the matrix's diagonal often solves this problem. 
 If \code{NULL} (the default), \code{nug} is chosen internally.}
 
+\item{k_threshold}{The threshold at which pareto \eqn{k} 
+estimates are treated as problematic. Defaults to \code{0.7}. 
+Only used if argument \code{reloo} is \code{TRUE}.
+See \code{\link[loo:pareto_k_ids]{pareto_k_ids}}
+for more details.}
+
+\item{update_args}{A \code{list} of further arguments passed to 
+\code{\link[brms:update.brmsfit]{update.brmsfit}} such
+as \code{iter}, \code{chains}, or \code{cores}.}
+
 \item{cores}{The number of cores to use for parallelization. 
 Default is \code{1}.}
 
@@ -85,8 +106,8 @@ If just one object is provided, an object of class \code{ic}.
  If multiple objects are provided, an object of class \code{iclist}.
 }
 \description{
-Perform Leave-one-out cross-validation based on the posterior likelihood
-using the \pkg{loo} package.
+Perform approximate leave-one-out cross-validation based 
+on the posterior likelihood using the \pkg{loo} package.
 }
 \details{
 When comparing models fitted to the same data, 

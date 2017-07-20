@@ -215,11 +215,11 @@ test_that(paste("make_standata returns correct data",
                              autocor = cor_arr(~tim|g, r = 2))$Yarr,
                cbind(c(0,9,7,5,3,0,10,8,6,4), c(0,0,9,7,5,0,0,10,8,6)))
   expect_equal(make_standata(y ~ x, data = dat,
-                             autocor = cor_ma(~tim|g))$tg,
-               c(rep(1,5), rep(2,5)))
+                             autocor = cor_ma(~tim|g))$J_lag,
+               c(1, 1, 1, 1, 0, 1, 1, 1, 1, 0))
   expect_equal(make_standata(y ~ x, data = dat,
-                             autocor = cor_ar(~tim|g))$tg,
-               c(rep(1,5), rep(2,5)))
+                             autocor = cor_ar(~tim|g, p = 2))$J_lag,
+               c(1, 2, 2, 2, 0, 1, 2, 2, 2, 0))
   standata <- make_standata(y ~ x, data = dat,
                             autocor = cor_ar(~tim|g, cov = TRUE))
   expect_equal(standata$begin_tg, as.array(c(1, 6)))
@@ -499,4 +499,90 @@ test_that("make_standata includes data for Gaussian processes", {
   expect_equal(max(sdata$Xgp_1) - min(sdata$Xgp_1), 1) 
   sdata <- make_standata(y ~ gp(x1, scale = FALSE), dat)
   expect_equal(max(sdata$Xgp_1) - min(sdata$Xgp_1), 9) 
+})
+
+test_that("make_standata includes data for SAR models", {
+  data(oldcol, package = "spdep")
+  sdata <- make_standata(CRIME ~ INC + HOVAL, data = COL.OLD, 
+                         autocor = cor_lagsar(COL.nb))
+  expect_equal(dim(sdata$W), rep(nrow(COL.OLD), 2))
+  
+  expect_error(
+    make_standata(CRIME ~ INC + HOVAL, data = COL.OLD, 
+                  autocor = cor_lagsar(matrix(1:4, 2, 2))),
+    "Dimensions of 'W' must be equal to the number of observations"
+  )
+})
+
+test_that("make_standata includes data for CAR models", {
+  dat = data.frame(y = rnorm(10), x = rnorm(10))
+  edges <- cbind(1:10, 10:1)
+  W <- matrix(0, nrow = 10, ncol = 10)
+  for (i in seq_len(nrow(edges))) {
+    W[edges[i, 1], edges[i, 2]] <- 1 
+  } 
+  
+  sdata <- make_standata(y ~ x, dat, autocor = cor_car(W))
+  expect_equal(sdata$Nloc, 10)
+  expect_equal(sdata$Nneigh, rep(1, 10))
+  expect_equal(sdata$edges1, as.array(10:6))
+  expect_equal(sdata$edges2, as.array(1:5))
+  
+  rownames(W) <- c("a", 2:9, "b")
+  dat$group <- rep(c("a", "b"), each = 5)
+  sdata <- make_standata(y ~ x, dat, autocor = cor_car(W, ~1|group))
+  expect_equal(sdata$Nloc, 2)
+  expect_equal(sdata$edges1, as.array(2))
+  expect_equal(sdata$edges2, as.array(1))
+  
+  # test error messages
+  rownames(W) <- c(1:9, "a")
+  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W, ~1|group)), 
+               "Row names of 'W' do not match")
+  rownames(W) <- NULL
+  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W, ~1|group)),
+               "Row names are required for 'W'")
+  W[1, 10] <- 0
+  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W)),
+               "'W' must be symmetric")
+  W[10, 1] <- 0
+  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W)),
+               "All locations should have at least one neighbor")
+})
+
+test_that("make_standata incldudes data of special priors", {
+  dat <- data.frame(y = 1:10, x1 = rnorm(10), x2 = rnorm(10))
+  
+  # horseshoe prior
+  hs <- horseshoe(7, scale_global = 2, df_global = 3,
+                  df_slab = 6, scale_slab = 3)
+  sdata <- make_standata(y ~ x1*x2, data = dat, 
+                         prior = set_prior(hs))
+  expect_equal(sdata$hs_df, 7)
+  expect_equal(sdata$hs_df_global, 3)
+  expect_equal(sdata$hs_df_slab, 6)
+  expect_equal(sdata$hs_scale_global, 2)
+  expect_equal(sdata$hs_scale_slab, 3)
+  
+  hs <- horseshoe(par_ratio = 0.1)
+  sdata <- make_standata(y ~ x1*x2, data = dat, prior = set_prior(hs))
+  expect_equal(sdata$hs_scale_global, 0.1 / sqrt(nrow(dat)))
+  
+  # lasso prior
+  sdata <- make_standata(y ~ x1*x2, data = dat,
+                         prior = prior(lasso(2, scale = 10)))
+  expect_equal(sdata$lasso_df, 2)
+  expect_equal(sdata$lasso_scale, 10)
+  
+  # horseshoe and lasso prior applied in a non-linear model
+  hs_a1 <- horseshoe(7, scale_global = 2, df_global = 3)
+  lasso_a2 <- lasso(2, scale = 10)
+  sdata <- make_standata(
+    bf(y ~ a1 + a2, a1 ~ x1, a2 ~ 0 + x2, nl = TRUE),
+    data = dat, sample_prior = TRUE,
+    prior = c(set_prior(hs_a1, nlpar = "a1"),
+              set_prior(lasso_a2, nlpar = "a2"))
+  )
+  expect_equal(sdata$hs_df_a1, 7)
+  expect_equal(sdata$lasso_df_a2, 2)
 })

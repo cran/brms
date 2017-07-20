@@ -1,6 +1,49 @@
+#' Class \code{brmsfit} of models fitted with the \pkg{brms} package
+#' 
+#' Models fitted with the \code{\link[brms:brms]{brms}} package are 
+#' represented as a \code{brmsfit} object, which contains the posterior 
+#' samples, model formula, Stan code, relevant data, and other information.
+#' 
+#' @name brmsfit-class
+#' @aliases brmsfit
+#' @docType class
+#' 
+#' @details 
+#' See \code{methods(class = "brmsfit")} for an overview of available methods.
+#' 
+#' @slot formula A \code{\link[brms:brmsformula]{brmsformula}} object
+#' @slot family A \code{\link[brms:brmsfamily]{brmsfamily}} object
+#' @slot data A \code{data.frame} containing all variables used in the model
+#' @slot data.name The name of \code{data} as specified by the user 
+#' @slot model The model code in \pkg{Stan} language
+#' @slot prior A \code{\link[brms:brmsprior]{brmsprior}} object containing
+#'   information on the priors used in the model
+#' @slot autocor An \code{\link[brms:cor_brms]{cor_brms}} object containing 
+#'   the autocorrelation structure if specified
+#' @slot ranef A \code{data.frame} containing the group-level structure
+#' @slot cov_ranef A \code{list} of customized group-level covariance matrices
+#' @slot loo An empty slot for adding the \code{\link[brms:loo]{loo}} 
+#'   information criterion after model fitting
+#' @slot waic An empty slot for adding the \code{\link[brms:waic]{waic}} 
+#'   information criterion after model fitting
+#' @slot fit An object of class \code{\link[rstan:stanfit]{stanfit}}
+#'   among others containing the posterior samples
+#' @slot exclude The names of the parameters for which samples are not saved
+#' @slot algorithm The name of the algorithm used to fit the model
+#' @slot version The versions of \pkg{brms} and \pkg{rstan} with 
+#'   which the model was fitted
+#' 
+#' @seealso 
+#'   \code{\link[brms:brms]{brms}}, 
+#'   \code{\link[brms:brm]{brm}}, 
+#'   \code{\link[brms:brmsformula]{brmsformula}}, 
+#'   \code{\link[brms:brmsfamily]{brmsfamily}}
+#' 
+NULL
+
 brmsfit <- function(formula = NULL, family = NULL, data = data.frame(), 
                     data.name = "", model = "", prior = empty_brmsprior(), 
-                    autocor = NULL, threshold = "", ranef = empty_ranef(), 
+                    autocor = NULL, ranef = empty_ranef(), 
                     cov_ranef = NULL, loo = NULL, waic = NULL, fit = NA, 
                     exclude = NULL, algorithm = "sampling") {
   # brmsfit class
@@ -10,8 +53,8 @@ brmsfit <- function(formula = NULL, family = NULL, data = data.frame(),
   )
   x <- nlist(
     formula, family, data, data.name, model, 
-    prior, autocor, threshold, ranef, cov_ranef, 
-    loo, waic, fit, exclude, algorithm, version
+    prior, autocor, ranef, cov_ranef, loo, 
+    waic, fit, exclude, algorithm, version
   )
   class(x) <- "brmsfit"
   x
@@ -24,23 +67,6 @@ brmsfit <- function(formula = NULL, family = NULL, data = data.frame(),
 #' @export
 is.brmsfit <- function(x) {
   inherits(x, "brmsfit")
-}
-
-brmssummary <- function(formula = NULL, family = NULL, link = "", 
-                        data.name = "", group = NULL, nobs = NULL, 
-                        ngrps = NULL, chains = 4, iter = 2000, 
-                        warmup = 1000, thin = 1, sampler = "", 
-                        autocor = NULL, fixed = NULL, random = NULL, 
-                        cor_pars = NULL, spec_pars = NULL, 
-                        mult_pars = NULL, prior = empty_brmsprior(),
-                        loo = "Not computed", waic = "Not computed", 
-                        algorithm = "sampling") {
-  # brmssummary class
-  x <- nlist(formula, family, link, data.name, group, nobs, ngrps, chains, 
-             iter, warmup, thin, sampler, autocor, fixed, random, cor_pars, 
-             spec_pars, mult_pars, prior, loo, waic, algorithm)
-  class(x) <- "brmssummary"
-  x
 }
 
 #' Non-Linear Hypothesis Testing
@@ -359,19 +385,7 @@ ngrps <- function(object, ...) {
 #' 
 #' @aliases WAIC.brmsfit waic.brmsfit waic
 #' 
-#' @param x A fitted model object typically of class \code{brmsfit}. 
-#' @param ... Optionally more fitted model objects.
-#' @param compare A flag indicating if the information criteria
-#'  of the models should be compared to each other
-#'  via \code{\link[brms:compare_ic]{compare_ic}}.
-#' @param pointwise A flag indicating whether to compute the full
-#'  log-likelihood matrix at once or separately for each observation. 
-#'  The latter approach is usually considerably slower but 
-#'  requires much less working memory. Accordingly, if one runs 
-#'  into memory issues, \code{pointwise = TRUE} is the way to go.
-#'  By default, \code{pointwise} is automatically chosen based on 
-#'  the size of the model.
-#' @inheritParams predict.brmsfit
+#' @inheritParams LOO
 #' 
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the WAIC, the better the fit.
@@ -418,17 +432,40 @@ WAIC <- function(x, ...) {
 
 #' Compute the LOO information criterion
 #' 
-#' Perform Leave-one-out cross-validation based on the posterior likelihood
-#' using the \pkg{loo} package.
+#' Perform approximate leave-one-out cross-validation based 
+#' on the posterior likelihood using the \pkg{loo} package.
 #' 
 #' @aliases LOO.brmsfit loo.brmsfit loo
 #' 
-#' @inheritParams WAIC
+#' @param x A fitted model object typically of class \code{brmsfit}. 
+#' @param ... Optionally more fitted model objects.
+#' @param compare A flag indicating if the information criteria
+#'  of the models should be compared to each other
+#'  via \code{\link[brms:compare_ic]{compare_ic}}.
+#' @param pointwise A flag indicating whether to compute the full
+#'  log-likelihood matrix at once or separately for each observation. 
+#'  The latter approach is usually considerably slower but 
+#'  requires much less working memory. Accordingly, if one runs 
+#'  into memory issues, \code{pointwise = TRUE} is the way to go.
+#'  By default, \code{pointwise} is automatically chosen based on 
+#'  the size of the model.
+#' @param reloo Logical; Indicate whether 
+#'  \code{\link[brms:reloo]{reloo}} should be applied
+#'  on problematic observations. Defaults to \code{FALSE}.
+#' @param k_threshold The threshold at which pareto \eqn{k} 
+#'   estimates are treated as problematic. Defaults to \code{0.7}. 
+#'   Only used if argument \code{reloo} is \code{TRUE}.
+#'   See \code{\link[loo:pareto_k_ids]{pareto_k_ids}}
+#'   for more details.
+#' @param update_args A \code{list} of further arguments passed to 
+#'   \code{\link[brms:update.brmsfit]{update.brmsfit}} such
+#'   as \code{iter}, \code{chains}, or \code{cores}.
 #' @param cores The number of cores to use for parallelization. 
 #'  Default is \code{1}.
 #' @param wcp,wtrunc Parameters used for 
 #'  the Pareto smoothed importance sampling. 
 #'  See \code{\link[loo:loo]{loo}} for details.
+#' @inheritParams predict.brmsfit
 #' 
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the LOO, the better the fit.
@@ -498,6 +535,132 @@ add_ic <- function(x, ...) {
   UseMethod("add_ic")
 }
 
+#' Add the LOO information criterion to fitted model objects
+#' 
+#' @inheritParams add_ic
+#' 
+#' @return An object of the same class as \code{x}, but
+#'   with the LOO information criterion added for later usage.
+#'   
+#' @details For more details see \code{\link[brms:add_ic]{add_ic}}.
+#' 
+#' @export
+add_loo <- function(x, ...) {
+  UseMethod("add_loo")
+}
+
+#' Add the WAIC to fitted model objects
+#' 
+#' @inheritParams add_ic
+#' 
+#' @return An object of the same class as \code{x}, but
+#'   with the WAIC added for later usage.
+#'   
+#' @details For more details see \code{\link[brms:add_ic]{add_ic}}.
+#' 
+#' @export
+add_waic <- function(x, ...) {
+  UseMethod("add_waic")
+}
+
+#' Compute exact cross-validation for problematic observations
+#' 
+#' Compute exact cross-validation for problematic observations
+#' for which approximate leave-one-out cross-validation may
+#' return incorrect results.
+#' 
+#' @param x An \R object typically of class \code{loo}.
+#' @param fit An \R object typically of class \code{brmsfit}.
+#' @param k_threshold The threshold at which pareto \eqn{k} 
+#'   estimates are treated as problematic. Defaults to \code{0.7}. 
+#'   See \code{\link[loo:pareto_k_ids]{pareto_k_ids}}
+#'   for more details.
+#' @param check Logical; If \code{TRUE} (the default), a crude 
+#'   check is performed if the \code{loo} object was generated
+#'   from the \code{brmsfit} object passed to argument \code{fit}.
+#' @param ... Further arguments passed to 
+#'   \code{\link[brms:update.brmsfit]{update.brmsfit}} such
+#'   as \code{iter}, \code{chains}, or \code{cores}.
+#'   
+#' @return An object of the class as \code{x}.
+#' 
+#' @details 
+#' Warnings about Pareto \eqn{k} estimates indicate observations
+#' for which the approximation to LOO is problematic (this is described in
+#' detail in Vehtari, Gelman, and Gabry (2017) and the 
+#' \pkg{\link[loo:loo-package]{loo}} package documentation).
+#' If there are \eqn{J} observations with \eqn{k} estimates above
+#' \code{k_threshold}, then \code{reloo} will refit the original model 
+#' \eqn{J} times, each time leaving out one of the \eqn{J} 
+#' problematic observations. The pointwise contributions of these observations
+#' to the total ELPD are then computed directly and substituted for the
+#' previous estimates from these \eqn{J} observations that are stored in the
+#' original \code{loo} object.
+#' 
+#' @seealso \code{\link[brms:loo]{loo}}, \code{\link[brms:kfold]{kfold}}
+#' 
+#' @examples 
+#' \dontrun{
+#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient),
+#'            data = epilepsy, family = poisson())
+#' # throws warning about some pareto k estimates being too high
+#' (loo1 <- loo(fit1))
+#' (loo1 <- reloo(loo1, fit1))
+#' }
+#' 
+#' @export
+reloo <- function(x, ...) {
+  UseMethod("reloo")
+}
+
+#' K-Fold Cross-Validation
+#' 
+#' Perform exact K-fold cross-validation by refitting the model \eqn{K}
+#' times each leaving out one-\eqn{K}th of the original data.
+#' 
+#' @inheritParams LOO
+#' @param K For \code{kfold}, the number of subsets of equal (if possible) size
+#'   into which the data will be randomly partitioned for performing
+#'   \eqn{K}-fold cross-validation. The model is refit \code{K} times, each time
+#'   leaving out one of the \code{K} subsets. If \code{K} is equal to the total
+#'   number of observations in the data then \eqn{K}-fold cross-validation is
+#'   equivalent to exact leave-one-out cross-validation.
+#' @param save_fits If \code{TRUE}, a component \code{fits} is added to 
+#'   the returned object to store the cross-validated \code{brmsfit} 
+#'   objects and the indices of the omitted observations for each fold. 
+#'   Defaults to \code{FALSE}.
+#'   
+#' @return \code{kfold} returns an object that has a similar structure as the 
+#'   objects returned by the \code{loo} and \code{waic} methods.
+#'    
+#' @details The \code{kfold} function performs exact \eqn{K}-fold
+#'   cross-validation. First the data are randomly partitioned into \eqn{K}
+#'   subsets of equal (or as close to equal as possible) size. Then the model is
+#'   refit \eqn{K} times, each time leaving out one of the \code{K} subsets. If
+#'   \eqn{K} is equal to the total number of observations in the data then
+#'   \eqn{K}-fold cross-validation is equivalent to exact leave-one-out
+#'   cross-validation (to which \code{loo} is an efficient approximation). The
+#'   \code{compare_ic} function is also compatible with the objects returned
+#'   by \code{kfold}.
+#'   
+#' @examples 
+#' \dontrun{
+#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + 
+#'               (1|patient) + (1|obs),
+#'            data = epilepsy, family = poisson())
+#' # throws warning about some pareto k estimates being too high
+#' (loo1 <- loo(fit1))
+#' # perform 10-fold cross validation
+#' (kfold1 <- kfold(fit1, chains = 2, cores = 2))
+#' }   
+#'  
+#' @seealso \code{\link[brms:loo]{loo}}, \code{\link[brms:reloo]{reloo}}
+#'  
+#' @export
+kfold <- function(x, ...) {
+  UseMethod("kfold")
+}
+  
 #' Interface to \pkg{shinystan}
 #' 
 #' Provide an interface to \pkg{shinystan} for models fitted with \pkg{brms}

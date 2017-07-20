@@ -56,11 +56,13 @@
 #'   common linear predictor on the right hand side.
 #'   As of \pkg{brms} 1.4.0, we recommend specifying non-linear
 #'   parameters directly within \code{formula}.
-#' @param threshold A character string indicating the type of thresholds 
-#'   (i.e. intercepts) used in an ordinal model. 
+#' @param threshold (Deprecated) A character string indicating the type 
+#'   of thresholds (i.e. intercepts) used in an ordinal model. 
 #'   \code{"flexible"} provides the standard unstructured thresholds and 
 #'   \code{"equidistant"} restricts the distance between 
 #'   consecutive thresholds to the same value.
+#'   As of \pkg{brms} 1.8.0, we recommend specifying threshold
+#'   directly within the ordinal family functions.
 #' @param sparse Logical; indicates whether the population-level 
 #'   design matrix should be treated as sparse (defaults to \code{FALSE}). 
 #'   For design matrices with many zeros, this can considerably 
@@ -87,13 +89,13 @@
 #'   \code{predict} with the noise-free variables but 
 #'   leads to very large \R objects even for models
 #'   of moderate size and complexity.
-#' @param sample_prior A flag to indicate if samples from all specified 
+#' @param sample_prior Indicate if samples from all specified 
 #'   proper priors should be drawn additionally to the posterior samples
-#'   (defaults to \code{FALSE}). Among others, these samples can be used 
+#'   (defaults to \code{"no"}). Among others, these samples can be used 
 #'   to calculate Bayes factors for point hypotheses. 
-#'   Alternatively, \code{sample_prior} can be set to \code{"only"} to
-#'   sample solely from the priors. In this case, all parameters must 
-#'   have proper priors.
+#'   If set to \code{"only"}, samples are drawn solely from
+#'   the priors ignoring the likelihood. In this case, 
+#'   all parameters must have proper priors.
 #' @param knots Optional list containing user specified knot values to be 
 #'   used for basis construction of smoothing terms. 
 #'   See \code{\link[mgcv:gamm]{gamm}} for more details.
@@ -140,6 +142,11 @@
 #'   It defaults to \code{NULL} so all the default values are used. 
 #'   The most important control parameters are discussed in the 'Details'
 #'   section below. For a comprehensive overview see \code{\link[rstan:stan]{stan}}.
+#' @param future Logical; If \code{TRUE}, the \pkg{\link[future:future]{future}}
+#'   package is used for parallel execution of the chains and argument \code{cores}
+#'   will be ignored. Can be set globally for the current \R session via the 
+#'   \code{future} option. The execution type is controlled via 
+#'   \code{\link[future:plan]{plan}} (see the examples section below).
 #' @param silent logical; If \code{TRUE} (the default), most of the
 #'   informational messages of compiler and sampler are suppressed.
 #'   The actual sampling progress is still printed. 
@@ -317,7 +324,11 @@
 #'             family = asym_laplace())
 #' summary(fit7)
 #' marginal_effects(fit7)
-#'    
+#' 
+#' ## use the future package for parallelization
+#' library(future)
+#' plan(multiprocess)
+#' fit7 <- update(fit7, future = TRUE)
 #' }
 #' 
 #' @import rstan
@@ -330,13 +341,13 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
                 autocor = NULL, nonlinear = NULL, 
                 threshold = c("flexible", "equidistant"), 
                 cov_ranef = NULL, save_ranef = TRUE, save_mevars = FALSE, 
-                sparse = FALSE, sample_prior = FALSE, knots = NULL, 
-                stan_funs = NULL, fit = NA, inits = "random", 
+                sparse = FALSE, sample_prior = c("no", "yes", "only"), 
+                knots = NULL, stan_funs = NULL, fit = NA, inits = "random", 
                 chains = 4, iter = 2000, warmup = floor(iter / 2),
                 thin = 1, cores = getOption("mc.cores", 1L), control = NULL,
                 algorithm = c("sampling", "meanfield", "fullrank"),
-                silent = TRUE, seed = 12345, save_model = NULL,
-                save_dso = TRUE, ...) {
+                future = getOption("future", FALSE), silent = TRUE, 
+                seed = 12345, save_model = NULL, save_dso = TRUE, ...) {
   
   dots <- list(...) 
   # use deprecated arguments if specified
@@ -355,7 +366,6 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   }
   dots[deprecated_brm_args()] <- NULL
   autocor <- check_autocor(autocor)
-  threshold <- match.arg(threshold)
   algorithm <- match.arg(algorithm)
   
   testmode <- dots$testmode
@@ -364,13 +374,13 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     # re-use existing model
     x <- fit
     # compute data to be passed to Stan
-    standata <- standata(x, is_newdata = dots$is_newdata)
+    sdata <- standata(x, is_newdata = dots$is_newdata)
     dots$is_newdata <- NULL
     # extract the compiled model
     x$fit <- rstan::get_stanmodel(x$fit)
   } else {  
     # build new model
-    # see validate.R and formula-helpers.R
+    family <- check_family(family, threshold = threshold)
     formula <- amend_formula(
       formula, data = data, family = family, nonlinear = nonlinear
     )
@@ -383,39 +393,34 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       data.name <- dots$data.name
       dots$data.name <- NULL
     }
-    # see data-helpers.R
     data <- update_data(data, bterms = bterms)
-    # see priors.R
     prior <- check_prior(
       prior, formula = formula, data = data, family = family, 
-      sample_prior = sample_prior, autocor = autocor, 
-      threshold = threshold, warn = TRUE
+      sample_prior = sample_prior, autocor = autocor, warn = TRUE
     )
     # initialize S3 object
     x <- brmsfit(
       formula = formula, family = family, data = data, 
       data.name = data.name, prior = prior, 
       autocor = autocor, cov_ranef = cov_ranef, 
-      threshold = threshold, algorithm = algorithm
+      algorithm = algorithm
     )
-    # see validate.R
     x$ranef <- tidy_ranef(bterms, data = x$data)  
     x$exclude <- exclude_pars(
       bterms, data = x$data, ranef = x$ranef, 
       save_ranef = save_ranef, save_mevars = save_mevars
     )
-    # see make_stancode.R
     x$model <- make_stancode(
       formula = formula, data = data, family = family, 
-      prior = prior, autocor = autocor, threshold = threshold,
+      prior = prior, autocor = autocor, 
       sparse = sparse, cov_ranef = cov_ranef,
       sample_prior = sample_prior, knots = knots, 
       stan_funs = stan_funs, save_model = save_model, 
       brm_call = TRUE, silent = silent
     )
-    # generate standata before compiling the model to avoid
+    # generate Stan data before compiling the model to avoid
     # unnecessary compilations in case of invalid data
-    standata <- standata(x, newdata = dots$is_newdata)
+    sdata <- standata(x, newdata = dots$is_newdata)
     message("Compiling the C++ model")
     x$fit <- eval_silent(
       rstan::stan_model(stanc_ret = x$model, save_dso = save_dso)
@@ -427,22 +432,46 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   if (is.character(inits) && !inits %in% c("random", "0")) {
     inits <- get(inits, mode = "function", envir = parent.frame())
   }
-  args <- nlist(object = x$fit, data = standata, pars = x$exclude, 
-                include = FALSE, algorithm, iter)
-  args[names(dots)] <- dots 
-  if (algorithm == "sampling") {
-    args <- c(args, 
-      nlist(init = inits, warmup, thin, chains, cores, 
-            control, show_messages = !silent)
-    )
-  }
+  args <- nlist(
+    object = x$fit, data = sdata, pars = x$exclude, 
+    include = FALSE, algorithm, iter
+  )
+  args[names(dots)] <- dots
   
   set.seed(seed)
   message("Start sampling")
   if (args$algorithm == "sampling") {
     args$algorithm <- NULL
-    x$fit <- do.call(rstan::sampling, args)
+    args <- c(args,
+      nlist(init = inits, warmup, thin, control, show_messages = !silent)
+    )
+    if (future) {
+      require_package("future")
+      if (cores > 1L) {
+        warning("Argument 'cores' is ignored when using 'future'.")
+      }
+      args$chains <- 1L
+      futures <- fits <- vector("list", chains)
+      for (i in seq_len(chains)) {
+        args$chain_id <- i
+        if (is.list(inits)) {
+          args$init <- inits[i]
+        }
+        futures[[i]] <- future::future(
+          do.call(rstan::sampling, args), packages = "rstan"
+        )
+      }
+      for (i in seq_len(chains)) {
+        fits[[i]] <- future::value(futures[[i]]) 
+      }
+      x$fit <- rstan::sflist2stanfit(fits)
+      rm(futures, fits)
+    } else {
+      args <- c(args, nlist(chains, cores))
+      x$fit <- do.call(rstan::sampling, args) 
+    }
   } else {
+    # vb does not support parallel execution
     x$fit <- do.call(rstan::vb, args)
   }
   if (!isTRUE(testmode)) {

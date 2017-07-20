@@ -25,8 +25,9 @@
 #'          
 #' @export
 make_standata <- function(formula, data, family = gaussian(), 
-                          prior = NULL, autocor = NULL, nonlinear = NULL, 
-                          cov_ranef = NULL, sample_prior = FALSE, 
+                          prior = NULL, autocor = NULL, 
+                          nonlinear = NULL, cov_ranef = NULL, 
+                          sample_prior = c("no", "yes", "only"), 
                           knots = NULL, control = list(), ...) {
   # internal control arguments:
   #   is_newdata: is make_standata is called with new data?
@@ -52,7 +53,9 @@ make_standata <- function(formula, data, family = gaussian(),
   is_forked <- is_forked(family)
   is_categorical <- is_categorical(family)
   bterms <- parse_bf(formula, family = family, autocor = autocor)
+  sample_prior <- check_sample_prior(sample_prior)
   check_prior_content(prior, family = family, warn = FALSE)
+  prior <- check_prior_special(bterms, prior = prior)
   na_action <- if (is_newdata) na.pass else na.omit
   data <- update_data(
     data, bterms = bterms, na.action = na_action, 
@@ -61,7 +64,7 @@ make_standata <- function(formula, data, family = gaussian(),
   )
   
   # sort data in case of autocorrelation models
-  if (has_arma(autocor) || is(autocor, "cor_bsts")) {
+  if (has_arma(autocor) || is.cor_bsts(autocor)) {
     if (old_mv) {
       to_order <- rmNULL(list(
         data[["trait"]], 
@@ -83,7 +86,7 @@ make_standata <- function(formula, data, family = gaussian(),
   }
   
   # response variable
-  standata <- list(N = nrow(data), Y = unname(model.response(data)))
+  out <- list(N = nrow(data), Y = unname(model.response(data)))
   check_response <- !isTRUE(control$omit_response)
   families <- family_names(family)
   if (is.mixfamily(family)) {
@@ -95,71 +98,71 @@ make_standata <- function(formula, data, family = gaussian(),
   if (check_response) {
     factors_allowed <- is_ordinal || 
       any(families %in% c("bernoulli", "categorical"))
-    if (!factors_allowed && !is.numeric(standata$Y)) {
+    if (!factors_allowed && !is.numeric(out$Y)) {
       stop2("Family '", family4error, "' requires numeric responses.")
     }
     # transform and check response variable for different families
     regex_pos_int <- "(^|_)(binomial|poisson|negbinomial|geometric)$"
     if (any(grepl(regex_pos_int, families))) {
-      if (!all(is_wholenumber(standata$Y)) || min(standata$Y) < 0) {
+      if (!all(is_wholenumber(out$Y)) || min(out$Y) < 0) {
         stop2("Family '", family4error, "' requires responses ", 
               "to be non-negative integers.")
       }
     } else if (any(families %in% "bernoulli")) {
-      standata$Y <- as.numeric(as.factor(standata$Y)) - 1
-      if (any(!standata$Y %in% c(0, 1))) {
+      out$Y <- as.numeric(as.factor(out$Y)) - 1
+      if (any(!out$Y %in% c(0, 1))) {
         stop2("Family '", family4error, "' requires responses ", 
               "to contain only two different values.")
       }
     } else if (any(grepl("(^|_)beta$", families))) {
       if (any(families %in% "beta")) {
-        lower <- any(standata$Y <= 0)
+        lower <- any(out$Y <= 0)
       } else {
-        lower <- any(standata$Y < 0) 
+        lower <- any(out$Y < 0) 
       } 
       if (any(families %in% "zero_one_inflated_beta")) {
-        upper <- any(standata$Y > 1) 
+        upper <- any(out$Y > 1) 
       } else {
-        upper <- any(standata$Y >= 1) 
+        upper <- any(out$Y >= 1) 
       }
       if (lower || upper) {
         stop2("Family '", family4error, "' requires responses ", 
               "between 0 and 1.")
       }
     } else if (any(families %in% "von_mises")) {
-      if (any(standata$Y < -pi | standata$Y > pi)) {
+      if (any(out$Y < -pi | out$Y > pi)) {
         stop2("Family '", family4error, "' requires responses ",
               "between -pi and pi.")
       }
     } else if (is_categorical) { 
-      standata$Y <- as.numeric(factor(standata$Y))
-      if (length(unique(standata$Y)) < 3L) {
+      out$Y <- as.numeric(factor(out$Y))
+      if (length(unique(out$Y)) < 3L) {
         stop2("At least three response categories are required.")
       }
     } else if (is_ordinal) {
-      if (is.ordered(standata$Y)) {
-        standata$Y <- as.numeric(standata$Y)
-      } else if (all(is_wholenumber(standata$Y))) {
-        standata$Y <- standata$Y - min(standata$Y) + 1
+      if (is.ordered(out$Y)) {
+        out$Y <- as.numeric(out$Y)
+      } else if (all(is_wholenumber(out$Y))) {
+        out$Y <- out$Y - min(out$Y) + 1
       } else {
         stop2("Family '", family4error, "' requires either integers or ",
               "ordered factors as responses.")
       }
-      if (length(unique(standata$Y)) < 2L) {
+      if (length(unique(out$Y)) < 2L) {
         stop2("At least two response categories are required.")
       }
     } else if (is_skewed(family) || is_lognormal(family) || is_wiener(family)) {
-      if (min(standata$Y) <= 0) {
+      if (min(out$Y) <= 0) {
         stop2("Family '", family4error, "' requires responses ", 
               "to be positive.")
       }
     } else if (is_zero_inflated(family) || is_hurdle(family)) {
-      if (min(standata$Y) < 0) {
+      if (min(out$Y) < 0) {
         stop2("Family '", family4error, "' requires responses ", 
               "to be non-negative.")
       }
     }
-    standata$Y <- as.array(standata$Y)
+    out$Y <- as.array(out$Y)
   }
   
   # data for various kinds of effects
@@ -179,12 +182,12 @@ make_standata <- function(formula, data, family = gaussian(),
         data_eff <- do.call(
           data_effects, c(args_eff_spec, args_eff, nlpar = r)
         )
-        standata <- c(standata, data_eff)
+        out <- c(out, data_eff)
       }
       if (is_linear(family)) {
-        standata$nresp <- length(resp)
-        standata$nrescor <- length(resp) * (length(resp) - 1) / 2
-        colnames(standata$Y) <- resp
+        out$nresp <- length(resp)
+        out$nrescor <- length(resp) * (length(resp) - 1) / 2
+        colnames(out$Y) <- resp
       }
     }
     # data for predictors of auxiliary parameters
@@ -195,12 +198,12 @@ make_standata <- function(formula, data, family = gaussian(),
         gps = control$gps[[ap]], Jmo = control$Jmo[[ap]]
       )
       data_aux_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
-      standata <- c(standata, data_aux_eff)
+      out <- c(out, data_aux_eff)
     }
     for (ap in names(bterms$fauxpars)) {
-      standata[[ap]] <- bterms$fauxpars[[ap]]
+      out[[ap]] <- bterms$fauxpars[[ap]]
     }
-    standata <- c(standata,
+    out <- c(out,
       data_gr(ranef, data, cov_ranef = cov_ranef),
       data_mixture(bterms, prior = prior)
     )
@@ -210,47 +213,47 @@ make_standata <- function(formula, data, family = gaussian(),
   if (has_trials(family)) {
     if (!length(bterms$adforms$trials)) {
       if (!is.null(control$trials)) {
-        standata$trials <- control$trials
+        out$trials <- control$trials
       } else {
         message("Using the maximum of the response ", 
                 "variable as the number of trials.")
-        standata$trials <- max(standata$Y) 
+        out$trials <- max(out$Y) 
       }
     } else if (is.formula(bterms$adforms$trials)) {
-      standata$trials <- eval_rhs(bterms$adforms$trials, data = data)
+      out$trials <- eval_rhs(bterms$adforms$trials, data = data)
     } else {
       stop2("Argument 'trials' is misspecified.")
     }
-    if (length(standata$trials) == 1L) {
-      standata$trials <- rep(standata$trials, nrow(data))
+    if (length(out$trials) == 1L) {
+      out$trials <- rep(out$trials, nrow(data))
     }
-    if (max(standata$trials) == 1L && !not4stan) {
+    if (max(out$trials) == 1L && !not4stan) {
       message("Only 2 levels detected so that family 'bernoulli' ",
               "might be a more efficient choice.")
     }
-    if (check_response && any(standata$Y > standata$trials)) {
+    if (check_response && any(out$Y > out$trials)) {
       stop2("Number of trials is smaller than the response ", 
             "variable would suggest.")
     }
-    standata$trials <- as.array(standata$trials)
+    out$trials <- as.array(out$trials)
   }
   if (has_cat(family)) {
     if (!length(bterms$adforms$cat)) {
       if (!is.null(control$ncat)) {
-        standata$ncat <- control$ncat
+        out$ncat <- control$ncat
       } else {
-        standata$ncat <- length(unique(standata$Y))
+        out$ncat <- length(unique(out$Y))
       }
     } else if (is.formula(bterms$adforms$cat)) { 
-      standata$ncat <- eval_rhs(bterms$adforms$cat, data = data)
+      out$ncat <- eval_rhs(bterms$adforms$cat, data = data)
     } else {
       stop2("Argument 'cat' is misspecified.")
     }
-    if (max(standata$ncat) == 2L) {
+    if (max(out$ncat) == 2L) {
       message("Only 2 levels detected so that family 'bernoulli' ",
               "might be a more efficient choice.")
     }
-    if (check_response && any(standata$Y > standata$ncat)) {
+    if (check_response && any(out$Y > out$ncat)) {
       stop2("Number of categories is smaller than the response ", 
             "variable would suggest.")
     }
@@ -258,52 +261,52 @@ make_standata <- function(formula, data, family = gaussian(),
   
   # data for addition arguments
   if (is.formula(bterms$adforms$se)) {
-    standata[["se"]] <- as.array(eval_rhs(bterms$adforms$se, data = data))
+    out[["se"]] <- as.array(eval_rhs(bterms$adforms$se, data = data))
   }
   if (is.formula(bterms$adforms$weights)) {
-    standata[["weights"]] <- 
+    out[["weights"]] <- 
       as.array(eval_rhs(bterms$adforms$weights, data = data))
     if (old_mv) {
-      standata$weights <- standata$weights[1:standata$N_trait]
+      out$weights <- out$weights[1:out$N_trait]
     }
   }
   if (is.formula(bterms$adforms$disp)) {
-    standata[["disp"]] <- as.array(eval_rhs(bterms$adforms$disp, data = data))
+    out[["disp"]] <- as.array(eval_rhs(bterms$adforms$disp, data = data))
   }
   if (is.formula(bterms$adforms$dec)) {
-    standata[["dec"]] <- as.array(eval_rhs(bterms$adforms$dec, data = data))
+    out[["dec"]] <- as.array(eval_rhs(bterms$adforms$dec, data = data))
   }
   if (is.formula(bterms$adforms$cens) && check_response) {
     cens <- eval_rhs(bterms$adforms$cens, data = data)
-    standata$cens <- rm_attr(cens, "y2")
+    out$cens <- rm_attr(cens, "y2")
     y2 <- attr(cens, "y2")
     if (!is.null(y2)) {
       icens <- cens %in% 2
-      if (any(standata$Y[icens] >= y2[icens])) {
+      if (any(out$Y[icens] >= y2[icens])) {
         stop2("Left censor points must be smaller than right ", 
               "censor points for interval censored data.")
       }
       y2[!icens] <- 0  # not used in Stan
-      standata$rcens <- as.array(y2)
+      out$rcens <- as.array(y2)
     }
-    standata$cens <- as.array(standata$cens)
+    out$cens <- as.array(out$cens)
     if (old_mv) {
-      standata$cens <- standata$cens[1:standata$N_trait]
+      out$cens <- out$cens[1:out$N_trait]
     }
   }
   if (is.formula(bterms$adforms$trunc)) {
-    standata <- c(standata, eval_rhs(bterms$adforms$trunc, data = data))
-    if (length(standata$lb) == 1L) {
-      standata$lb <- rep(standata$lb, standata$N)
+    out <- c(out, eval_rhs(bterms$adforms$trunc, data = data))
+    if (length(out$lb) == 1L) {
+      out$lb <- rep(out$lb, out$N)
     }
-    if (length(standata$ub) == 1L) {
-      standata$ub <- rep(standata$ub, standata$N)
+    if (length(out$ub) == 1L) {
+      out$ub <- rep(out$ub, out$N)
     }
-    if (length(standata$lb) != standata$N || 
-        length(standata$ub) != standata$N) {
+    if (length(out$lb) != out$N || 
+        length(out$ub) != out$N) {
       stop2("Invalid truncation bounds.")
     }
-    inv_bounds <- standata$Y < standata$lb | standata$Y > standata$ub
+    inv_bounds <- out$Y < out$lb | out$Y > out$ub
     if (check_response && any(inv_bounds)) {
       stop2("Some responses are outside of the truncation bounds.")
     }
@@ -311,43 +314,114 @@ make_standata <- function(formula, data, family = gaussian(),
   
   # autocorrelation variables
   if (!only_response) {
-    if (has_arma(autocor)) {
+    if (is.cor_arma(autocor) || is.cor_bsts(autocor)) {
       if (nchar(bterms$time$group)) {
-        tgroup <- data[[bterms$time$group]]
+        tgroup <- as.numeric(factor(data[[bterms$time$group]]))
       } else {
-        tgroup <- rep(1, standata$N) 
+        tgroup <- rep(1, out$N) 
       }
+    }
+    if (has_arma(autocor)) {
       Kar <- get_ar(autocor)
       Kma <- get_ma(autocor)
       Karr <- get_arr(autocor)
       if (Kar || Kma) {
-        # ARMA effects (of residuals)
-        standata$tg <- as.numeric(factor(tgroup))
-        standata$Kar <- Kar
-        standata$Kma <- Kma
-        standata$Karma <- max(Kar, Kma)
+        # ARMA correlations (of residuals)
+        out$Kar <- Kar
+        out$Kma <- Kma
         if (use_cov(autocor)) {
-          # data for covariance matrices of ARMA effects 
-          standata$N_tg <- length(unique(standata$tg))
-          standata$begin_tg <- as.array(with(standata, 
+          # data for the 'covariance' version of ARMA 
+          out$N_tg <- length(unique(tgroup))
+          out$begin_tg <- as.array(
             ulapply(unique(tgroup), match, tgroup)
-          ))
-          standata$nobs_tg <- as.array(with(standata, 
+          )
+          out$nobs_tg <- as.array(with(out, 
             c(if (N_tg > 1L) begin_tg[2:N_tg], N + 1) - begin_tg
           ))
-          standata$end_tg <- with(standata, begin_tg + nobs_tg - 1)
-        } 
+          out$end_tg <- with(out, begin_tg + nobs_tg - 1)
+        } else {
+          # data for the 'predictor' version of ARMA
+          max_lag <- max(Kar, Kma)
+          out$J_lag <- rep(0, out$N)
+          for (n in seq_len(out$N)) {
+            for (i in seq_len(max_lag)) {
+              valid_lag <- n + 1 - i > 0 && n < out$N && 
+                tgroup[n + 1] == tgroup[n + 1 - i]
+              if (valid_lag) {
+                out$J_lag[n] <- i
+              }
+            }
+          }
+        }
       }
       if (Karr) {
-        if (length(bterms$response) > 1L) {
-          stop2("ARR structure not yet implemented for multivariate models.")
-        }
         # ARR effects (autoregressive effects of the response)
-        standata$Yarr <- arr_design_matrix(standata$Y, Karr, tgroup)
-        standata$Karr <- Karr
+        out$Yarr <- arr_design_matrix(out$Y, Karr, tgroup)
+        out$Karr <- Karr
       }
-    } 
-    if (is.cor_fixed(autocor)) {
+    } else if (is.cor_sar(autocor)) {
+      if (!identical(dim(autocor$W), rep(out$N, 2))) {
+        stop2("Dimensions of 'W' must be equal to the number of observations.")
+      }
+      out$W <- autocor$W
+      # simplifies code of choose_N
+      out$N_tg <- 1
+    } else if (is.cor_car(autocor)) {
+      if (isTRUE(nzchar(bterms$time$group))) {
+        loc_data <- get(bterms$time$group, data)
+        locations <- levels(factor(loc_data))
+        if (!is.null(control$old_locations)) {
+          old_locations <- control$old_locations
+          new_locations <- setdiff(locations, old_locations)
+          if (length(new_locations)) {
+            stop2("Cannot handle new locations in CAR models.")
+          }
+        } else {
+          old_locations <- locations
+        }
+        Nloc <- length(locations)
+        Jloc <- as.array(match(loc_data, old_locations))
+        found_locations <- rownames(autocor$W)
+        if (is.null(found_locations)) {
+          stop2("Row names are required for 'W'.")
+        }
+        colnames(autocor$W) <- found_locations
+        found <- locations %in% found_locations
+        if (any(!found)) {
+          stop2("Row names of 'W' do not match ", 
+                "the names of the grouping levels.")
+        }
+        autocor$W <- autocor$W[locations, locations, drop = FALSE]
+      } else {
+        Nloc <- out$N
+        Jloc <- as.array(seq_len(Nloc))
+        if (!identical(dim(autocor$W), rep(Nloc, 2))) {
+          if (is_newdata) {
+            stop2("Cannot handle new data in CAR models ",
+                  "without a grouping factor.")
+          } else {
+            stop2("Dimensions of 'W' must be equal ", 
+                  "to the number of observations.") 
+          }
+        }
+      }
+      W_tmp <- autocor$W
+      W_tmp[upper.tri(W_tmp)] <- NA
+      edges <- which(as.matrix(W_tmp == 1), arr.ind = TRUE)
+      Nneigh <- Matrix::colSums(autocor$W)
+      if (any(Nneigh == 0)) {
+        stop2("All locations should have at least one neighbor.")
+      }
+      inv_sqrt_D <- diag(1 / sqrt(Nneigh))
+      eigenW <- t(inv_sqrt_D) %*% autocor$W %*% inv_sqrt_D
+      eigenW <- eigen(eigenW, TRUE, only.values = TRUE)$values
+      out <- c(out, nlist(
+        Nloc, Jloc, Nneigh, eigenW, Nedges = nrow(edges),  
+        edges1 = as.array(edges[, 1]), edges2 = as.array(edges[, 2])
+      ))
+    } else if (is.cor_bsts(autocor)) {
+      out$tg <- as.array(tgroup)
+    } else if (is.cor_fixed(autocor)) {
       V <- autocor$V
       rmd_rows <- attr(data, "na.action")
       if (!is.null(rmd_rows)) {
@@ -359,20 +433,9 @@ make_standata <- function(formula, data, family = gaussian(),
       if (min(eigen(V)$values <= 0)) {
         stop2("'V' must be positive definite.")
       }
-      standata$V <- V
+      out$V <- V
       # simplifies code of choose_N
-      standata$N_tg <- 1
-    }
-    if (is.cor_bsts(autocor)) {
-      if (length(bterms$response) > 1L) {
-        stop2("BSTS structure not yet implemented for multivariate models.")
-      }
-      if (nchar(bterms$time$group)) {
-        tgroup <- data[[bterms$time$group]]
-      } else {
-        tgroup <- rep(1, standata$N) 
-      }
-      standata$tg <- as.array(as.numeric(factor(tgroup)))
+      out$N_tg <- 1
     }
   }
   
@@ -381,34 +444,34 @@ make_standata <- function(formula, data, family = gaussian(),
     # evaluate even if check_response is FALSE to ensure 
     # that N_trait is defined
     if (is_linear && length(bterms$response) > 1L) {
-      standata$Y <- matrix(standata$Y, ncol = length(bterms$response))
-      NC_trait <- ncol(standata$Y) * (ncol(standata$Y) - 1L) / 2L
-      standata <- c(standata, list(N_trait = nrow(standata$Y), 
-                                   K_trait = ncol(standata$Y),
-                                   NC_trait = NC_trait)) 
+      out$Y <- matrix(out$Y, ncol = length(bterms$response))
+      NC_trait <- ncol(out$Y) * (ncol(out$Y) - 1L) / 2L
+      out <- c(out, list(N_trait = nrow(out$Y), 
+                         K_trait = ncol(out$Y),
+                         NC_trait = NC_trait)) 
       # for compatibility with the S3 methods of brms >= 1.0.0
-      standata$nresp <- standata$K_trait
-      standata$nrescor <- standata$NC_trait
+      out$nresp <- out$K_trait
+      out$nrescor <- out$NC_trait
     }
     if (is_forked) {
       # the second half of Y is only dummy data
       # that was put into data to make melt_data work correctly
-      standata$N_trait <- nrow(data) / 2L
-      standata$Y <- as.array(standata$Y[1L:standata$N_trait]) 
+      out$N_trait <- nrow(data) / 2L
+      out$Y <- as.array(out$Y[1L:out$N_trait]) 
     }
     if (is_categorical && !isTRUE(control$old_cat == 1L)) {
-      ncat1m <- standata$ncat - 1L
-      standata$N_trait <- nrow(data) / ncat1m
-      standata$Y <- as.array(standata$Y[1L:standata$N_trait])
-      standata$J_trait <- as.array(matrix(1L:standata$N, ncol = ncat1m))
+      ncat1m <- out$ncat - 1L
+      out$N_trait <- nrow(data) / ncat1m
+      out$Y <- as.array(out$Y[1L:out$N_trait])
+      out$J_trait <- as.array(matrix(1L:out$N, ncol = ncat1m))
     }
   }
   
-  standata$prior_only <- ifelse(identical(sample_prior, "only"), 1L, 0L)
+  out$prior_only <- as.integer(identical(sample_prior, "only"))
   if (isTRUE(control$save_order)) {
-    attr(standata, "old_order") <- attr(data, "old_order")
+    attr(out, "old_order") <- attr(data, "old_order")
   }
-  structure(standata, class = "standata")
+  structure(out, class = "standata")
 }  
 
 #' @export

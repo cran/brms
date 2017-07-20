@@ -23,29 +23,29 @@ make_stancode <- function(formula, data, family = gaussian(),
                           prior = NULL, autocor = NULL, nonlinear = NULL,
                           threshold = c("flexible", "equidistant"),
                           sparse = FALSE,  cov_ranef = NULL, 
-                          sample_prior = FALSE, stan_funs = NULL, 
-                          save_model = NULL, silent = FALSE, ...) {
+                          sample_prior = c("no", "yes", "only"), 
+                          stan_funs = NULL, save_model = NULL, 
+                          silent = FALSE, ...) {
   dots <- list(...)
   # use deprecated arguments if specified
-  cov_ranef <- use_alias(cov_ranef, dots$cov.ranef)
-  sample_prior <- use_alias(sample_prior, dots$sample.prior)
-  save_model <- use_alias(save_model, dots$save.model)
+  cov_ranef <- use_alias(cov_ranef, dots[["cov.ranef"]])
+  sample_prior <- use_alias(sample_prior, dots[["sample.prior"]])
+  save_model <- use_alias(save_model, dots[["save.model"]])
   dots[c("cov.ranef", "sample.prior", "save.model")] <- NULL
   # some input checks
+  family <- check_family(family, threshold = threshold)
   formula <- amend_formula(
     formula, data = data, family = family, nonlinear = nonlinear
   )
   family <- formula$family
   autocor <- check_autocor(autocor)
-  threshold <- match.arg(threshold)
   bterms <- parse_bf(formula, family = family, autocor = autocor)
+  sample_prior <- check_sample_prior(sample_prior)
   prior <- check_prior(
     prior, formula = formula, data = data, family = family, 
     autocor = autocor, sample_prior = sample_prior, 
-    threshold = threshold, warn = !isTRUE(dots$brm_call)
+    warn = !isTRUE(dots$brm_call)
   )
-  prior_only <- identical(sample_prior, "only")
-  sample_prior <- if (prior_only) FALSE else sample_prior
   data <- update_data(data, bterms = bterms)
   
   # flags to indicate the family type
@@ -67,16 +67,14 @@ make_stancode <- function(formula, data, family = gaussian(),
   }
   text_effects <- stan_effects(
     bterms, data = data, ranef = ranef, 
-    prior = prior, sparse = sparse,
-    threshold = threshold
+    prior = prior, sparse = sparse
   )
-  text_effects <- collapse_lists(list(text_effects, text_effects_mv))
+  text_effects <- collapse_lists(text_effects, text_effects_mv)
   # because of the ID syntax, group-level effects are evaluated separately
-  text_ranef <- lapply(
+  text_ranef <- collapse_lists(ls = lapply(
     X = unique(ranef$id), FUN = stan_re,
     ranef = ranef, prior = prior, cov_ranef = cov_ranef
-  )
-  text_ranef <- collapse_lists(text_ranef)
+  ))
   
   # generate Stan code of the likelihood
   text_llh <- stan_llh(
@@ -90,8 +88,7 @@ make_stancode <- function(formula, data, family = gaussian(),
   disc <- "disc" %in% names(bterms$auxpars) || 
     isTRUE(bterms$fauxpars$disc != 1)
   text_ordinal <- stan_ordinal(
-    family, prior = prior, cs = has_cs(bterms), 
-    disc = disc, threshold = threshold
+    family, prior = prior, cs = has_cs(bterms), disc = disc
   )
   text_families <- stan_families(family, bterms)
   text_mixture <- stan_mixture(bterms, prior = prior)
@@ -188,7 +185,7 @@ make_stancode <- function(formula, data, family = gaussian(),
   text_rngprior <- stan_rngprior(
     sample_prior = sample_prior, 
     par_declars = text_parameters,
-    gen_quantities = text_effects$genC,
+    gen_quantities = text_effects$genD,
     prior = text_prior,
     prior_special = attr(prior, "special")
   )
@@ -300,7 +297,7 @@ make_stancode <- function(formula, data, family = gaussian(),
         file = temp_file, isystem = isystem, 
         obfuscate_model_name = TRUE
       ),
-      type = "message"
+      type = "message", silent = silent
     )
     complete_model$model_name <- name_model(family)
     class(complete_model$model_code) <- c("character", "brmsmodel")
@@ -310,6 +307,8 @@ make_stancode <- function(formula, data, family = gaussian(),
     if (!isTRUE(dots$brm_call)) {
       complete_model <- complete_model$model_code
     }
+  } else {
+    class(complete_model) <- c("character", "brmsmodel")
   }
   complete_model
 }

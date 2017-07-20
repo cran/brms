@@ -2,6 +2,69 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.8.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Fit conditional autoregressive (CAR) models
+      via function \code{cor_car} thanks to the case
+      study of Max Joseph.
+      \item Fit spatial autoregressive (SAR) models
+      via function \code{cor_sar}. Currently works
+      for families \code{gaussian} and \code{student}.
+      \item Implement skew normal models via family 
+      \code{skew_normal}. Thanks to Stephen Martin 
+      for suggestions on the parameterization.
+      \item Add method \code{reloo} to perform exact 
+      cross-validation for problematic observations 
+      and \code{kfold} to perform k-fold cross-validation 
+      thanks to the Stan Team.
+      \item Regularize non-zero coefficients in the 
+      \code{horseshoe} prior thanks to Juho Piironen 
+      and Aki Vehtari.
+      \item Add argument \code{new_objects} to various
+      post-processing methods to allow for passing of
+      data objects, which cannot be passed via 
+      \code{newdata}.
+      \item Improve parallel execution flexibility
+      via the \code{future} package.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Improve efficiency and stability of ARMA models.
+      \item Throw an error when the intercept is removed 
+      in an ordinal model instead of silently adding
+      it back again.
+      \item Deprecate argument \code{threshold} in \code{brm}
+      and instead recommend passing \code{threshold} directly 
+      to the ordinal family functions.
+      \item Throw an error instead of a message when
+      invalid priors are passed.
+      \item Change the default value of the \code{autocor}
+      slot in \code{brmsfit} objects to an empty
+      \code{cor_brms} object.
+      \item Shorten \pkg{Stan} code by combining 
+      declarations and definitions where possible.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix problems in \code{pp_check}
+      when the variable specified in argument
+      \code{x} has attributes thanks to 
+      Paul Galpern.
+      \item Fix problems when computing fitted 
+      values for truncated discrete models based
+      on new data thanks to Nathan Doogan.
+      \item Fix unexpected errors when passing
+      models, which did not properly initiliaze,
+      to various post-processing methods.
+      \item Do not accidently drop the second 
+      dimension of matrices in \code{summary.brmsfit} 
+      for models with only a single observation. 
+    }
+  }
+}
 
 \section{CHANGES IN VERSION 1.7.0}{
   \subsection{NEW FEATURES}{

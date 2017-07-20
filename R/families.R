@@ -13,9 +13,9 @@
 #'   \code{gaussian}, \code{student}, \code{binomial}, 
 #'   \code{bernoulli}, \code{poisson}, \code{negbinomial}, 
 #'   \code{geometric}, \code{Gamma}, \code{lognormal}, 
-#'   \code{exgaussian}, \code{wiener}, \code{inverse.gaussian}, 
-#'   \code{exponential}, \code{weibull}, \code{frechet},
-#'   \code{Beta}, \code{von_mises}, \code{asym_laplace},
+#'   \code{exgaussian}, \code{skew_normal}, \code{wiener}, 
+#'   \code{inverse.gaussian}, \code{exponential}, \code{weibull}, 
+#'   \code{frechet}, \code{Beta}, \code{von_mises}, \code{asym_laplace},
 #'   \code{gen_extreme_value}, \code{categorical}, \code{cumulative}, 
 #'   \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
 #'   \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{hurdle_lognormal},
@@ -40,13 +40,20 @@
 #' @param link_bs Link of auxiliary parameter \code{bs} if being predicted.
 #' @param link_ndt Link of auxiliary parameter \code{ndt} if being predicted.
 #' @param link_bias Link of auxiliary parameter \code{bias} if being predicted.
+#' @param link_alpha Link of auxiliary parameter \code{alpha} if being predicted.
 #' @param link_quantile Link of auxiliary parameter \code{quantile} if being predicted.
 #' @param link_xi Link of auxiliary parameter \code{xi} if being predicted.
+#' @param threshold A character string indicating the type 
+#'   of thresholds (i.e. intercepts) used in an ordinal model. 
+#'   \code{"flexible"} provides the standard unstructured thresholds and 
+#'   \code{"equidistant"} restricts the distance between 
+#'   consecutive thresholds to the same value.
 #' 
 #' @details 
 #'   Family \code{gaussian} with \code{identity} link leads to linear regression. 
 #'   Family \code{student} with \code{identity} link leads to 
 #'   robust linear regression that is less influenced by outliers. 
+#'   Family \code{skew_normal} can handle skewed responses in linear regression.
 #'   Families \code{poisson}, \code{negbinomial}, and \code{geometric} 
 #'   with \code{log} link lead to regression models for count data. 
 #'   Families \code{binomial} and \code{bernoulli} with \code{logit} link leads to 
@@ -80,9 +87,9 @@
 #'   models cannot be reasonably fitted for data containing zeros in the response.
 #'   
 #'   In the following, we list all possible links for each family.
-#'   The families \code{gaussian}, \code{student}, \code{exgaussian},
-#'   \code{asym_laplace}, and \code{gen_extreme_value} accept the links 
-#'   (as names) \code{identity}, \code{log}, and \code{inverse};
+#'   The families \code{gaussian}, \code{student}, \code{skew_normal},
+#'   \code{exgaussian}, \code{asym_laplace}, and \code{gen_extreme_value} 
+#'   accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
 #'   families \code{poisson}, \code{negbinomial}, \code{geometric},
 #'   \code{zero_inflated_poisson}, \code{zero_inflated_negbinomial},
 #'   \code{hurdle_poisson}, and \code{hurdle_negbinomial} the links 
@@ -138,27 +145,35 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
                        link_coi = "logit", link_disc = "log",
                        link_bs = "log", link_ndt = "log",
                        link_bias = "logit", link_xi = "log1p",
-                       link_quantile = "logit") {
+                       link_alpha = "identity", 
+                       link_quantile = "logit",
+                       threshold = c("flexible", "equidistant")) {
   slink <- substitute(link)
-  .brmsfamily(family, link = link, slink = slink,
-              link_sigma = link_sigma, link_shape = link_shape, 
-              link_nu = link_nu, link_phi = link_phi, 
-              link_kappa = link_kappa, link_beta = link_beta, 
-              link_zi = link_zi, link_hu = link_hu, 
-              link_zoi = link_zoi, link_coi = link_coi,
-              link_disc = link_disc, link_bs = link_bs, 
-              link_ndt = link_ndt, link_bias = link_bias,
-              link_quantile = link_quantile, 
-              link_xi = link_xi)
+  .brmsfamily(
+    family, link = link, slink = slink,
+    link_sigma = link_sigma, link_shape = link_shape, 
+    link_nu = link_nu, link_phi = link_phi, 
+    link_kappa = link_kappa, link_beta = link_beta, 
+    link_zi = link_zi, link_hu = link_hu, 
+    link_zoi = link_zoi, link_coi = link_coi,
+    link_disc = link_disc, link_bs = link_bs, 
+    link_ndt = link_ndt, link_bias = link_bias,
+    link_alpha = link_alpha, link_xi = link_xi,
+    link_quantile = link_quantile,
+    threshold = threshold
+  )
 }
 
-.brmsfamily <- function(family, link = NULL, slink = link, ...) {
+.brmsfamily <- function(family, link = NULL, slink = link,
+                        threshold = c("flexible", "equidistant"),
+                        ...) {
   # helper function to prepare brmsfamily objects
   # Args:
   #   family: character string naming the model family
   #   link: character string naming the link function
   #   slink: can be used with substitute(link) for 
   #          non-standard evaluation of the link function
+  #   threshold: threshold type for ordinal models
   #   ...: link functions (as character strings) of auxiliary parameters
   # returns:
   #  An object of class = c(brmsfamily, family) to be used
@@ -172,7 +187,7 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
                    subs = c("gaussian", "zero_inflated_", "hurdle_"),
                    fixed = FALSE)
   ok_families <- c(
-    "gaussian", "student", "lognormal", 
+    "gaussian", "student", "lognormal", "skew_normal",
     "binomial", "bernoulli", "categorical", 
     "poisson", "negbinomial", "geometric", 
     "gamma", "weibull", "exponential", "exgaussian", 
@@ -182,7 +197,8 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
     "hurdle_poisson", "hurdle_negbinomial", "hurdle_gamma",
     "hurdle_lognormal", "zero_inflated_poisson", 
     "zero_inflated_negbinomial", "zero_inflated_binomial", 
-    "zero_inflated_beta", "zero_one_inflated_beta")
+    "zero_inflated_beta", "zero_one_inflated_beta"
+  )
   if (!family %in% ok_families) {
     stop(family, " is not a supported family. Supported families are: \n",
          paste(ok_families, collapse = ", "), call. = FALSE)
@@ -190,7 +206,7 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
   
   # check validity of link
   is_linear <- family %in% c(
-    "gaussian", "student", "exgaussian", 
+    "gaussian", "student", "skew_normal", "exgaussian", 
     "asym_laplace", "gen_extreme_value"
   )  
   is_count <- family %in% c(
@@ -275,6 +291,9 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
       out[[paste0("link_", ap)]] <- alink
     }
   }
+  if (is_ordinal(out$family)) {
+    out$threshold <- match.arg(threshold)
+  }
   out
 }
 
@@ -314,6 +333,15 @@ lognormal <- function(link = "identity", link_sigma = "log") {
   slink <- substitute(link)
   .brmsfamily("lognormal", link = link, slink = slink,
               link_sigma = link_sigma)
+}
+
+#' @rdname brmsfamily
+#' @export
+skew_normal <- function(link = "identity", link_sigma = "log", 
+                        link_alpha = "identity") {
+  slink <- substitute(link)
+  .brmsfamily("skew_normal", link = link, slink = slink,
+              link_sigma = link_sigma, link_alpha = link_alpha)
 }
 
 #' @rdname brmsfamily
@@ -477,34 +505,38 @@ categorical <- function(link = "logit") {
 
 #' @rdname brmsfamily
 #' @export
-cumulative <- function(link = "logit", link_disc = "log") {
+cumulative <- function(link = "logit", link_disc = "log",
+                       threshold = c("flexible", "equidistant")) {
   slink <- substitute(link)
   .brmsfamily("cumulative", link = link, slink = slink,
-              link_disc = link_disc)
+              link_disc = link_disc, threshold = threshold)
 }
 
 #' @rdname brmsfamily
 #' @export
-sratio <- function(link = "logit", link_disc = "log") {
+sratio <- function(link = "logit", link_disc = "log",
+                   threshold = c("flexible", "equidistant")) {
   slink <- substitute(link)
   .brmsfamily("sratio", link = link, slink = slink,
-              link_disc = link_disc)
+              link_disc = link_disc, threshold = threshold)
 }
 
 #' @rdname brmsfamily
 #' @export
-cratio <- function(link = "logit", link_disc = "log") {
+cratio <- function(link = "logit", link_disc = "log",
+                   threshold = c("flexible", "equidistant")) {
   slink <- substitute(link)
   .brmsfamily("cratio", link = link, slink = slink,
-              link_disc = link_disc)
+              link_disc = link_disc, threshold = threshold)
 }
 
 #' @rdname brmsfamily
 #' @export
-acat <- function(link = "logit", link_disc = "log") {
+acat <- function(link = "logit", link_disc = "log",
+                 threshold = c("flexible", "equidistant")) {
   slink <- substitute(link)
   .brmsfamily("acat", link = link, slink = slink,
-              link_disc = link_disc)
+              link_disc = link_disc, threshold = threshold)
 }
 
 par_family <- function(par = NULL, link = NULL) {
@@ -534,13 +566,15 @@ par_family <- function(par = NULL, link = NULL) {
   )
 }
 
-check_family <- function(family, link = NULL) {
+check_family <- function(family, link = NULL, threshold = NULL) {
   # checks and corrects validity of the model family
   # Args:
   #   family: Either a function, an object of class 'family' 
   #           or a character string of length one or two
   #   link: an optional character string naming the link function
   #         ignored if family is a function or a family object
+  #   threshold: optional character string specifying the threshold
+  #              type in ordinal models
   if (is.function(family)) {
     family <- family()   
   }
@@ -556,7 +590,15 @@ check_family <- function(family, link = NULL) {
       family <- .brmsfamily(family[1], link = link)
     } else {
       stop2("Argument 'family' is invalid.")
-    } 
+    }
+  }
+  if (is_ordinal(family) && !is.null(threshold)) {
+    threshold <- match.arg(threshold, c("flexible", "equidistant"))
+    if (threshold != "flexible") {
+      family$threshold <- threshold
+      warning2("Specifying 'threshold' outside of ", 
+               "family functions is deprecated.")
+    }
   }
   family
 }
@@ -748,6 +790,9 @@ print.brmsfamily <- function(x, links = FALSE, newline = TRUE, ...) {
   if (!is.null(x$type)) {
     cat("Type:", x$type, "\n") 
   }
+  if (!is.null(x$threshold)) {
+    cat("Threshold:", x$threshold, "\n")
+  }
   if (isTRUE(links) || is.character(links)) {
     ap_links <- x[grepl("^link_", names(x))]
     names(ap_links) <- sub("^link_", "", names(ap_links))
@@ -916,7 +961,7 @@ use_real <- function(family) {
     any(families %in% 
       c("lognormal", "exgaussian", "inverse.gaussian", "beta", 
         "von_mises", "zero_inflated_beta", "hurdle_gamma", 
-        "hurdle_lognormal", "wiener", "asym_laplace", 
+        "hurdle_lognormal", "wiener", "asym_laplace", "skew_normal",
         "gen_extreme_value", "zero_one_inflated_beta")
     )
 }
@@ -969,6 +1014,11 @@ has_beta <- function(family) {
   any(family_names(family) %in% c("exgaussian"))
 }
 
+has_alpha <- function(family) {
+  # indicate if family needs an alpha parameter
+  any(family_names(family) %in% c("skew_normal"))
+}
+
 has_xi <- function(family) {
   # indicate if family needs a xi parameter
   any(family_names(family) %in% c("gen_extreme_value"))
@@ -983,7 +1033,7 @@ has_sigma <- function(family, bterms = NULL, incmv = FALSE) {
   families <- family_names(family)
   is_ln_eg <- any(families %in% 
     c("lognormal", "hurdle_lognormal", "exgaussian",
-      "asym_laplace", "gen_extreme_value")
+      "asym_laplace", "gen_extreme_value", "skew_normal")
   )
   if (is.formula(bterms$adforms$se)) {
     # call .se without evaluating the x argument 

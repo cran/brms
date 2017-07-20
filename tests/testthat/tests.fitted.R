@@ -3,6 +3,7 @@ test_that("fitted helper functions run without errors", {
   fit <- brms:::rename_pars(brms:::brmsfit_example1)
   add_samples <- brms:::add_samples
   fit <- add_samples(fit, "shape", dist = "exp")
+  fit <- add_samples(fit, "alpha", dist = "norm")
   fit <- add_samples(fit, "hu", dist = "beta", shape1 = 1, shape2 = 1)
   fit <- add_samples(fit, "zi", dist = "beta", shape1 = 1, shape2 = 1)
   fit <- add_samples(fit, "quantile", dist = "beta", shape1 = 2, shape2 = 1)
@@ -20,6 +21,11 @@ test_that("fitted helper functions run without errors", {
   
   # pseudo log-normal model
   fit$family <- lognormal()
+  expect_equal(dim(fitted(fit, summary = FALSE)), 
+               c(nsamples, nobs))
+  
+  # pseudo skew-normal model
+  fit$family <- skew_normal()
   expect_equal(dim(fitted(fit, summary = FALSE)), 
                c(nsamples, nobs))
   
@@ -97,4 +103,16 @@ test_that("fitted helper functions run without errors", {
   draws$mu <- ilink(draws$mu, "logit")
   mu <- fitted_trunc_binomial(draws, lb = lb, ub = ub)
   expect_equal(dim(mu), c(nsamples, nobs))
+})
+
+test_that("fitted_lagsar runs without errors", {
+  draws <- list(
+    mu = matrix(rnorm(30), nrow = 3),
+    lagsar = matrix(c(0.3, 0.5, 0.7)),
+    data = list(W = matrix(1:100, 10, 10), N = 10),
+    nsamples = 3
+  )
+  mu_new <- brms:::fitted_lagsar(draws)
+  expect_equal(dim(mu_new), dim(draws$mu))
+  expect_true(!identical(mu_new, draws$mu))
 })

@@ -19,15 +19,17 @@ test_that("predict for location shift models runs without errors", {
   expect_equal(length(pred), ns)
 })
 
-test_that("predict for lognormal and exgaussian models runs without errors", {
+test_that("predict for various skewed models runs without errors", {
   ns <- 50
   nobs <- 2
   draws <- list(sigma = rchisq(ns, 3), beta = rchisq(ns, 3),
                 mu = matrix(rnorm(ns * nobs), ncol = nobs),
-                f = lognormal(), nsamples = ns)
+                alpha = rnorm(ns), f = lognormal(), nsamples = ns)
   pred <- predict_lognormal(1, draws = draws)
   expect_equal(length(pred), ns)
   pred <- predict_exgaussian(1, draws = draws)
+  expect_equal(length(pred), ns)
+  pred <- predict_skew_normal(1, draws = draws)
   expect_equal(length(pred), ns)
 })
 
@@ -87,6 +89,30 @@ test_that("predict for ARMA covariance models runs without errors", {
   draws$f$link <- "identity" 
   pred <- predict_cauchy_cov(3, draws = draws[-5])
   expect_equal(length(pred), ns * 3)
+})
+
+test_that("loglik for SAR models runs without errors", {
+  draws <- list(
+    mu = matrix(rnorm(30), nrow = 3),
+    nu = matrix(rep(2, 3)),
+    sigma = matrix(rep(10, 3)),
+    lagsar = matrix(c(0.3, 0.5, 0.7)),
+    nsamples = 3
+  )
+  draws$data <- list(Y = rnorm(10), W = diag(10), N = 10)
+  draws$f$link <- "identity"
+  
+  pred <- brms:::predict_gaussian_lagsar(1, draws = draws)
+  expect_equal(dim(pred), c(3, 10))
+  pred <- predict_student_lagsar(1, draws = draws)
+  expect_equal(dim(pred), c(3, 10))
+  
+  draws$errorsar <- draws$lagsar
+  draws$lagsar <- NULL
+  pred <- predict_gaussian_errorsar(1, draws = draws)
+  expect_equal(dim(pred), c(3, 10))
+  pred <- predict_student_errorsar(1, draws = draws)
+  expect_equal(dim(pred), c(3, 10))
 })
 
 test_that("predict for 'cor_fixed' models runs without errors", {

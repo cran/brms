@@ -197,6 +197,223 @@ rmulti_student_t <- function(n, df, mu, Sigma, check = FALSE) {
   sweep(samples, 2, mu, "+")
 }
 
+#' The Skew-Normal Distribution
+#' 
+#' Density, distribution function, and random generation for the 
+#' skew-normal distribution with mean \code{mu}, 
+#' standard deviation \code{sigma}, and skewness \code{alpha}.
+#' 
+#' @name SkewNormal
+#' 
+#' @inheritParams StudentT
+#' @param x,q Vector of quantiles.
+#' @param mu Vector of mean values.
+#' @param sigma Vector of standard deviation values.
+#' @param alpha Vector of skewness values.
+#' @param xi Optional vector of location values.
+#'   If \code{NULL} (the default), will be computed internally.
+#' @param omega Optional vector of scale values.
+#'   If \code{NULL} (the default), will be computed internally. 
+#' @param tol Tolerance of the approximation used in the 
+#'   computation of quantiles.
+#'   
+#' @details See \code{vignette("brms_families")} for details
+#' on the parameterization.
+#' 
+#' @export
+dskew_normal <- function(x, mu = 0, sigma = 1, alpha = 0, 
+                         xi = NULL, omega = NULL, log = FALSE) {
+  if (any(sigma <= 0)) {
+    stop2("sigma must be greater than 0.")
+  }
+  args <- cp2dp(mu, sigma, alpha, xi = xi, omega = omega, x = x)
+  out <- with(args, {
+    # do it like sn::dsn
+    z <- (x - xi) / omega 
+    if (length(alpha) == 1L) {
+      alpha <- rep(alpha, length(z))
+    }
+    logN <- -log(sqrt(2 * pi)) - log(omega) - z^2 / 2
+    logS <- ifelse(
+      abs(alpha) < Inf, 
+      pnorm(alpha * z, log.p = TRUE),
+      log(as.numeric(sign(alpha) * z > 0))
+    )
+    out <- logN + logS - pnorm(0, log.p = TRUE)
+    ifelse(abs(z) == Inf, -Inf, out)
+  })
+  if (!log) {
+    out <- exp(out)
+  }
+  out
+}
+
+#' @rdname SkewNormal
+#' @export 
+pskew_normal <- function(q, mu = 0, sigma = 1, alpha = 0, 
+                         xi = NULL, omega = NULL,
+                         lower.tail = TRUE, log.p = FALSE) {
+  require_package("mnormt")
+  if (any(sigma <= 0)) {
+    stop2("sigma must be greater than 0.")
+  }
+  args <- cp2dp(mu, sigma, alpha, xi = xi, omega = omega, q = q)
+  out <- with(args, {
+    # do it like sn::psn
+    z <- (q - xi) / omega
+    nz <- length(z)
+    is_alpha_inf <- abs(alpha) == Inf
+    delta[is_alpha_inf] <- sign(alpha[is_alpha_inf])
+    out <- numeric(nz)
+    for (k in seq_len(nz)) {
+      if (is_alpha_inf[k]) {
+        if (alpha[k] > 0) {
+          out[k] <- 2 * (pnorm(pmax(z[k], 0)) - 0.5)
+        } else {
+          out[k] <- 1 - 2 * (0.5 - pnorm(pmin(z[k], 0)))
+        }
+      } else {
+        S <- matrix(c(1, -delta[k], -delta[k], 1), 2, 2)
+        out[k] <- 2 * mnormt::biv.nt.prob(
+          0, lower = rep(-Inf, 2), upper = c(z[k], 0),
+          mean = c(0, 0), S = S
+        )
+      }
+    }
+    pmin(1, pmax(0, out))
+  })
+  if (!lower.tail) {
+    out <- 1 - out
+  }
+  if (log.p) {
+    out <- log(out)
+  }
+  out
+}
+
+#' @rdname SkewNormal
+#' @export
+qskew_normal <- function(p, mu = 0, sigma = 1, alpha = 0, 
+                         xi = NULL, omega = NULL,
+                         lower.tail = TRUE, log.p = FALSE, 
+                         tol = 1e-8) {
+  if (any(sigma <= 0)) {
+    stop2("sigma must be greater than 0.")
+  }
+  if (log.p) {
+    p <- exp(p)
+  }
+  if (!lower.tail) {
+    p <- 1 - p
+  }
+  args <- cp2dp(mu, sigma, alpha, xi = xi, omega = omega, p = p)
+  out <- with(args, {
+    # do it like sn::qsn
+    na <- is.na(p) | (p < 0) | (p > 1)
+    zero <- (p == 0)
+    one <- (p == 1)
+    p <- replace(p, (na | zero | one), 0.5)
+    cum <- skew_normal_cumulants(0, 1, alpha, n = 4)
+    g1 <- cum[, 3] / cum[, 2]^(3 / 2)
+    g2 <- cum[, 4] / cum[, 2]^2
+    x <- qnorm(p)
+    x <- x + (x^2 - 1) * g1 / 6 + 
+      x * (x^2 - 3) * g2 / 24 - 
+      x * (2 * x^2 - 5) * g1^2 / 36
+    x <- cum[, 1] + sqrt(cum[, 2]) * x
+    px <- pskew_normal(x, xi = 0, omega = 1, alpha = alpha)
+    max_err <- 1
+    while (max_err > tol) {
+      x1 <- x - (px - p) / 
+        dskew_normal(x, xi = 0, omega = 1, alpha = alpha)
+      x <- x1
+      px <- pskew_normal(x, xi = 0, omega = 1, alpha = alpha)
+      max_err <- max(abs(px - p))
+      if (is.na(max_err)) {
+        warning2("Approximation in 'qskew_normal' might have failed.")
+      }
+    }
+    x <- replace(x, na, NA)
+    x <- replace(x, zero, -Inf)
+    x <- replace(x, one, Inf)
+    as.numeric(xi + omega * x)
+  })
+  out
+}
+
+#' @rdname SkewNormal
+#' @export
+rskew_normal <- function(n, mu = 0, sigma = 1, alpha = 0,
+                         xi = NULL, omega = NULL) {
+  if (any(sigma <= 0)) {
+    stop2("sigma must be greater than 0.")
+  }
+  args <- cp2dp(mu, sigma, alpha, xi = xi, omega = omega)
+  with(args, {
+    # do it like sn::rsn
+    z1 <- rnorm(n)
+    z2 <- rnorm(n)
+    id <- z2 > args$alpha * z1
+    z1[id] <- -z1[id]
+    xi + omega * z1 
+  })
+}
+
+cp2dp <- function(mu = 0, sigma = 1, alpha = 0, 
+                  xi = NULL, omega = NULL, ...) {
+  # convert skew-normal mixed-CP to DP parameterization
+  # Returns:
+  #   A data.frame containing all relevant parameters 
+  delta <- alpha / sqrt(1 + alpha^2)
+  if (is.null(omega)) {
+    omega <- sigma / sqrt(1 - 2 / pi * delta^2)
+  } 
+  if (is.null(xi)) {
+    xi <- mu - omega * delta * sqrt(2 / pi)
+  }
+  expand(dots = nlist(mu, sigma, alpha, xi, omega, delta, ...))
+}
+
+skew_normal_cumulants <- function(xi = 0, omega = 1, alpha = 0, n = 4) {
+  # helper function for qskew_normal 
+  # code basis taken from sn::sn.cumulants
+  # this function used xi and omega rather than mu and sigma!
+  cumulants_half_norm <- function(n) {
+    n <- max(n, 2)
+    n <- as.integer(2 * ceiling(n/2))
+    half.n <- as.integer(n/2)
+    m <- 0:(half.n - 1)
+    a <- sqrt(2/pi)/(gamma(m + 1) * 2^m * (2 * m + 1))
+    signs <- rep(c(1, -1), half.n)[seq_len(half.n)]
+    a <- as.vector(rbind(signs * a, rep(0, half.n)))
+    coeff <- rep(a[1], n)
+    for (k in 2:n) {
+      ind <- seq_len(k - 1)
+      coeff[k] <- a[k] - sum(ind * coeff[ind] * a[rev(ind)]/k)
+    }
+    kappa <- coeff * gamma(seq_len(n) + 1)
+    kappa[2] <- 1 + kappa[2]
+    return(kappa)
+  }
+  
+  args <- expand(dots = nlist(xi, omega, alpha))
+  with(args, {
+    # do it like sn::sn.cumulants
+    delta <- alpha / sqrt(1 + alpha^2)
+    kv <- cumulants_half_norm(n)
+    if (length(kv) > n)  {
+      kv <- kv[-(n + 1)] 
+    }
+    kv[2] <- kv[2] - 1
+    kappa <- outer(delta, 1:n, "^") * 
+      matrix(rep(kv, length(xi)), ncol = n, byrow = TRUE)
+    kappa[, 2] <- kappa[, 2] + 1
+    kappa <- kappa * outer(omega, 1:n, "^")
+    kappa[, 1] <- kappa[, 1] + xi
+    kappa
+  })
+}
+
 #' The von Mises Distribution
 #' 
 #' Density, distribution function, and random generation for the 
@@ -796,6 +1013,7 @@ rasym_laplace <- function(n, mu = 0, sigma = 1, quantile = 0.5) {
 #' 
 #' @export
 dwiener <- function(x, alpha, tau, beta, delta, resp = 1, log = FALSE) {
+  require_package("RWiener")
   alpha <- as.numeric(alpha)
   tau <- as.numeric(tau)
   beta <- as.numeric(beta)
@@ -815,6 +1033,7 @@ dwiener <- function(x, alpha, tau, beta, delta, resp = 1, log = FALSE) {
 #' @rdname Wiener
 #' @export
 rwiener <- function(n, alpha, tau, beta, delta, types = c("q", "resp")) {
+  require_package("RWiener")
   stopifnot(all(types %in% c("q", "resp")))
   alpha <- as.numeric(alpha)
   tau <- as.numeric(tau)

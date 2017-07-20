@@ -7,6 +7,7 @@
 \alias{negbinomial}
 \alias{geometric}
 \alias{lognormal}
+\alias{skew_normal}
 \alias{exponential}
 \alias{weibull}
 \alias{frechet}
@@ -37,7 +38,8 @@ brmsfamily(family, link = NULL, link_sigma = "log", link_shape = "log",
   link_beta = "log", link_zi = "logit", link_hu = "logit",
   link_zoi = "logit", link_coi = "logit", link_disc = "log",
   link_bs = "log", link_ndt = "log", link_bias = "logit",
-  link_xi = "log1p", link_quantile = "logit")
+  link_xi = "log1p", link_alpha = "identity", link_quantile = "logit",
+  threshold = c("flexible", "equidistant"))
 
 student(link = "identity", link_sigma = "log", link_nu = "logm1")
 
@@ -48,6 +50,9 @@ negbinomial(link = "log", link_shape = "log")
 geometric(link = "log")
 
 lognormal(link = "identity", link_sigma = "log")
+
+skew_normal(link = "identity", link_sigma = "log",
+  link_alpha = "identity")
 
 exponential(link = "log")
 
@@ -92,13 +97,17 @@ zero_inflated_binomial(link = "logit", link_zi = "logit")
 
 categorical(link = "logit")
 
-cumulative(link = "logit", link_disc = "log")
+cumulative(link = "logit", link_disc = "log", threshold = c("flexible",
+  "equidistant"))
 
-sratio(link = "logit", link_disc = "log")
+sratio(link = "logit", link_disc = "log", threshold = c("flexible",
+  "equidistant"))
 
-cratio(link = "logit", link_disc = "log")
+cratio(link = "logit", link_disc = "log", threshold = c("flexible",
+  "equidistant"))
 
-acat(link = "logit", link_disc = "log")
+acat(link = "logit", link_disc = "log", threshold = c("flexible",
+  "equidistant"))
 }
 \arguments{
 \item{family}{A character string naming the distribution
@@ -107,9 +116,9 @@ Currently, the following families are supported:
 \code{gaussian}, \code{student}, \code{binomial}, 
 \code{bernoulli}, \code{poisson}, \code{negbinomial}, 
 \code{geometric}, \code{Gamma}, \code{lognormal}, 
-\code{exgaussian}, \code{wiener}, \code{inverse.gaussian}, 
-\code{exponential}, \code{weibull}, \code{frechet},
-\code{Beta}, \code{von_mises}, \code{asym_laplace},
+\code{exgaussian}, \code{skew_normal}, \code{wiener}, 
+\code{inverse.gaussian}, \code{exponential}, \code{weibull}, 
+\code{frechet}, \code{Beta}, \code{von_mises}, \code{asym_laplace},
 \code{gen_extreme_value}, \code{categorical}, \code{cumulative}, 
 \code{cratio}, \code{sratio}, \code{acat}, \code{hurdle_poisson}, 
 \code{hurdle_negbinomial}, \code{hurdle_gamma}, \code{hurdle_lognormal},
@@ -152,7 +161,15 @@ functions supported by each family.}
 
 \item{link_xi}{Link of auxiliary parameter \code{xi} if being predicted.}
 
+\item{link_alpha}{Link of auxiliary parameter \code{alpha} if being predicted.}
+
 \item{link_quantile}{Link of auxiliary parameter \code{quantile} if being predicted.}
+
+\item{threshold}{A character string indicating the type 
+of thresholds (i.e. intercepts) used in an ordinal model. 
+\code{"flexible"} provides the standard unstructured thresholds and 
+\code{"equidistant"} restricts the distance between 
+consecutive thresholds to the same value.}
 }
 \description{
 Family objects provide a convenient way to specify the details of the models 
@@ -166,6 +183,7 @@ However, the standard family functions as decribed in
 Family \code{gaussian} with \code{identity} link leads to linear regression. 
   Family \code{student} with \code{identity} link leads to 
   robust linear regression that is less influenced by outliers. 
+  Family \code{skew_normal} can handle skewed responses in linear regression.
   Families \code{poisson}, \code{negbinomial}, and \code{geometric} 
   with \code{log} link lead to regression models for count data. 
   Families \code{binomial} and \code{bernoulli} with \code{logit} link leads to 
@@ -199,9 +217,9 @@ Family \code{gaussian} with \code{identity} link leads to linear regression.
   models cannot be reasonably fitted for data containing zeros in the response.
   
   In the following, we list all possible links for each family.
-  The families \code{gaussian}, \code{student}, \code{exgaussian},
-  \code{asym_laplace}, and \code{gen_extreme_value} accept the links 
-  (as names) \code{identity}, \code{log}, and \code{inverse};
+  The families \code{gaussian}, \code{student}, \code{skew_normal},
+  \code{exgaussian}, \code{asym_laplace}, and \code{gen_extreme_value} 
+  accept the links (as names) \code{identity}, \code{log}, and \code{inverse};
   families \code{poisson}, \code{negbinomial}, \code{geometric},
   \code{zero_inflated_poisson}, \code{zero_inflated_negbinomial},
   \code{hurdle_poisson}, and \code{hurdle_negbinomial} the links 

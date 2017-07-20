@@ -684,7 +684,7 @@ auxpars <- function() {
   # names of auxiliary parameters
   c("mu", "sigma", "shape", "nu", "phi", "kappa", "beta", "xi",
     "zi", "hu", "zoi", "coi", "disc", "bs", "ndt", "bias", 
-    "quantile", "theta")
+    "quantile", "alpha", "theta")
 }
 
 links_auxpars <- function(ap) {
@@ -707,6 +707,7 @@ links_auxpars <- function(ap) {
     bias = c("logit", "identity"),
     quantile = c("logit", "identity"),
     xi = c("log1p", "identity"),
+    alpha = c("identity", "log"),
     theta = c("identity"), 
     stop2("Parameter '", ap, "' is not supported.")
   )
@@ -732,6 +733,7 @@ valid_auxpars.default <- function(family, bterms = NULL, ...) {
     bias = is_wiener(family), 
     disc = is_ordinal(family),
     quantile = is_asym_laplace(family),
+    alpha = has_alpha(family),
     xi = has_xi(family)
   )
   names(x)[x]
@@ -813,6 +815,10 @@ amend_formula <- function(formula, data = NULL, family = gaussian(),
     # fix discrimination to 1 by default
     if (!"disc" %in% c(names(pforms(out)), names(pfix(out)))) {
       out <- bf(out, disc = 1)
+    }
+    no_intercept <- isTRUE(attr(try_terms, "intercept", TRUE) == 0)
+    if (!is(try_terms, "try-error") && no_intercept) {
+      stop2("Cannot remove the intercept in an ordinal model.")
     }
   }
   if (is_categorical(out$family) && is.null(out[["response"]])) {

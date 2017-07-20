@@ -73,7 +73,12 @@ restructure <- function(x, rstr_summary = FALSE) {
   }
   version <- x$version$brms
   if (version < utils::packageVersion("brms")) {
-    # element 'nonlinear' deprecated as of brms > 0.9.1
+    # slot 'threshold' deprecated as of brms > 1.7.0
+    if (is_ordinal(x$family) && is.null(x$family$threshold)) {
+      x$family$threshold <- x$threshold
+    }
+    x$threshold <- NULL
+    # slot 'nonlinear' deprecated as of brms > 0.9.1
     x$formula <- SW(amend_formula(
       formula(x), data = model.frame(x), 
       family = family(x), nonlinear = x$nonlinear
@@ -255,14 +260,15 @@ prepare_conditions <- function(x, conditions = NULL, effects = NULL,
   int_vars <- c(int_vars, get_effect(bterms, "mo"))
   int_vars <- unique(ulapply(int_vars, all.vars))
   for (v in req_vars) {
-    if (is.numeric(mf[[v]])) {
+    if (!is_like_factor(mf[[v]])) {
+      # treat variable as numeric
       if (v %in% int_vars) {
         conditions[[v]] <- round(median(mf[[v]]))
       } else {
         conditions[[v]] <- mean(mf[[v]])
       }
     } else {
-      # use reference category
+      # use reference category for factors
       levels <- attr(as.factor(mf[[v]]), "levels")
       conditions[[v]] <- factor(
         levels[1], levels = levels, ordered = is.ordered(mf[[v]])
@@ -285,7 +291,7 @@ prepare_conditions <- function(x, conditions = NULL, effects = NULL,
 
 prepare_marg_data <- function(data, conditions, int_conditions = NULL,
                               int_vars = NULL, surface = FALSE, 
-                              resolution = 100) {
+                              resolution = 100, reorder = TRUE) {
   # prepare data to be used in marginal_effects
   # Args:
   #  data: data.frame containing only data of the predictors of interest
@@ -295,13 +301,16 @@ prepare_marg_data <- function(data, conditions, int_conditions = NULL,
   #  surface: generate surface plots later on?
   #  resolution: number of distinct points at which to evaluate
   #              the predictors of interest
+  #  reorder: reorder predictors so that numeric ones come first?
   effects <- names(data)
   stopifnot(length(effects) %in% c(1L, 2L))
-  pred_types <- ifelse(ulapply(data, is.numeric), "numeric", "factor")
+  pred_types <- ifelse(ulapply(data, is_like_factor), "factor", "numeric")
   # numeric effects should come first
-  new_order <- order(pred_types, decreasing = TRUE)
-  effects <- effects[new_order]
-  pred_types <- pred_types[new_order]
+  if (reorder) {
+    new_order <- order(pred_types, decreasing = TRUE)
+    effects <- effects[new_order]
+    pred_types <- pred_types[new_order]
+  }
   mono <- effects %in% int_vars
   if (pred_types[1] == "numeric") {
     min1 <- min(data[, effects[1]])
@@ -311,43 +320,42 @@ prepare_marg_data <- function(data, conditions, int_conditions = NULL,
     } else {
       values <- seq(min1, max1, length.out = resolution)
     }
+  } else {
+    values <- unique(data[, effects[1]])
   }
   if (length(effects) == 2L) {
-    if (pred_types[1] == "numeric") {
-      values <- setNames(list(values, NA), effects)
-      if (pred_types[2] == "numeric") {
-        if (surface) {
-          min2 <- min(data[, effects[2]])
-          max2 <- max(data[, effects[2]])
-          if (mono[2]) {
-            values[[2]] <- seq(min2, max2, by = 1)
-          } else {
-            values[[2]] <- seq(min2, max2, length.out = resolution)
-          }
+    values <- setNames(list(values, NA), effects)
+    if (pred_types[2] == "numeric") {
+      if (surface) {
+        min2 <- min(data[, effects[2]])
+        max2 <- max(data[, effects[2]])
+        if (mono[2]) {
+          values[[2]] <- seq(min2, max2, by = 1)
         } else {
-          if (effects[2] %in% names(int_conditions)) {
-            int_cond <- int_conditions[[effects[2]]]
-            if (is.function(int_cond)) {
-              int_cond <- int_cond(data[, effects[2]])
-            }
-            values[[2]] <- int_cond
-          } else if (mono[2]) {
-            median2 <- median(data[, effects[2]])
-            mad2 <- mad(data[, effects[2]])
-            values[[2]] <- round((-1:1) * mad2 + median2)
-          } else {
-            mean2 <- mean(data[, effects[2]])
-            sd2 <- sd(data[, effects[2]])
-            values[[2]] <- (-1:1) * sd2 + mean2
-          }
+          values[[2]] <- seq(min2, max2, length.out = resolution)
         }
       } else {
-        values[[2]] <- unique(data[, effects[2]])
+        if (effects[2] %in% names(int_conditions)) {
+          int_cond <- int_conditions[[effects[2]]]
+          if (is.function(int_cond)) {
+            int_cond <- int_cond(data[, effects[2]])
+          }
+          values[[2]] <- int_cond
+        } else if (mono[2]) {
+          median2 <- median(data[, effects[2]])
+          mad2 <- mad(data[, effects[2]])
+          values[[2]] <- round((-1:1) * mad2 + median2)
+        } else {
+          mean2 <- mean(data[, effects[2]])
+          sd2 <- sd(data[, effects[2]])
+          values[[2]] <- (-1:1) * sd2 + mean2
+        }
       }
-      data <- do.call(expand.grid, values)
+    } else {
+      values[[2]] <- unique(data[, effects[2]])
     }
-  } else if (pred_types == "numeric") {
-    # just a single numeric predictor
+    data <- do.call(expand.grid, values)
+  } else {
     data <- structure(data.frame(values), names = effects)
   }
   # no need to have the same value combination more than once
@@ -463,7 +471,8 @@ get_summary <- function(samples, probs = c(0.025, 0.975),
   } else if (length(dim(samples)) == 3L) {
     fun3dim <- function(i) {
       do.call(cbind, lapply(
-        coefs, get_estimate, samples = samples[, , i], 
+        coefs, get_estimate, 
+        samples = samples[, , i, drop = FALSE], 
         probs = probs, ra.rm = TRUE
       ))
     }
@@ -811,6 +820,12 @@ prepare_family <- function(x) {
     family$family <- paste0(family$family, "_mv")
   } else if (use_cov(x$autocor) && sum(x$autocor$p, x$autocor$q) > 0) {
     family$family <- paste0(family$family, "_cov")
+  } else if (is.cor_sar(x$autocor)) {
+    if (identical(x$autocor$type, "lag")) {
+      family$family <- paste0(family$family, "_lagsar")
+    } else if (identical(x$autocor$type, "error")) {
+      family$family <- paste0(family$family, "_errorsar")
+    }
   } else if (is.cor_fixed(x$autocor)) {
     family$family <- paste0(family$family, "_fixed")
   }
@@ -859,8 +874,8 @@ default_plot_pars <- function() {
   # list all parameter classes to be included in plots by default
   c(fixef_pars(), "^sd_", "^cor_", "^sigma_", "^rescor_", 
     paste0("^", auxpars(), "[[:digit:]]*$"), "^delta$",
-    "^theta", "^ar", "^ma", "^arr", "^sigmaLL", "^sds_",
-    "^sdgp_", "^lscale_")
+    "^theta", "^ar", "^ma", "^arr", "^lagsar", "^errorsar", 
+    "^car", "^sdcar", "^sigmaLL", "^sds_", "^sdgp_", "^lscale_")
 }
 
 extract_pars <- function(pars, all_pars, exact_match = FALSE,
@@ -887,234 +902,6 @@ extract_pars <- function(pars, all_pars, exact_match = FALSE,
     pars <- na_value
   }
   pars
-}
-
-compute_ic <- function(x, ic = c("waic", "loo", "psislw"), 
-                       loo_args = list(), ...) {
-  # compute WAIC and LOO using the 'loo' package
-  # Args:
-  #   x: an object of class brmsfit
-  #   ic: the information criterion to be computed
-  #   loo_args: passed to functions of the loo package
-  #   ...: passed to log_lik.brmsfit
-  # Returns:
-  #   output of the loo functions with amended class attribute
-  stopifnot(is.list(loo_args))
-  ic <- match.arg(ic)
-  dots <- list(...)
-  contains_samples(x)
-  loo_args$x <- do.call(log_lik, c(list(x), dots))
-  pointwise <- is.function(loo_args$x)
-  if (pointwise) {
-    loo_args$args <- attr(loo_args$x, "args")
-    attr(loo_args$x, "args") <- NULL
-  }
-  if (ic == "psislw") {
-    if (pointwise) {
-      loo_args[["llfun"]] <- loo_args[["x"]]
-      loo_args[["llargs"]] <- loo_args[["args"]]
-      loo_args[["x"]] <- loo_args[["args"]] <- NULL
-    } else {
-      loo_args[["lw"]] <- -loo_args[["x"]]
-      loo_args[["x"]] <- NULL
-    }
-  }
-  IC <- do.call(eval(parse(text = paste0("loo::", ic))), loo_args)
-  class(IC) <- c("ic", "loo")
-  IC
-}
-
-#' Compare Information Criteria of Different Models
-#'
-#' Compare information criteria of different models fitted
-#' with \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.
-#' 
-#' @param ... At least two objects returned by 
-#'   \code{\link[brms:WAIC]{WAIC}} or \code{\link[brms:LOO]{LOO}}.
-#'   Alternatively, \code{brmsfit} objects with information 
-#'   criteria precomputed via \code{\link[brms:add_ic]{add_ic}}
-#'   may be passed, as well.
-#' @param x A \code{list} containing the same types of objects as
-#'   can be passed via \code{...}.
-#' @param ic The name of the information criterion to be extracted 
-#'   from \code{brmsfit} objects. Ignored if information 
-#'   criterion objects are only passed directly.
-#'   
-#' @return An object of class \code{iclist}.
-#' 
-#' @details For more details see \code{\link[loo:compare]{compare}}.
-#' 
-#' @seealso 
-#'   \code{\link[brms:WAIC]{WAIC}}, 
-#'   \code{\link[brms:LOO]{LOO}},
-#'   \code{\link[brms:add_ic]{add_ic}},
-#'   \code{\link[loo:compare]{compare}}
-#'   
-#' @examples 
-#' \dontrun{
-#' # model with population-level effects only
-#' fit1 <- brm(rating ~ treat + period + carry,
-#'             data = inhaler, family = "gaussian")
-#' w1 <- WAIC(fit1)
-#' 
-#' # model with an additional varying intercept for subjects
-#' fit2 <- brm(rating ~ treat + period + carry + (1|subject),
-#'             data = inhaler, family = "gaussian")
-#' w2 <- WAIC(fit2)
-#' 
-#' # compare both models
-#' compare_ic(w1, w2)
-#' }
-#' 
-#' @export
-compare_ic <- function(..., x = NULL, ic = c("loo", "waic")) {
-  ic <- match.arg(ic)
-  if (!(is.null(x) || is.list(x))) {
-    stop2("Argument 'x' should be a list.")
-  }
-  x$ic_diffs__ <- NULL
-  x <- c(list(...), x)
-  for (i in seq_along(x)) {
-    # extract precomputed values from brmsfit objects
-    if (is.brmsfit(x[[i]]) && !is.null(x[[i]][[ic]])) {
-      x[[i]] <- x[[i]][[ic]]
-    }
-  }
-  if (!all(sapply(x, inherits, "ic"))) {
-    stop2("All inputs should have class 'ic' ", 
-          "or contain precomputed 'ic' objects.")
-  }
-  if (length(x) < 2L) {
-    stop2("Expecting at least two objects.")
-  }
-  ics <- unname(sapply(x, function(y) names(y)[3]))
-  if (!all(sapply(ics, identical, ics[1]))) {
-    stop2("All inputs should be from the same criterion.")
-  }
-  names(x) <- ulapply(x, "[[", "model_name")
-  n_models <- length(x)
-  ic_diffs <- matrix(0, nrow = n_models * (n_models - 1) / 2, ncol = 2)
-  rnames <- rep("", nrow(ic_diffs))
-  # pairwise comparision to get differences in ICs and their SEs
-  n <- 1
-  for (i in seq_len(n_models - 1)) {
-    for (j in (i + 1):n_models) {
-      temp <- loo::compare(x[[j]], x[[i]])
-      ic_diffs[n, ] <- c(-2 * temp[["elpd_diff"]], 2 * temp[["se"]]) 
-      rnames[n] <- paste(names(x)[i], "-", names(x)[j])
-      n <- n + 1
-    }
-  }
-  rownames(ic_diffs) <- rnames
-  colnames(ic_diffs) <- c(toupper(ics[1]), "SE")
-  x$ic_diffs__ <- ic_diffs
-  class(x) <- c("iclist", "list")
-  x
-}
-
-loo_weights <- function(object, lw = NULL, log = FALSE, 
-                        loo_args = list(), ...) {
-  # compute loo weights for use in loo_predict and related methods
-  # Args:
-  #   object: a brmsfit object
-  #   lw: precomputed log weights matrix
-  #   log: return log weights?
-  #   loo_args: further arguments passed to functions of loo
-  #   ...: further arguments passed to compute_ic
-  # Returns:
-  #   an S x N matrix
-  if (!is.null(lw)) {
-    stopifnot(is.matrix(lw))
-  } else {
-    message("Running PSIS to compute weights")
-    psis <- compute_ic(object, ic = "psislw", loo_args = loo_args, ...)
-    lw <- psis[["lw_smooth"]]
-  }
-  if (!log) {
-    lw <- exp(lw) 
-  } 
-  lw
-}
-
-set_pointwise <- function(x, pointwise = NULL, newdata = NULL, 
-                          subset = NULL, thres = 1e+08) {
-  # set the pointwise argument based on the model size
-  # Args:
-  #   x: a brmsfit object
-  #   newdata: optional data.frame containing new data
-  #   subset: a vector to indicate a subset of the posterior samples
-  #   thres: threshold above which pointwise is set to TRUE
-  # Returns:
-  #   TRUE or FALSE
-  if (!is.null(pointwise)) {
-    pointwise <- as.logical(pointwise)
-    if (length(pointwise) != 1L || anyNA(pointwise)) {
-      stop2("Argument 'pointwise' must be either TRUE or FALSE.")
-    }
-  } else {
-    nsamples <- nsamples(x, subset = subset)
-    if (is.data.frame(newdata)) {
-      nobs <- nrow(newdata)
-    } else {
-      nobs <- nobs(x)
-    }
-    pointwise <- nsamples * nobs > thres
-    if (pointwise) {
-      message(
-        "Switching to pointwise evaluation to reduce ",  
-        "RAM requirements.\nThis will likely increase ",
-        "computation time."
-      )
-    }
-  }
-  pointwise
-}
-
-is.ic <- function(x) {
-  # objects of class 'ic' are returned by LOO and WAIC
-  inherits(x, "ic")
-}
-
-args_not_for_add_ic <- function() {
-  # arguments of WAIC and LOO not usable in add_ic
-  c("newdata", "re_formula", "subset", "nsamples",
-    "allow_new_levels", "sample_new_levels")
-}
-
-match_response <- function(models) {
-  # compare the response parts of multiple brmsfit objects
-  # Args:
-  #   models: A list of brmsfit objects
-  # Returns:
-  #   TRUE if the response parts of all models match and FALSE else
-  if (length(models) <= 1L) {
-    out <- TRUE  
-  } else {
-    add_funs <- lsp("brms", what = "exports", pattern = "^resp_")
-    match_vars <- c("Y", sub("^resp_", "", add_funs))
-    .match_fun <- function(x, y) {
-      # checks if all relevant parts of the response are the same 
-      # Args:
-      #   x, y: named lists as returned by standata
-      all(ulapply(match_vars, function(v) {
-        a <- if (is.null(attr(x, "old_order"))) as.vector(x[[v]])
-             else as.vector(x[[v]])[attr(x, "old_order")]
-        b <- if (is.null(attr(y, "old_order"))) as.vector(y[[v]])
-             else as.vector(y[[v]])[attr(y, "old_order")]
-        is_equal(a, b)
-      }))
-    }
-    sdatas <- lapply(models, standata, control = list(save_order = TRUE))
-    matches <- ulapply(sdatas[-1], .match_fun, y = sdatas[[1]]) 
-    if (all(matches)) {
-      out <- TRUE
-    } else {
-      out <- FALSE
-      warning2("Model comparisons are likely invalid as the response ", 
-               "parts of at least two models do not match.")
-    }
-  }
-  invisible(out)
 }
 
 find_names <- function(x) {
@@ -1182,7 +969,7 @@ evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"),
     out <- length(which(x > cut))
     out <- out / (length(x) - out)  
   }
-  out  
+  out
 }
 
 make_point_frame <- function(mf, effects, conditions, groups, 

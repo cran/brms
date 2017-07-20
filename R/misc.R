@@ -73,16 +73,32 @@ is_equal <- function(x, y, ...) {
   isTRUE(all.equal(x, y, ...))
 }
 
-expand <- function(..., length = NULL) {
+is_like_factor <- function(x) {
+  # check if x behaves like a factor in design matrices
+  is.factor(x) || is.character(x) || is.logical(x)
+}
+
+as_one_logical <- function(x) {
+  # coerce 'x' to TRUE or FALSE if possible
+  s <- substitute(x)
+  x <- as.logical(x)
+  if (anyNA(x) || length(x) != 1L) {
+    s <- substr(deparse_combine(s), 1L, 100L)
+    stop2("Cannot coerce ", s, " to a single logical value.")
+  }
+  x
+}
+
+expand <- function(..., dots = list(), length = NULL) {
   # expand arguments of be of the same length
   # Args:
   #   ...: arguments to expand
   #   length: optional expansion length
-  dots <- list(...)
+  dots <- c(dots, list(...))
   if (is.null(length)) {
     length <- max(sapply(dots, length))
   }
-  lapply(dots, rep, length.out = length)
+  as.data.frame(lapply(dots, rep, length.out = length))
 }
 
 rmNum <- function(x) {
@@ -165,6 +181,18 @@ collapse_comma <- function(...) {
   paste0("'", ..., "'", collapse = ", ")
 }
 
+'str_add<-' <- function(x, value) {
+  # add characters to an existing string
+  paste0(x, value)
+}
+
+require_package <- function(package) {
+  if (!requireNamespace(package, quietly = TRUE)) {
+    stop2("Please install the '", package, "' package.")
+  }
+  invisible(TRUE)
+}
+
 rename <- function(x, symbols = NULL, subs = NULL, 
                    fixed = TRUE, check_dup = FALSE) {
   # rename certain symbols in a character vector
@@ -206,12 +234,13 @@ rename <- function(x, symbols = NULL, subs = NULL,
   out
 }
 
-collapse_lists <- function(ls) {
+collapse_lists <- function(..., ls = list()) {
   # collapse strings having the same name in different lists
   # Args:
   #  ls: a list of named lists
   # Returns:
   #  a named list containg the collapsed strings
+  ls <- c(list(...), ls)
   elements <- unique(unlist(lapply(ls, names)))
   out <- do.call(mapply, 
     c(FUN = collapse, lapply(ls, "[", elements), SIMPLIFY = FALSE))
@@ -259,6 +288,15 @@ deparse_no_string <- function(x) {
     x <- deparse(x)
   } 
   x
+}
+
+deparse_combine <- function(x, max_char = 100) {
+  # combine deparse lines into one string
+  out <- collapse(deparse(x))
+  if (isTRUE(max_char > 0)) {
+    out <- substr(out, 1, max_char)
+  }
+  out
 }
 
 eval2 <- function(text, ...) {
@@ -508,6 +546,12 @@ log_diff_exp <- function(x, y) {
 log_sum_exp <- function(x, y) {
   max <- max(x, y)
   max + log(exp(x - max) + exp(y - max))
+}
+
+log_mean_exp <- function(x) {
+  # just log_sum_exp(x) - log(length(x))
+  max_x <- max(x)
+  max_x + log(sum(exp(x - max_x))) - log(length(x))
 }
 
 log_inv_logit <- function(x) {

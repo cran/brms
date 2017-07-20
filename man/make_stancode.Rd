@@ -6,8 +6,9 @@
 \usage{
 make_stancode(formula, data, family = gaussian(), prior = NULL,
   autocor = NULL, nonlinear = NULL, threshold = c("flexible",
-  "equidistant"), sparse = FALSE, cov_ranef = NULL, sample_prior = FALSE,
-  stan_funs = NULL, save_model = NULL, silent = FALSE, ...)
+  "equidistant"), sparse = FALSE, cov_ranef = NULL, sample_prior = c("no",
+  "yes", "only"), stan_funs = NULL, save_model = NULL, silent = FALSE,
+  ...)
 }
 \arguments{
 \item{formula}{An object of class 
@@ -58,11 +59,13 @@ common linear predictor on the right hand side.
 As of \pkg{brms} 1.4.0, we recommend specifying non-linear
 parameters directly within \code{formula}.}
 
-\item{threshold}{A character string indicating the type of thresholds 
-(i.e. intercepts) used in an ordinal model. 
+\item{threshold}{(Deprecated) A character string indicating the type 
+of thresholds (i.e. intercepts) used in an ordinal model. 
 \code{"flexible"} provides the standard unstructured thresholds and 
 \code{"equidistant"} restricts the distance between 
-consecutive thresholds to the same value.}
+consecutive thresholds to the same value.
+As of \pkg{brms} 1.8.0, we recommend specifying threshold
+directly within the ordinal family functions.}
 
 \item{sparse}{Logical; indicates whether the population-level 
 design matrix should be treated as sparse (defaults to \code{FALSE}). 
@@ -79,13 +82,13 @@ of the corresponding matrix. This argument can be used,
 among others to model pedigrees and phylogenetic effects.
 See \code{vignette("brms_phylogenetics")} for more details.}
 
-\item{sample_prior}{A flag to indicate if samples from all specified 
+\item{sample_prior}{Indicate if samples from all specified 
 proper priors should be drawn additionally to the posterior samples
-(defaults to \code{FALSE}). Among others, these samples can be used 
+(defaults to \code{"no"}). Among others, these samples can be used 
 to calculate Bayes factors for point hypotheses. 
-Alternatively, \code{sample_prior} can be set to \code{"only"} to
-sample solely from the priors. In this case, all parameters must 
-have proper priors.}
+If set to \code{"only"}, samples are drawn solely from
+the priors ignoring the likelihood. In this case, 
+all parameters must have proper priors.}
 
 \item{stan_funs}{An optional character string containing self-defined 
 \pkg{Stan} functions, which will be included in the functions block 
