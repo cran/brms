@@ -6,16 +6,51 @@ p <- function(x, i = NULL, row = TRUE) {
   #   row: indicating if rows or cols should be indexed
   #        only relevant if x has two dimensions
   if (!length(i)) {
-    x
+    out <- x
   } else if (length(dim(x)) == 2L) {
     if (row) {
-      x[i, , drop = FALSE]
+      out <- x[i, , drop = FALSE]
     } else {
-      x[, i, drop = FALSE]
+      out <- x[, i, drop = FALSE]
     }
   } else {
-    x[i]
+    out <- x[i]
   }
+  out
+}
+
+match_rows <- function(x, y, ...) {
+  # match rows in x with rows in y
+  x <- as.data.frame(x)
+  y <- as.data.frame(y)
+  x <- do.call("paste", c(x, sep = "\r"))
+  y <- do.call("paste", c(y, sep = "\r"))
+  match(x, y, ...)
+}
+
+find_rows <- function(x, ..., ls = list(), fun = '%in%') {
+  # finding rows matching columns passed via ls and ...
+  x <- as.data.frame(x)
+  if (!nrow(x)) {
+    return(logical(0))
+  }
+  out <- rep(TRUE, nrow(x))
+  ls <- c(ls, list(...))
+  if (!length(ls)) {
+    return(out)
+  }
+  if (is.null(names(ls))) {
+    stop("Argument 'ls' must be named.")
+  }
+  for (name in names(ls)) {
+    out <- out & do.call(fun, list(x[[name]], ls[[name]]))
+  }
+  out
+}
+
+subset2 <- function(x, ..., ls = list(), fun = '%in%') {
+  # subset x using arguments passed via ls and ...
+  x[find_rows(x, ..., ls = ls, fun = fun), ]
 }
 
 select_indices <- function(x, i) {
@@ -355,9 +390,15 @@ SW <- function(expr) {
   base::suppressWarnings(expr)
 }
 
-get_matches <- function(pattern, text, simplify = TRUE, ...) {
+get_matches <- function(pattern, text, simplify = TRUE, 
+                        first = FALSE, ...) {
   # get pattern matches in text as vector
-  x <- regmatches(text, gregexpr(pattern, text, ...))
+  if (first) {
+    x <- regexpr(pattern, text, ...)
+  } else {
+    x <- gregexpr(pattern, text, ...)
+  }
+  x <- regmatches(text, x)
   if (simplify) {
     x <- unlist(x)
   }
@@ -608,17 +649,18 @@ softmax <- function(x) {
   x / rowSums(x)
 }
 
-wsp <- function(x, nsp = 1) {
+wsp <- function(x = "", nsp = 1) {
   # add leading and trailing whitespaces
   # Args:
   #   x: object accepted by paste
   #   nsp: number of whitespaces to add
   sp <- collapse(rep(" ", nsp))
   if (length(x)) {
-    paste0(sp, x, sp)
+    out <- ifelse(nzchar(x), paste0(sp, x, sp), sp)
   } else {
-    NULL
+    out <- NULL
   } 
+  out
 }
 
 limit_chars <- function(x, chars = NULL, lsuffix = 4) {
@@ -680,9 +722,13 @@ expect_match2 <- function(object, regexp, ..., all = TRUE) {
 
 .onAttach <- function(libname, pkgname) {
   # startup messages for brms
-  packageStartupMessage(paste0(
+  packageStartupMessage(
     "Loading 'brms' package (version ", utils::packageVersion("brms"), "). ",
-    "Useful instructions \n", 
-    "can be found by typing help('brms'). A more detailed introduction \n", 
-    "to the package is available through vignette('brms_overview')."))
+    "Useful instructions\n", 
+    "can be found by typing help('brms'). A more detailed introduction\n", 
+    "to the package is available through vignette('brms_overview').\n",
+    "Plotting theme set to bayesplot::theme_default()."
+  )
+  ggplot2::theme_set(bayesplot::theme_default())
+  invisible(NULL)
 }

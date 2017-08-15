@@ -176,9 +176,8 @@ ranef.brmsfit <- function(object, summary = TRUE, robust = FALSE,
     groups <- unique(ranef$group)
     out <- named_list(groups)
     for (g in groups) {
-      take <- ranef$group == g
-      nlpars_usc <- usc(ranef[take, "nlpar"], "suffix")
-      coefs <- paste0(nlpars_usc, ranef[take, "coef"])
+      r <- subset2(ranef, group = g)
+      coefs <- paste0(usc(combine_prefix(r), "suffix"), r$coef)
       levels <- attr(ranef, "levels")[[g]]
       rpars <- pars[grepl(paste0("^r_", g, "(__.+\\[|\\[)"), pars)]
       out[[g]] <- as.matrix(object, rpars, exact_match = TRUE)
@@ -385,8 +384,8 @@ VarCorr.brmsfit <- function(x, sigma = 1, summary = TRUE, robust = FALSE,
     if (nrow(x$ranef)) {
       get_names <- function(group) {
         # get names of group-level parameters
-        r <- x$ranef[x$ranef$group == group, ]
-        rnames <- paste0(usc(r$nlpar, "suffix"), r$coef)
+        r <- subset2(x$ranef, group = group)
+        rnames <- paste0(usc(combine_prefix(r), "suffix"), r$coef)
         cor_type <- paste0("cor_", group)
         sd_pars <- paste0("sd_", group, "__", rnames)
         cor_pars <- get_cornames(rnames, type = cor_type, brackets = FALSE)
@@ -430,7 +429,7 @@ posterior_samples.brmsfit <- function(x, pars = NA, parameters = NA,
                                       ...) {
   pars <- use_alias(pars, parameters, default = NA)
   add_chain <- use_alias(add_chain, add_chains, default = FALSE)
-  if (all(c(as.matrix, as.array))) {
+  if (as.matrix && as.array) {
     stop2("Cannot use 'as.matrix' and 'as.array' at the same time.")
   }
   if (add_chain && as.array) {
@@ -518,22 +517,27 @@ as.mcmc.brmsfit <- function(x, pars = NA, exact_match = FALSE,
                             combine_chains = FALSE, inc_warmup = FALSE,
                             ...) {
   contains_samples(x)
-  pars <- extract_pars(pars, all_pars = parnames(x),
-                       exact_match = exact_match, ...)
+  pars <- extract_pars(
+    pars, all_pars = parnames(x),
+    exact_match = exact_match, ...
+  )
   if (combine_chains) {
     if (inc_warmup) {
       stop2("Cannot include warmup samples when 'combine_chains' is TRUE.")
     }
     out <- as.matrix(x$fit, pars)
-    mcpar <- c(x$fit@sim$warmup * x$fit@sim$chain + 1, 
-               x$fit@sim$iter * x$fit@sim$chain, x$fit@sim$thin)
+    mcpar <- c(
+      x$fit@sim$warmup * x$fit@sim$chain + 1, 
+      x$fit@sim$iter * x$fit@sim$chain, x$fit@sim$thin
+    )
     attr(out, "mcpar") <- mcpar
     class(out) <- "mcmc"
   } else {
-    ps <- extract(x$fit, pars, permuted = FALSE, 
-                  inc_warmup = inc_warmup)
-    mcpar <- c(if (inc_warmup) 1 else x$fit@sim$warmup + 1, 
-               x$fit@sim$iter, x$fit@sim$thin)
+    ps <- extract(x$fit, pars, permuted = FALSE, inc_warmup = inc_warmup)
+    mcpar <- c(
+      if (inc_warmup) 1 else x$fit@sim$warmup + 1, 
+      x$fit@sim$iter, x$fit@sim$thin
+    )
     out <- vector("list", length = dim(ps)[2])
     for (i in seq_along(out)) {
       out[[i]] <- ps[, i, ]
@@ -648,6 +652,9 @@ print.brmsfit <- function(x, digits = 2, ...) {
 #' @param waic,loo Logical; Indicating if the LOO or WAIC information
 #'   criteria should be computed and shown in the summary. 
 #'   Defaults to \code{FALSE}.
+#' @param R2 Logical; Indicating if the Bayesian R-squared
+#'   should be computed and shown in the summary. 
+#'   Defaults to \code{FALSE}.
 #' @param priors Logical; Indicating if priors should be included 
 #'   in the summary. Default is \code{FALSE}.
 #' @param use_cache Logical; Indicating if summary results should
@@ -662,7 +669,7 @@ print.brmsfit <- function(x, digits = 2, ...) {
 #' 
 #' @method summary brmsfit
 #' @export
-summary.brmsfit <- function(object, waic = FALSE, loo = FALSE,
+summary.brmsfit <- function(object, waic = FALSE, loo = FALSE, R2 = FALSE,
                             priors = FALSE, use_cache = TRUE, ...) {
   object <- restructure(object, rstr_summary = use_cache)
   bterms <- parse_bf(formula(object), family = family(object))
@@ -675,9 +682,8 @@ summary.brmsfit <- function(object, waic = FALSE, loo = FALSE,
     ngrps = ngrps(object), 
     autocor = object$autocor,
     prior = empty_brmsprior(),
-    waic = "Not computed",
-    loo = "Not computed",
-    algorithm = algorithm(object)
+    algorithm = algorithm(object),
+    waic = NA, loo = NA, R2 = NA
   )
   class(out) <- "brmssummary"
   if (!length(object$fit@sim)) {
@@ -698,6 +704,9 @@ summary.brmsfit <- function(object, waic = FALSE, loo = FALSE,
   }
   if (waic || is.ic(object[["waic"]])) {
     out$waic <- SW(WAIC(object)$waic)
+  }
+  if (R2 || is.matrix(object[["R2"]])) {
+    out$R2 <- mean(bayes_R2(object, summary = FALSE))
   }
   
   pars <- parnames(object)
@@ -749,7 +758,7 @@ summary.brmsfit <- function(object, waic = FALSE, loo = FALSE,
   rownames(out$fixed) <- gsub(fixef_pars(), "", fe_pars)
   
   # summary of family specific parameters
-  spec_pars <- c(auxpars(), "delta", "theta", "rescor")
+  spec_pars <- c(dpars(), "delta", "theta", "rescor")
   spec_pars <- paste0("^(", paste0(spec_pars, collapse = "|"), ")")
   spec_pars <- pars[grepl(spec_pars, pars)]
   spec_pars <- setdiff(spec_pars, "sigmaLL")
@@ -770,8 +779,7 @@ summary.brmsfit <- function(object, waic = FALSE, loo = FALSE,
   # summary of group-level effects
   for (g in out$group) {
     r <- object$ranef[object$ranef$group == g, ]
-    nlpar_usc <- usc(r$nlpar, "suffix")
-    rnames <- paste0(nlpar_usc, r$coef)
+    rnames <- paste0(usc(combine_prefix(r), "suffix"), r$coef)
     sd_pars <- paste0("sd_", g, "__", rnames)
     sd_names <- paste0("sd", "(", rnames ,")")
     # construct correlation names
@@ -879,11 +887,13 @@ standata.brmsfit <- function(object, ...) {
     dots$control$old_cat <- is_old_categorical(object)
     sample_prior <- attr(object$prior, "sample_prior")
     sample_prior <- ifelse(is.null(sample_prior), "no", sample_prior)
-    args <- list(formula = new_formula, data = model.frame(object), 
-                 family = object$family, prior = object$prior, 
-                 autocor = object$autocor, cov_ranef = object$cov_ranef, 
-                 knots = attr(model.frame(object), "knots"),
-                 sample_prior = sample_prior)
+    args <- list(
+      formula = new_formula, data = model.frame(object), 
+      family = object$family, prior = object$prior, 
+      autocor = object$autocor, cov_ranef = object$cov_ranef, 
+      knots = attr(model.frame(object), "knots"),
+      sample_prior = sample_prior
+    )
     standata <- do.call(make_standata, c(args, dots))
   } else {
     # brms <= 0.5.0 only stores the data passed to Stan 
@@ -893,13 +903,41 @@ standata.brmsfit <- function(object, ...) {
   }
   standata
 }
-  
+
+#' Interface to \pkg{shinystan}
+#' 
+#' Provide an interface to \pkg{shinystan} for models fitted with \pkg{brms}
+#' 
+#' @aliases launch_shinystan launch_shiny
+#' 
+#' @param object A fitted model object typically of class \code{brmsfit}. 
+#' @param rstudio Only relevant for RStudio users. 
+#' The default (\code{rstudio=FALSE}) is to launch the app 
+#' in the default web browser rather than RStudio's pop-up Viewer. 
+#' Users can change the default to \code{TRUE} 
+#' by setting the global option \cr \code{options(shinystan.rstudio = TRUE)}.
+#' @param ... Optional arguments to pass to \code{\link[shiny:runApp]{runApp}}
+#' 
+#' @return An S4 shinystan object
+#' 
+#' @examples
+#' \dontrun{
+#' fit <- brm(rating ~ treat + period + carry + (1|subject),
+#'            data = inhaler, family = "gaussian")
+#' launch_shinystan(fit)                         
+#' }
+#' 
+#' @seealso \code{\link[shinystan:launch_shinystan]{launch_shinystan}}
+#' 
+#' @method launch_shinystan brmsfit
+#' @importFrom shinystan launch_shinystan
+#' @export launch_shinystan
 #' @export
-launch_shiny.brmsfit <- function(x, rstudio = getOption("shinystan.rstudio"), 
-                                 ...) {
-  require_package("shinystan")
-  contains_samples(x)
-  shinystan::launch_shinystan(x$fit, rstudio = rstudio, ...)
+launch_shinystan.brmsfit <- function(
+  object, rstudio = getOption("shinystan.rstudio"), ...
+) {
+  contains_samples(object)
+  launch_shinystan(object$fit, rstudio = rstudio, ...)
 }
 
 #' Trace and Density Plots for MCMC Samples
@@ -969,8 +1007,9 @@ plot.brmsfit <- function(x, pars = NA, parameters = NA,
     pars <- default_plot_pars()
     exact_match <- FALSE
   }
-  samples <- posterior_samples(x, pars = pars, add_chain = TRUE,
-                               exact_match = exact_match)
+  samples <- posterior_samples(
+    x, pars = pars, add_chain = TRUE, exact_match = exact_match
+  )
   pars <- names(samples)[!names(samples) %in% c("chain", "iter")] 
   if (!length(pars)) {
     stop2("No valid parameters selected.")
@@ -986,8 +1025,9 @@ plot.brmsfit <- function(x, pars = NA, parameters = NA,
   for (i in seq_len(n_plots)) {
     sub_pars <- pars[((i - 1) * N + 1):min(i * N, length(pars))]
     sub_samples <- samples[, c(sub_pars, "chain"), drop = FALSE]
-    plots[[i]] <- bayesplot::mcmc_combo(sub_samples, combo = combo, 
-                                        gg_theme = theme, ...)
+    plots[[i]] <- bayesplot::mcmc_combo(
+      sub_samples, combo = combo, gg_theme = theme, ...
+    )
     if (plot) {
       plot(plots[[i]], newpage = newpage || i > 1)
       if (i == 1) {
@@ -1310,9 +1350,11 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
   } else if (is_categorical(x$family)) {
     stop2("Marginal plots are not yet implemented for categorical models.")
   } else if (is_ordinal(x$family)) {
-    warning2("Predictions are treated as continuous variables ", 
-             "in marginal plots, \nwhich is likely an invalid ", 
-             "assumption for family ", x$family$family, ".")
+    warning2(
+      "Predictions are treated as continuous variables ", 
+      "in marginal_effects, which is likely an invalid ", 
+      "assumption for family ", x$family$family, "."
+    )
   }
   if (!is.null(transform) && method != "predict") {
     stop2("'transform' is only allowed when 'method' is set to 'predict'.")
@@ -1344,15 +1386,19 @@ marginal_effects.brmsfit <- function(x, effects = NULL, conditions = NULL,
     if (sum(matches) > 0 && sum(matches > 0) < length(effects)) {
       invalid <- effects[setdiff(seq_along(effects), sort(matches))]  
       invalid <- ulapply(invalid, paste, collapse = ":")
-      warning2("Some specified effects are invalid for this model: ",
-               collapse_comma(invalid), "\nValid effects are ", 
-               "(combinations of): ", collapse_comma(ae_coll))
+      warning2(
+        "Some specified effects are invalid for this model: ",
+        collapse_comma(invalid), "\nValid effects are ", 
+        "(combinations of): ", collapse_comma(ae_coll)
+      )
     }
     effects <- unique(effects[sort(matches)])
     if (!length(effects)) {
-      stop2("All specified effects are invalid for this model.\n", 
-            "Valid effects are (combinations of): ", 
-            collapse_comma(ae_coll))
+      stop2(
+        "All specified effects are invalid for this model.\n", 
+        "Valid effects are (combinations of): ", 
+        collapse_comma(ae_coll)
+      )
     }
   }
   if (length(probs) != 2L) {
@@ -1479,12 +1525,12 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
   lee <- list()
   if (length(bterms$response) > 1L) {
     for (r in bterms$response) {
-      lee <- c(lee, setNames(bterms$auxpars["mu"], r))
+      lee <- c(lee, setNames(bterms$dpars["mu"], r))
     }
-    bterms$auxpars[["mu"]] <- NULL
+    bterms$dpars[["mu"]] <- NULL
   }
-  for (ap in names(bterms$auxpars)) {
-    bt <- bterms$auxpars[ap]
+  for (dp in names(bterms$dpars)) {
+    bt <- bterms$dpars[dp]
     if (is.btnl(bt[[1]])) {
       lee <- c(lee, bt[[1]]$nlpars)
     } else {
@@ -1746,10 +1792,10 @@ predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   if (is.list(draws$mu[["mv"]])) {
     draws$mu <- get_eta(draws$mu)
   }
-  auxpars <- intersect(valid_auxpars(family(object)), names(draws))
-  for (ap in auxpars) {
-    if (is.list(draws[[ap]])) {
-      draws[[ap]] <- get_auxpar(draws[[ap]])
+  dpars <- intersect(valid_dpars(family(object)), names(draws))
+  for (dp in dpars) {
+    if (is.list(draws[[dp]])) {
+      draws[[dp]] <- get_dpar(draws[[dp]])
     }
   }
   # see predict.R
@@ -1833,7 +1879,7 @@ posterior_predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #'  If \code{"response"} results are returned on the scale 
 #'  of the response variable. If \code{"linear"} 
 #'  fitted values are returned on the scale of the linear predictor.
-#' @param auxpar Optional name of a predicted auxiliary parameter.
+#' @param dpar Optional name of a predicted distributional parameter.
 #'  If specified, fitted values of this parameters are returned.
 #'
 #' @return Fitted values extracted from \code{object}. 
@@ -1871,10 +1917,12 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
                            allow_new_levels = FALSE, 
                            sample_new_levels = "uncertainty", 
                            new_objects = list(), incl_autocor = TRUE, 
-                           auxpar = NULL, subset = NULL, 
+                           dpar = NULL, subset = NULL, 
                            nsamples = NULL, sort = FALSE, nug = NULL,
                            summary = TRUE, robust = FALSE, 
                            probs = c(0.025, 0.975), ...) {
+  dots <- list(...)
+  dpar <- use_alias(dpar, dots[["auxpar"]])
   scale <- match.arg(scale)
   contains_samples(object)
   object <- restructure(object)
@@ -1883,14 +1931,14 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     sample_new_levels, new_objects, subset, nsamples, nug 
   )
   draws <- do.call(extract_draws, draws_args)
-  auxpars <- intersect(valid_auxpars(family(object)), names(draws))
-  if (!length(auxpar)) {
+  dpars <- intersect(valid_dpars(family(object)), names(draws))
+  if (!length(dpar)) {
     if (is.list(draws[["mu"]][["mv"]])) {
       draws$mu <- get_eta(draws$mu)
     }
-    for (ap in auxpars) {
-      if (is.list(draws[[ap]])) {
-        draws[[ap]] <- get_auxpar(draws[[ap]])
+    for (dp in dpars) {
+      if (is.list(draws[[dp]])) {
+        draws[[dp]] <- get_dpar(draws[[dp]])
       }
     }
     if (grepl("_mv$", draws$f$family) && length(dim(draws$mu)) == 3L) {
@@ -1905,23 +1953,23 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
       draws$mu <- fitted_fun(draws)
     }
   } else {
-    auxpars <- auxpars[auxpar_class(auxpars) != "mu"]
-    if (length(auxpar) != 1L || !auxpar %in% auxpars) {
-      stop2("Invalid argument 'auxpar'. Valid auxiliary ",
-            "parameters are: ", collapse_comma(auxpars))
+    dpars <- dpars[dpar_class(dpars) != "mu"]
+    if (length(dpar) != 1L || !dpar %in% dpars) {
+      stop2("Invalid argument 'dpar'. Valid distributional ",
+            "parameters are: ", collapse_comma(dpars))
     }
-    if (!isTRUE(attr(draws[[auxpar]], "predicted"))) {
-      stop2("Auxiliary parameter '", auxpar, "' was not predicted.")
+    if (!isTRUE(attr(draws[[dpar]], "predicted"))) {
+      stop2("Distributional parameter '", dpar, "' was not predicted.")
     }
-    if (scale == "linear" && is.list(draws[[auxpar]])) {
-      draws[[auxpar]]$f$link <- "identity"
+    if (scale == "linear" && is.list(draws[[dpar]])) {
+      draws[[dpar]]$f$link <- "identity"
     }
-    if (auxpar_class(auxpar) == "theta" && scale == "response") {
-      ap_id <- as.numeric(auxpar_id(auxpar))
+    if (dpar_class(dpar) == "theta" && scale == "response") {
+      ap_id <- as.numeric(dpar_id(dpar))
       draws$mu <- get_theta(draws)[, , ap_id, drop = FALSE]
       dim(draws$mu) <- dim(draws$mu)[c(1, 2)]
     } else {
-      draws$mu <- get_auxpar(draws[[auxpar]]) 
+      draws$mu <- get_dpar(draws[[dpar]]) 
     }
   }
   if (is.null(dim(draws$mu))) {
@@ -1998,9 +2046,8 @@ residuals.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   object <- restructure(object)
   family <- family(object)
   if (is_ordinal(family) || is_categorical(family)) {
-    stop2("Residuals not implemented for family '", family$family, "'.")
+    stop2("Residuals not defined for family '", family$family, "'.")
   }
-  
   newd_args <- nlist(
     newdata, fit = object, re_formula, allow_new_levels,
     new_objects, check_response = TRUE
@@ -2015,20 +2062,19 @@ residuals.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   pred_args <- nlist(
     object, newdata, re_formula, allow_new_levels,
     sample_new_levels, new_objects, incl_autocor, 
-    subset, sort, nug, summary = FALSE
+    subset, nug, summary = FALSE, sort = TRUE
   )
   mu <- do.call(method, pred_args)
-  Y <- matrix(rep(as.numeric(standata$Y), nrow(mu)), 
-              nrow = nrow(mu), byrow = TRUE)
+  Y <- as_draws_matrix(as.numeric(standata$Y), dim = dim(mu))
   res <- Y - mu
-  colnames(res) <- NULL
+  remove(Y, mu)
   if (type == "pearson") {
     # get predicted standard deviation for each observation
     pred_args$summary <- TRUE
-    sd <- do.call(predict, pred_args)[, 2]
-    sd <- matrix(rep(sd, nrow(mu)), nrow = nrow(mu), byrow = TRUE)
-    res <- res / sd
+    sd_pred <- do.call(predict, pred_args)[, 2]
+    res <- res / as_draws_matrix(sd_pred, dim = dim(res))
   }
+  res <- reorder_obs(res, attr(standata, "old_order"), sort = sort)
   if (summary) {
     res <- get_summary(res, probs = probs, robust = robust)
   }
@@ -2054,6 +2100,88 @@ predictive_error.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   cl[[1]] <- quote(residuals)
   cl[c("method", "summary")] <- list(quote("predict"), quote(FALSE))
   eval(cl, parent.frame())
+}
+
+#' Compute a Bayesian version of R-squared for regression models
+#' 
+#' @aliases bayes_R2
+#' 
+#' @inheritParams predict.brmsfit
+#' 
+#' @return If \code{summary = TRUE} a 1 x C matrix is returned
+#'  (\code{C = length(probs) + 2}) containing summary statistics
+#'  of Bayesian R-squared values.
+#'  If \code{summary = FALSE} the posterior samples of the R-squared values
+#'  are returned in a S x 1 matrix (S is the number of samples).
+#'  
+#' @details For an introduction to the approach, see
+#'   \url{https://github.com/jgabry/bayes_R2/blob/master/bayes_R2.pdf}.
+#'  
+#' @examples 
+#' \dontrun{
+#' fit <- brm(mpg ~ wt + cyl, data = mtcars)
+#' summary(fit)
+#' bayes_R2(fit)
+#' 
+#' # compute R2 with new data
+#' nd <- data.frame(mpg = c(10, 20, 30), wt = c(4, 3, 2), cyl = c(8, 6, 4))
+#' bayes_R2(fit, newdata = nd)
+#' }
+#' 
+#' @method bayes_R2 brmsfit
+#' @importFrom rstantools bayes_R2
+#' @export bayes_R2
+#' @export
+bayes_R2.brmsfit <- function(object, newdata = NULL, re_formula = NULL, 
+                             allow_new_levels = FALSE, 
+                             sample_new_levels = "uncertainty",
+                             new_objects = list(), incl_autocor = TRUE, 
+                             subset = NULL, nsamples = NULL, 
+                             nug = NULL, summary = TRUE, robust = FALSE, 
+                             probs = c(0.025, 0.975), ...) {
+  # do it like residuals.brmsfit
+  contains_samples(object)
+  object <- restructure(object)
+  family <- family(object)
+  if (is_ordinal(family) || is_categorical(family)) {
+    stop2("Residuals not defined for family '", family$family, "'.")
+  }
+  use_stored_ic <- !length(
+    intersect(names(match.call()), args_not_for_reloo())
+  )
+  if (use_stored_ic && is.matrix(object[["R2"]])) {
+    R2 <- object[["R2"]]
+  } else {
+    newd_args <- nlist(
+      newdata, fit = object, re_formula, allow_new_levels,
+      new_objects, check_response = TRUE
+    )
+    standata <- do.call(amend_newdata, newd_args)
+    if (!is.null(standata$cens)) {
+      warning2("Residuals may not be meaningful for censored models.")
+    }
+    if (is.null(subset) && !is.null(nsamples)) {
+      subset <- sample(nsamples(object), nsamples)
+    }
+    pred_args <- nlist(
+      object, newdata, re_formula, allow_new_levels,
+      sample_new_levels, new_objects, incl_autocor, 
+      subset, nug, summary = FALSE, sort = TRUE
+    )
+    # see https://github.com/jgabry/bayes_R2/blob/master/bayes_R2.pdf
+    ypred <- do.call(fitted, pred_args)
+    y <- as.numeric(standata$Y)
+    e <- - 1 * sweep(ypred, 2, y)
+    var_ypred <- matrixStats::rowVars(ypred)
+    var_e <- matrixStats::rowVars(e)
+    R2 <- as.matrix(var_ypred / (var_ypred + var_e))
+    colnames(R2) <- "R2"
+  }
+  if (summary) {
+    R2 <- get_summary(R2, probs = probs, robust = robust)
+    rownames(R2) <- "R2"
+  }
+  R2
 }
 
 #' Update \pkg{brms} models
@@ -2137,8 +2265,10 @@ update.brmsfit <- function(object, formula., newdata = NULL,
     }
   }
   
-  arg_names <- c("prior", "autocor", "nonlinear", "threshold", 
-                 "cov_ranef", "sparse", "sample_prior")
+  arg_names <- c(
+    "prior", "autocor", "nonlinear", "threshold", 
+    "cov_ranef", "sparse", "sample_prior"
+  )
   new_args <- intersect(arg_names, names(dots))
   old_args <- setdiff(arg_names, new_args)
   dots[old_args] <- object[old_args]
@@ -2178,10 +2308,13 @@ update.brmsfit <- function(object, formula., newdata = NULL,
     }
   }
   if (is.null(dots$save_ranef)) {
-    dots$save_ranef <- any(grepl("^r_", pnames)) || !nrow(object$ranef)
+    dots$save_ranef <- isTRUE(attr(object$exclude, "save_ranef"))
   }
   if (is.null(dots$save_mevars)) {
-    dots$save_mevars <- any(grepl("^Xme_", pnames))
+    dots$save_mevars <- isTRUE(attr(object$exclude, "save_mevars"))
+  }
+  if (is.null(dots$save_all_pars)) {
+    dots$save_all_pars <- isTRUE(attr(object$exclude, "save_all_pars"))
   }
   if (is.null(dots$sparse)) {
     dots$sparse <- grepl("sparse matrix", stancode(object))
@@ -2214,7 +2347,9 @@ update.brmsfit <- function(object, formula., newdata = NULL,
       object$formula <- dots$formula
       dots$formula <- NULL
     }
-    bterms <- parse_bf(object$formula, family = object$family)
+    bterms <- with(object, 
+      parse_bf(formula, family = family, autocor = autocor)
+    )
     object$data <- update_data(dots$data, bterms = bterms)
     if (!is.null(newdata)) {
       object$data.name <- Reduce(paste, deparse(substitute(newdata)))
@@ -2225,18 +2360,11 @@ update.brmsfit <- function(object, formula., newdata = NULL,
       dots$sample_prior <- check_sample_prior(dots$sample_prior)
       attr(object$prior, "sample_prior") <- dots$sample_prior
     }
-    if (!is.null(dots$save_ranef) || !is.null(dots$save_mevars)) {
-      if (is.null(dots$save_ranef)) {
-        dots$save_ranef <- any(grepl("^r_", pnames)) || !nrow(object$ranef)
-      }
-      if (is.null(dots$save_mevars)) {
-        dots$save_mevars <- any(grepl("^Xme_", pnames))
-      }
-      object$exclude <- exclude_pars(
-        bterms, data = object$data, ranef = object$ranef, 
-        save_ranef = dots$save_ranef, save_mevars = dots$save_mevars
-      )
-    }
+    object$exclude <- exclude_pars(
+      bterms, data = object$data, ranef = object$ranef, 
+      save_ranef = dots$save_ranef, save_mevars = dots$save_mevars,
+      save_all_pars = dots$save_all_pars
+    )
     if (!is.null(dots$algorithm)) {
       aopts <- c("sampling", "meanfield", "fullrank")
       algorithm <- match.arg(dots$algorithm, aopts)
@@ -2529,10 +2657,10 @@ log_lik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     if (is.list(draws$mu[["mv"]])) {
       draws$mu <- get_eta(draws$mu)
     }
-    auxpars <- intersect(valid_auxpars(family(object)), names(draws))
-    for (ap in auxpars) {
-      if (is.list(draws[[ap]])) {
-        draws[[ap]] <- get_auxpar(draws[[ap]])
+    dpars <- intersect(valid_dpars(family(object)), names(draws))
+    for (dp in dpars) {
+      if (is.list(draws[[dp]])) {
+        draws[[dp]] <- get_dpar(draws[[dp]])
       }
     }
     loglik <- do.call(cbind, lapply(seq_len(N), loglik_fun, draws = draws))
@@ -2580,10 +2708,10 @@ pp_mixture.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   draws <- do.call(extract_draws, draws_args)
   draws$pp_mixture <- TRUE
   
-  auxpars <- intersect(valid_auxpars(family(x)), names(draws))
-  for (ap in auxpars) {
-    if (is.list(draws[[ap]])) {
-      draws[[ap]] <- get_auxpar(draws[[ap]])
+  dpars <- intersect(valid_dpars(family(x)), names(draws))
+  for (dp in dpars) {
+    if (is.list(draws[[dp]])) {
+      draws[[dp]] <- get_dpar(draws[[dp]])
     }
   }
   N <- choose_N(draws)
@@ -2680,4 +2808,254 @@ control_params.brmsfit <- function(x, pars = NULL, ...) {
     out <- out[pars]
   }
   out
+}
+
+#' Log Marginal Likelihood via Bridge Sampling
+#' 
+#' Computes log marginal likelihood via bridge sampling,
+#' which can be used in the computation of bayes factors
+#' and posterior model probabilities.
+#' The \code{brmsfit} method is just a thin wrapper around
+#' the corresponding method for \code{stanfit} objects.
+#' 
+#' @aliases bridge_sampler
+#' 
+#' @param samples A \code{brmsfit} object.
+#' @param ... Additional arguments passed to 
+#'   \code{\link[bridgesampling:bridge_sampler]{bridge_sampler.stanfit}}.
+#' 
+#' @details Computing the marginal likelihood requires samples 
+#'   of all variables defined in Stan's \code{parameters} block
+#'   to be saved. Otherwise \code{bridge_sampler} cannot be computed.
+#'   Thus, please set \code{save_all_pars = TRUE} in the call to \code{brm},
+#'   if you are planning to apply \code{bridge_sampler} to your models.
+#' 
+#'   More details are provided under
+#'   \code{\link[bridgesampling:bridge_sampler]{bridge_sampler}}.
+#'   
+#' @seealso \code{
+#'   \link[brms:bayes_factor]{bayes_factor},
+#'   \link[brms:post_prob]{post_prob}
+#' }
+#' 
+#' @examples 
+#' \dontrun{
+#' # model with the treatment effect
+#' fit1 <- brm(
+#'   count ~ log_Age_c + log_Base4_c + Trt_c,
+#'   data = epilepsy, family = negbinomial(), 
+#'   prior = prior(normal(0, 1), class = b),
+#'   save_all_pars = TRUE
+#' )
+#' summary(fit1)
+#' bridge_sampler(fit1)
+#' 
+#' # model without the treatment effect
+#' fit2 <- brm(
+#'   count ~ log_Age_c + log_Base4_c,
+#'   data = epilepsy, family = negbinomial(), 
+#'   prior = prior(normal(0, 1), class = b),
+#'   save_all_pars = TRUE
+#' )
+#' summary(fit2)
+#' bridge_sampler(fit2)
+#' }
+#' 
+#' @method bridge_sampler brmsfit
+#' @importFrom bridgesampling bridge_sampler 
+#' @export bridge_sampler 
+#' @export
+bridge_sampler.brmsfit <- function(samples, ...) {
+  if (inherits(samples[["bridge"]], "bridge")) {
+    if (!is.na(samples[["bridge"]]$logml)) {
+      return(samples[["bridge"]]) 
+    }
+  }
+  samples <- restructure(samples)
+  if (samples$version$brms <= "1.8.0") {
+    stop2(
+      "Models fitted with brms 1.8.0 or lower are not ",
+      "usable in method 'bridge_sampler'."
+    )
+  }
+  if (is.cor_car(samples$autocor)) {
+    warning2(
+      "Some constants were dropped from the log-posterior ",
+      "of CAR models so that the output of 'bridge_sampler' ",
+      "may not be valid."
+    )
+  }
+  sample_prior <- attr(samples$prior, "sample_prior")
+  if (isTRUE(sample_prior %in% c("yes", "only"))) {
+    stop2(
+      "Models including prior samples are not usable ",
+      "in method 'bridge_sampler'."
+    )
+  }
+  # otherwise bridge_sampler might not work in a new R session
+  stanfit_tmp <- suppressMessages(brm(fit = samples, chains = 0))$fit
+  out <- try(
+    bridge_sampler(samples$fit, stanfit_model = stanfit_tmp, ...),
+    silent = TRUE
+  )
+  if (is(out, "try-error")) {
+    stop2(
+      "Bridgesampling failed. Did you set 'save_all_pars' ",
+      "to TRUE when fitting your model?"
+    )
+  }
+  out
+}
+
+#' Bayes Factors from Marginal Likelihoods
+#' 
+#' Compute Bayes factors from marginal likelihoods.
+#' 
+#' @aliases bayes_factor
+#' 
+#' @param x1 A \code{brmsfit} object
+#' @param x2 Another \code{brmsfit} object based on the same responses.
+#' @param log Report Bayes factors on the log-scale?
+#' @param ... Additional arguments passed to 
+#'   \code{\link[brms:bridge_sampler]{bridge_sampler}}.
+#' 
+#' @details Computing the marginal likelihood requires samples 
+#'   of all variables defined in Stan's \code{parameters} block
+#'   to be saved. Otherwise \code{bayes_factor} cannot be computed.
+#'   Thus, please set \code{save_all_pars = TRUE} in the call to \code{brm},
+#'   if you are planning to apply \code{bayes_factor} to your models.
+#' 
+#'   More details are provided under \code{\link[bridgesampling:bf]{bf}}.
+#'   
+#' @note The \code{bayes_factor} method is an alias of the
+#'  \code{\link[bridgesampling:bf]{bf}} method provided by
+#'  the \pkg{bridge_sampler} package. Using an alias
+#'  is necessary, because the function name \code{bf}
+#'  is already taken in \pkg{brms}. 
+#'  
+#' @seealso \code{
+#'   \link[brms:bridge_sampler]{bridge_sampler},
+#'   \link[brms:post_prob]{post_prob}
+#' }
+#' 
+#' @examples 
+#' \dontrun{
+#' # model with the treatment effect
+#' fit1 <- brm(
+#'   count ~ log_Age_c + log_Base4_c + Trt_c,
+#'   data = epilepsy, family = negbinomial(), 
+#'   prior = prior(normal(0, 1), class = b),
+#'   save_all_pars = TRUE
+#' )
+#' summary(fit1)
+#' 
+#' # model without the treatment effect
+#' fit2 <- brm(
+#'   count ~ log_Age_c + log_Base4_c,
+#'   data = epilepsy, family = negbinomial(), 
+#'   prior = prior(normal(0, 1), class = b),
+#'   save_all_pars = TRUE
+#' )
+#' summary(fit2)
+#' 
+#' # compute the bayes factor
+#' bayes_factor(fit1, fit2)
+#' }
+#' 
+#' @export
+bayes_factor.brmsfit <- function(x1, x2, log = FALSE, ...) {
+  match_response(list(x1, x2))
+  bridge1 <- bridge_sampler(x1, ...)
+  bridge2 <- bridge_sampler(x2, ...)
+  bridgesampling::bf(bridge1, bridge2, log = log)
+}
+
+#' Posterior Model Probabilities from Marginal Likelihoods
+#' 
+#' Compute posterior model probabilities from marginal likelihoods.
+#' The \code{brmsfit} method is just a thin wrapper around
+#' the corresponding method for \code{bridge} objects.
+#' 
+#' @aliases post_prob
+#' 
+#' @param x A \code{brmsfit} object.
+#' @param ... More \code{brmsfit} objects.
+#' @param prior_prob Numeric vector with prior model probabilities. 
+#'   If omitted, a uniform prior is used (i.e., all models are equally 
+#'   likely a priori). The default \code{NULL} corresponds to equal 
+#'   prior model weights.
+#' @param model_names If \code{NULL} (the default) will use model names 
+#'   derived from deparsing the call. Otherwise will use the passed 
+#'   values as model names.
+#' @param bs_args A list of additional arguments passed to 
+#'   \code{\link[brms:bridge_sampler]{bridge_sampler}}.
+#'   
+#' @details Computing the marginal likelihood requires samples 
+#'   of all variables defined in Stan's \code{parameters} block
+#'   to be saved. Otherwise \code{post_prob} cannot be computed.
+#'   Thus, please set \code{save_all_pars = TRUE} in the call to \code{brm},
+#'   if you are planning to apply \code{post_prob} to your models.
+#' 
+#'   More details are provided under 
+#'   \code{\link[bridgesampling:post_prob]{post_prob}}. 
+#'   
+#' @seealso \code{
+#'   \link[brms:bridge_sampler]{bridge_sampler},
+#'   \link[brms:bayes_factor]{bayes_factor}
+#' }
+#' 
+#' @examples 
+#' \dontrun{
+#' # model with the treatment effect
+#' fit1 <- brm(
+#'   count ~ log_Age_c + log_Base4_c + Trt_c,
+#'   data = epilepsy, family = negbinomial(), 
+#'   prior = prior(normal(0, 1), class = b),
+#'   save_all_pars = TRUE
+#' )
+#' summary(fit1)
+#' 
+#' # model without the treatent effect
+#' fit2 <- brm(
+#'   count ~ log_Age_c + log_Base4_c,
+#'   data = epilepsy, family = negbinomial(), 
+#'   prior = prior(normal(0, 1), class = b),
+#'   save_all_pars = TRUE
+#' )
+#' summary(fit2)
+#' 
+#' # compute the posterior model probabilities
+#' post_prob(fit1, fit2)
+#' 
+#' # specify prior model probabilities
+#' post_prob(fit1, fit2, prior_prob = c(0.8, 0.2))
+#' }
+#' 
+#' @method post_prob brmsfit
+#' @importFrom bridgesampling post_prob
+#' @export post_prob 
+#' @export
+post_prob.brmsfit <- function(x, ..., prior_prob = NULL, 
+                              model_names = NULL,
+                              bs_args = list()) {
+  models <- list(x, ...)
+  if (is.null(model_names)) {
+    model_names <- c(
+      deparse_combine(substitute(x)),
+      ulapply(substitute(list(...))[-1], deparse_combine)
+    )
+  } else if (length(model_names) != length(models)) {
+    stop2("Number of model names is not equal to the number of models.") 
+  }
+  for (i in seq_along(models)) {
+    if (!is.brmsfit(models[[i]])) {
+      stop2("Object '", model_names[i], "' is not of class 'brmsfit'.")
+    }
+  }
+  match_response(models)
+  bs <- vector("list", length(models))
+  for (i in seq_along(models)) {
+    bs[[i]] <- do.call(bridge_sampler, c(list(models[[i]]), bs_args))
+  }
+  do.call(post_prob, c(bs, nlist(prior_prob, model_names)))
 }

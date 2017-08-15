@@ -6,10 +6,10 @@
 \usage{
 brm(formula, data, family = gaussian(), prior = NULL, autocor = NULL,
   nonlinear = NULL, threshold = c("flexible", "equidistant"),
-  cov_ranef = NULL, save_ranef = TRUE, save_mevars = FALSE,
-  sparse = FALSE, sample_prior = c("no", "yes", "only"), knots = NULL,
-  stan_funs = NULL, fit = NA, inits = "random", chains = 4,
-  iter = 2000, warmup = floor(iter/2), thin = 1,
+  cov_ranef = NULL, sample_prior = c("no", "yes", "only"), sparse = FALSE,
+  knots = NULL, stan_funs = NULL, fit = NA, save_ranef = TRUE,
+  save_mevars = FALSE, save_all_pars = FALSE, inits = "random",
+  chains = 4, iter = 2000, warmup = floor(iter/2), thin = 1,
   cores = getOption("mc.cores", 1L), control = NULL,
   algorithm = c("sampling", "meanfield", "fullrank"),
   future = getOption("future", FALSE), silent = TRUE, seed = 12345,
@@ -81,6 +81,39 @@ of the corresponding matrix. This argument can be used,
 among others to model pedigrees and phylogenetic effects.
 See \code{vignette("brms_phylogenetics")} for more details.}
 
+\item{sample_prior}{Indicate if samples from all specified 
+proper priors should be drawn additionally to the posterior samples
+(defaults to \code{"no"}). Among others, these samples can be used 
+to calculate Bayes factors for point hypotheses. 
+If set to \code{"only"}, samples are drawn solely from
+the priors ignoring the likelihood. In this case, 
+all parameters must have proper priors.}
+
+\item{sparse}{Logical; indicates whether the population-level 
+design matrix should be treated as sparse (defaults to \code{FALSE}). 
+For design matrices with many zeros, this can considerably 
+reduce required memory. Sampling speed is currently not 
+improved or even slightly decreased.}
+
+\item{knots}{Optional list containing user specified knot values to be 
+used for basis construction of smoothing terms. 
+See \code{\link[mgcv:gamm]{gamm}} for more details.}
+
+\item{stan_funs}{An optional character string containing self-defined 
+\pkg{Stan} functions, which will be included in the functions block 
+of the generated \pkg{Stan} code. 
+Note that these functions must additionally be defined 
+as \emph{vectorized} \R functions in the global environment for 
+various post-processing methods to work on the returned model object.}
+
+\item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; 
+defaults to \code{NA}. 
+If \code{fit} is of class \code{brmsfit}, the compiled model associated 
+with the fitted result is re-used and all arguments 
+modifying the model code or data are ignored.
+It is not recommended to use this argument directly, but to call 
+the \code{\link[brms:update.brmsfit]{update}} method, instead.}
+
 \item{save_ranef}{A flag to indicate if group-level effects 
 for each level of the grouping factor(s) 
 should be saved (default is \code{TRUE}). 
@@ -96,35 +129,11 @@ Saving these samples allows to use methods such as
 leads to very large \R objects even for models
 of moderate size and complexity.}
 
-\item{sparse}{Logical; indicates whether the population-level 
-design matrix should be treated as sparse (defaults to \code{FALSE}). 
-For design matrices with many zeros, this can considerably 
-reduce required memory. Sampling speed is currently not 
-improved or even slightly decreased.}
-
-\item{sample_prior}{Indicate if samples from all specified 
-proper priors should be drawn additionally to the posterior samples
-(defaults to \code{"no"}). Among others, these samples can be used 
-to calculate Bayes factors for point hypotheses. 
-If set to \code{"only"}, samples are drawn solely from
-the priors ignoring the likelihood. In this case, 
-all parameters must have proper priors.}
-
-\item{knots}{Optional list containing user specified knot values to be 
-used for basis construction of smoothing terms. 
-See \code{\link[mgcv:gamm]{gamm}} for more details.}
-
-\item{stan_funs}{An optional character string containing self-defined 
-\pkg{Stan} functions, which will be included in the functions block 
-of the generated \pkg{Stan} code.}
-
-\item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; 
-defaults to \code{NA}. 
-If \code{fit} is of class \code{brmsfit}, the compiled model associated 
-with the fitted result is re-used and all arguments 
-modifying the model code or data are ignored.
-It is not recommended to use this argument directly, but to call 
-the \code{\link[brms:update.brmsfit]{update}} method, instead.}
+\item{save_all_pars}{A flag to indicate if samples from
+all variables defined in Stan's \code{parameters} block
+should be saved (default is \code{FALSE}). Saving these samples 
+is required in order to apply the methods \code{bridge_sampler},
+\code{bayes_factor}, and \code{post_prob}.}
 
 \item{inits}{Either \code{"random"} or \code{"0"}. 
 If inits is \code{"random"} (the default), 
@@ -222,12 +231,11 @@ posterior predictive checks and leave-one-out cross-validation.
 }
 \details{
 Fit a generalized (non-)linear multilevel model
-  via full Bayesian inference using Stan. 
-  See \code{vignette("brms_overview")} for a general 
-  introduction and overview of \pkg{brms}.
-  For a full list of available vignettes see
-  \code{vignette(package = "brms")}.
-  
+  via full Bayesian inference using Stan. A general overview is provided 
+  in the vignettes \code{vignette("brms_overview")} and 
+  \code{vignette("brms_multilevel")}. For a full list of available 
+  vignettes see \code{vignette(package = "brms")}.
+ 
   \bold{Formula syntax of brms models}
   
   Details of the formula syntax applied in \pkg{brms} 
@@ -370,6 +378,11 @@ plan(multiprocess)
 fit7 <- update(fit7, future = TRUE)
 }
 
+}
+\references{
+Paul-Christian Buerkner (2017). brms: An R Package for Bayesian Multilevel 
+  Models Using Stan. Journal of Statistical Software, 80(1), 1-28. 
+  doi:10.18637/jss.v080.i01
 }
 \seealso{
 \code{\link[brms:brms]{brms}}, 

@@ -89,6 +89,11 @@
 #'   \code{predict} with the noise-free variables but 
 #'   leads to very large \R objects even for models
 #'   of moderate size and complexity.
+#' @param save_all_pars A flag to indicate if samples from
+#'   all variables defined in Stan's \code{parameters} block
+#'   should be saved (default is \code{FALSE}). Saving these samples 
+#'   is required in order to apply the methods \code{bridge_sampler},
+#'   \code{bayes_factor}, and \code{post_prob}.
 #' @param sample_prior Indicate if samples from all specified 
 #'   proper priors should be drawn additionally to the posterior samples
 #'   (defaults to \code{"no"}). Among others, these samples can be used 
@@ -102,6 +107,9 @@
 #' @param stan_funs An optional character string containing self-defined 
 #'   \pkg{Stan} functions, which will be included in the functions block 
 #'   of the generated \pkg{Stan} code. 
+#'   Note that these functions must additionally be defined 
+#'   as \emph{vectorized} \R functions in the global environment for 
+#'   various post-processing methods to work on the returned model object.
 #' @param fit An instance of S3 class \code{brmsfit} derived from a previous fit; 
 #'   defaults to \code{NA}. 
 #'   If \code{fit} is of class \code{brmsfit}, the compiled model associated 
@@ -177,12 +185,11 @@
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
 #' @details Fit a generalized (non-)linear multilevel model
-#'   via full Bayesian inference using Stan. 
-#'   See \code{vignette("brms_overview")} for a general 
-#'   introduction and overview of \pkg{brms}.
-#'   For a full list of available vignettes see
-#'   \code{vignette(package = "brms")}.
-#'   
+#'   via full Bayesian inference using Stan. A general overview is provided 
+#'   in the vignettes \code{vignette("brms_overview")} and 
+#'   \code{vignette("brms_multilevel")}. For a full list of available 
+#'   vignettes see \code{vignette(package = "brms")}.
+#'  
 #'   \bold{Formula syntax of brms models}
 #'   
 #'   Details of the formula syntax applied in \pkg{brms} 
@@ -236,6 +243,11 @@
 #'   integer \code{<x>} that should usually be larger than the current 
 #'   default of \code{10}. For more details on the \code{control} argument 
 #'   see \code{\link[rstan:stan]{stan}}.
+#'   
+#' @references 
+#'   Paul-Christian Buerkner (2017). brms: An R Package for Bayesian Multilevel 
+#'   Models Using Stan. Journal of Statistical Software, 80(1), 1-28. 
+#'   doi:10.18637/jss.v080.i01
 #'   
 #' @seealso
 #'   \code{\link[brms:brms]{brms}}, 
@@ -340,11 +352,12 @@
 brm <- function(formula, data, family = gaussian(), prior = NULL, 
                 autocor = NULL, nonlinear = NULL, 
                 threshold = c("flexible", "equidistant"), 
-                cov_ranef = NULL, save_ranef = TRUE, save_mevars = FALSE, 
-                sparse = FALSE, sample_prior = c("no", "yes", "only"), 
-                knots = NULL, stan_funs = NULL, fit = NA, inits = "random", 
-                chains = 4, iter = 2000, warmup = floor(iter / 2),
-                thin = 1, cores = getOption("mc.cores", 1L), control = NULL,
+                cov_ranef = NULL, sample_prior = c("no", "yes", "only"), 
+                sparse = FALSE, knots = NULL, stan_funs = NULL, 
+                fit = NA, save_ranef = TRUE, save_mevars = FALSE, 
+                save_all_pars = FALSE, inits = "random", chains = 4, 
+                iter = 2000, warmup = floor(iter / 2), thin = 1,
+                cores = getOption("mc.cores", 1L), control = NULL,
                 algorithm = c("sampling", "meanfield", "fullrank"),
                 future = getOption("future", FALSE), silent = TRUE, 
                 seed = 12345, save_model = NULL, save_dso = TRUE, ...) {
@@ -408,7 +421,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     x$ranef <- tidy_ranef(bterms, data = x$data)  
     x$exclude <- exclude_pars(
       bterms, data = x$data, ranef = x$ranef, 
-      save_ranef = save_ranef, save_mevars = save_mevars
+      save_ranef = save_ranef, save_mevars = save_mevars,
+      save_all_pars = save_all_pars
     )
     x$model <- make_stancode(
       formula = formula, data = data, family = family, 
@@ -448,7 +462,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     if (future) {
       require_package("future")
       if (cores > 1L) {
-        warning("Argument 'cores' is ignored when using 'future'.")
+        warning2("Argument 'cores' is ignored when using 'future'.")
       }
       args$chains <- 1L
       futures <- fits <- vector("list", chains)

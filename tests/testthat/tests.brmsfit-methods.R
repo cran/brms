@@ -33,6 +33,14 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(as.mcmc(fit1, inc_warmup = TRUE)[[1]]), 
                c(fit1$fit@sim$iter, length(parnames(fit1))))
   
+  # bayes_factor
+  # don't test for now as it requires calling Stan's C++ code
+  
+  # bridge_sampler
+  # only test error messages for now
+  expect_error(bridge_sampler(fit1), 
+               "Models including prior samples are not usable")
+  
   # coef
   coef1 <- SM(coef(fit1))
   expect_equal(dim(coef1$visit), c(4, 4, 8))
@@ -47,9 +55,17 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(coef1$visit), c(4, 8))
   coef2 <- coef(fit2, old = TRUE)
   expect_equal(dim(coef2[[2]]), c(59, 2))
-  expect_equal(attr(coef2[[1]], "nlpar"), "a")
+  expect_equal(attr(coef2[[1]], "prefix")$nlpar, "a")
   coef4 <- coef(fit4, old = TRUE)
   expect_equal(dim(coef4$subject), c(10, 8))
+  
+  # bayes_R2
+  fit1 <- add_ic(fit1, "R2")
+  R2 <- bayes_R2(fit1, summary = FALSE)
+  expect_equal(dim(R2), c(nsamples(fit1), 1))
+  R2 <- bayes_R2(fit2, newdata = model.frame(fit2)[1:5, ])
+  expect_equal(dim(R2), c(1, 4))
+  expect_error(bayes_R2(fit4), "Residuals not defined for family 'sratio'")
   
   # family
   expect_equal(family(fit1), brmsfamily("student", link = "identity"))
@@ -88,16 +104,16 @@ test_that("all S3 methods have reasonable ouputs", {
     Age = 0, visit = c("a", "b"), Trt = 0, 
     count = 20, patient = 1, Exp = 2
   )
-  fi <- fitted(fit1, auxpar = "sigma")
+  fi <- fitted(fit1, dpar = "sigma")
   expect_equal(dim(fi), c(nobs(fit1), 4))
   expect_true(all(fi > 0))
-  fi_lin <- fitted(fit1, auxpar = "sigma", scale = "linear")
+  fi_lin <- fitted(fit1, dpar = "sigma", scale = "linear")
   expect_equal(dim(fi_lin), c(nobs(fit1), 4))
   expect_true(!isTRUE(all.equal(fi, fi_lin)))
-  expect_error(fitted(fit1, auxpar = "inv"),
-               "Invalid argument 'auxpar'")
-  expect_error(fitted(fit1, auxpar = "nu"),
-               "Auxiliary parameter 'nu' was not predicted")
+  expect_error(fitted(fit1, dpar = "inv"),
+               "Invalid argument 'dpar'")
+  expect_error(fitted(fit1, dpar = "nu"),
+               "Distributional parameter 'nu' was not predicted")
 
   fi <- fitted(fit2)
   expect_equal(dim(fi), c(nobs(fit2), 4))
@@ -357,6 +373,13 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # plot tested in tests.plots.R
   
+  # post_prob
+  # only test error messages for now
+  expect_error(post_prob(fit1, fit2, model_names = "test1"),
+               "Number of model names is not equal to the number of models")
+  expect_error(post_prob(fit2, 3),
+               "Object '3' is not of class 'brmsfit'")
+  
   # posterior_samples
   ps <- posterior_samples(fit1)
   expect_equal(dim(ps), c(nsamples(fit1), length(parnames(fit1))))
@@ -506,7 +529,7 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(res4), c(nobs(fit2), 4))
   
   expect_error(residuals(fit4), 
-               "Residuals not implemented for family 'sratio'")
+               "Residuals not defined for family 'sratio'")
   
   # stancode
   expect_true(is.character(stancode(fit1)))
@@ -547,11 +570,11 @@ test_that("all S3 methods have reasonable ouputs", {
   # do not actually refit the model as is causes CRAN checks to fail
   up <- update(fit1, testmode = TRUE)
   expect_true(is(up, "brmsfit"))
+  
   new_data <- data.frame(Age = rnorm(18), visit = rep(c(3, 2, 4), 6),
                          Trt = rep(c(0, 0.5, -0.5), 6), 
                          count = rep(c(5, 17, 28), 6),
                          patient = 1, Exp = 4)
-  
   up <- update(fit1, newdata = new_data, ranef = FALSE, testmode = TRUE)
   expect_true(is(up, "brmsfit"))
   expect_equal(up$data.name, "new_data")
@@ -581,7 +604,7 @@ test_that("all S3 methods have reasonable ouputs", {
   up <- update(fit2, formula. = bf(. ~ ., a + b ~ 1, nl = TRUE), 
                testmode = TRUE)
   expect_true(is(up, "brmsfit"))
-  up <- update(fit2, formula. = count ~ a + b, testmode = TRUE)
+  up <- update(fit2, formula. = bf(count ~ a + b, nl = TRUE), testmode = TRUE)
   expect_true(is(up, "brmsfit"))
   up <- update(fit3, family = acat(), testmode = TRUE)
   expect_true(is(up, "brmsfit"))

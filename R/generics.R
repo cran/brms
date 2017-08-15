@@ -26,6 +26,11 @@
 #'   information criterion after model fitting
 #' @slot waic An empty slot for adding the \code{\link[brms:waic]{waic}} 
 #'   information criterion after model fitting
+#' @slot R2 An empty slot for adding the \code{\link[brms:bayes_R2]{bayes_R2}}
+#'   (Bayesian R-squared) value after model fitting 
+#' @slot bridge An empty slot for adding a \code{bridge} object 
+#'   (see \code{\link[brms:bridge_sampler]{bridge_sampler}})
+#'   after model fitting
 #' @slot fit An object of class \code{\link[rstan:stanfit]{stanfit}}
 #'   among others containing the posterior samples
 #' @slot exclude The names of the parameters for which samples are not saved
@@ -44,17 +49,18 @@ NULL
 brmsfit <- function(formula = NULL, family = NULL, data = data.frame(), 
                     data.name = "", model = "", prior = empty_brmsprior(), 
                     autocor = NULL, ranef = empty_ranef(), 
-                    cov_ranef = NULL, loo = NULL, waic = NULL, fit = NA, 
-                    exclude = NULL, algorithm = "sampling") {
+                    cov_ranef = NULL, loo = NULL, waic = NULL, R2 = NULL,
+                    bridge = NULL, fit = NA, exclude = NULL, 
+                    algorithm = "sampling") {
   # brmsfit class
   version <- list(
     brms = utils::packageVersion("brms"),
     rstan = utils::packageVersion("rstan")
   )
   x <- nlist(
-    formula, family, data, data.name, model, 
-    prior, autocor, ranef, cov_ranef, loo, 
-    waic, fit, exclude, algorithm, version
+    formula, family, data, data.name, model, prior, 
+    autocor, ranef, cov_ranef, loo, waic, R2, bridge, 
+    fit, exclude, algorithm, version
   )
   class(x) <- "brmsfit"
   x
@@ -273,9 +279,10 @@ posterior_samples <- function(x, pars = NA, ...) {
 #' @export 
 posterior.samples <- function(x, pars = NA, ...) {
   # deprecated alias of posterior_samples
-  warning("Method 'posterior.samples' is deprecated. ", 
-          "Please use method 'posterior_samples' instead.", 
-          call. = FALSE)
+  warning2(
+    "Method 'posterior.samples' is deprecated. ", 
+    "Please use method 'posterior_samples' instead." 
+  )
   UseMethod("posterior_samples")
 }
 
@@ -510,13 +517,15 @@ LOO <- function(x, ...) {
   UseMethod("LOO")
 }
 
-#' Add information criteria to fitted model objects
+#' Add information criteria and fit indices to fitted model objects
 #' 
 #' @param x An \R object typically of class \code{brmsfit}.
-#' @param ic Names of the information criteria to compute.
-#'   Currently supported are \code{"loo"} and \code{"waic"}.
-#' @param ... Further arguments passed to 
-#'   \code{\link[brms:LOO]{LOO}} or \code{\link[brms:WAIC]{WAIC}}.
+#' @param ic,value Names of the information criteria / fit indices 
+#'   to compute. Currently supported are \code{"loo"}, 
+#'   \code{"waic"}, \code{"kfold"}, \code{"R2"} (R-squared), and 
+#'   \code{"bridge"} (log marginal likelihood).
+#' @param ... Further arguments passed to the underlying 
+#'   functions computing the information criteria.
 #'   
 #' @return An object of the same class as \code{x}, but
 #'   with information criteria added for later usage.
@@ -660,35 +669,15 @@ reloo <- function(x, ...) {
 kfold <- function(x, ...) {
   UseMethod("kfold")
 }
-  
-#' Interface to \pkg{shinystan}
-#' 
-#' Provide an interface to \pkg{shinystan} for models fitted with \pkg{brms}
-#' 
-#' @aliases launch_shiny.brmsfit
-#' 
-#' @param x A fitted model object typically of class \code{brmsfit}. 
-#' @param rstudio Only relevant for RStudio users. 
-#' The default (\code{rstudio=FALSE}) is to launch the app 
-#' in the default web browser rather than RStudio's pop-up Viewer. 
-#' Users can change the default to \code{TRUE} 
-#' by setting the global option \cr \code{options(shinystan.rstudio = TRUE)}.
-#' @param ... Optional arguments to pass to \code{\link[shiny:runApp]{runApp}}
-#' 
-#' @return An S4 shinystan object
-#' 
-#' @examples
-#' \dontrun{
-#' fit <- brm(rating ~ treat + period + carry + (1|subject),
-#'            data = inhaler, family = "gaussian")
-#' launch_shiny(fit)                         
-#' }
-#' 
-#' @seealso \code{\link[shinystan:launch_shinystan]{launch_shinystan}}
-#' 
+
 #' @export
-launch_shiny <- function(x, rstudio = getOption("shinystan.rstudio"), ...) {
-  UseMethod("launch_shiny")
+launch_shiny <- function(object, rstudio = getOption("shinystan.rstudio"), ...) {
+  # deprecated alias of launch_shinystan
+  warning2(
+    "Method 'launch_shiny' is deprecated. ", 
+    "Please use method 'launch_shinystan' instead."
+  )
+  UseMethod("launch_shinystan")
 }
 
 #' Extract Stan Model Code
@@ -1116,7 +1105,7 @@ expose_functions <- function(x, ...) {
 #' Extract control parameters of the NUTS sampler such as 
 #' \code{adapt_delta} or \code{max_treedepth}.
 #' 
-#' @param x an \R object
+#' @param x An \R object
 #' @param pars Optional names of the control parameters to be returned.
 #'  If \code{NULL} (the default) all control parameters are returned.
 #'  See \code{\link[rstan:stan]{stan}} for more details.
@@ -1127,6 +1116,13 @@ expose_functions <- function(x, ...) {
 #' @export
 control_params <- function(x, ...) {
   UseMethod("control_params")
+}
+
+#' @rdname bayes_factor.brmsfit
+#' @export
+bayes_factor <- function(x1, x2, ...) {
+  # replace as soon as bridgesampling has this generic
+  UseMethod("bayes_factor")
 }
 
 #' Extract Diagnostic Quantities of \pkg{brms} Models
@@ -1208,8 +1204,14 @@ extract_draws <- function(x, ...) {
   UseMethod("extract_draws")
 }
 
+make_Jmo_list <- function(x, data, ...) {
+  # compute Jmo values based on the original data
+  # as the basis for doing predictions with new data
+  UseMethod("make_Jmo_list")
+}
+
 make_smooth_list <- function(x, data, ...) {
-  # compute smoothing objects based on the original data
+  # compute smooth objects based on the original data
   # as the basis for doing predictions with new data
   UseMethod("make_smooth_list")
 }
@@ -1225,9 +1227,9 @@ check_prior_special <- function(x, ...) {
   UseMethod("check_prior_special")
 }
 
-auxpar_family <- function(family, auxpar, ...) {
+dpar_family <- function(family, dpar, ...) {
   # generate a family object of an auxiliary parameter
-  UseMethod("auxpar_family")
+  UseMethod("dpar_family")
 }
 
 family_names <- function(family, ...) {
@@ -1235,9 +1237,9 @@ family_names <- function(family, ...) {
   UseMethod("family_names")
 }
 
-valid_auxpars <- function(family, ...) {
+valid_dpars <- function(family, ...) {
   # get valid auxiliary parameters for a family
-  UseMethod("valid_auxpars")
+  UseMethod("valid_dpars")
 }
 
 stan_llh <- function(family, ...) {

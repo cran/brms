@@ -2,6 +2,63 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.9.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Perform model comparisons based on 
+      marginal likelihoods using the methods
+      \code{bridge_sampler}, \code{bayes_factor},
+      and \code{post_prob} all powered by the
+      \pkg{bridgesampling} package.
+      \item Compute a Bayesian version of R-squared 
+      with the \code{bayes_R2} method.
+      \item Specify non-linear models for all
+      distributional parameters.
+      \item Combine multiple model formulas using 
+      the \code{+} operator and the helper functions 
+      \code{lf}, \code{nlf}, and \code{set_nl}.
+      \item Combine multiple priors using the 
+      \code{+} operator.
+      \item Split the \code{nlpar} argument of
+      \code{set_prior} into the three arguments
+      \code{resp}, \code{dpar}, and \code{nlpar}
+      to allow for more flexible prior specifications.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Refactor parts of the package to prepare
+      for the implementation of more flexible 
+      multivariate models in future updates.
+      \item Keep all constants in the log-posterior
+      in order for \code{bridge_sampler} to be
+      working correctly.
+      \item Reduce the amount of renaming done
+      within the \code{stanfit} object.
+      \item Rename argument \code{auxpar} of 
+      \code{fitted.brmsfit} to \code{dpar}.
+      \item Use the \code{launch_shinystan} generic 
+      provided by the \pkg{shinystan} package.
+      \item Set \code{bayesplot::theme_default()}
+      as the default \pkg{ggplot2} theme when
+      attaching \pkg{brms}.
+      \item Include citations of the \pkg{brms}
+      overview paper as published in the
+      Journal of Statistical Software.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix problems when calling \code{fitted}
+      with \code{hurdle_lognormal} models thanks to
+      Meghna Krishnadas.
+      \item Fix problems when predicting \code{sigma}
+      in \code{asym_laplace} models thanks to 
+      Anna Josefine Sorensen.	
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.8.0}{
   \subsection{NEW FEATURES}{
     \itemize{

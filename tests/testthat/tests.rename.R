@@ -18,7 +18,7 @@ test_that("rm_int_fe works as expected", {
   code <- make_stancode(y ~ 1, data = dat)
   expect_equal(rm_int_fe("Intercept", code), character(0))
   code <- make_stancode(cbind(y, y) ~ x, data = dat)
-  expect_equal(rm_int_fe(c("Intercept", "x"), code, nlpar = "y"), "x")
+  expect_equal(rm_int_fe(c("Intercept", "x"), code, px = list(resp = "y")), "x")
   code <- make_stancode(y ~ x, data = dat, family = sratio())
   expect_equal(rm_int_fe(c("Intercept", "x"), code), "x")
   code <- make_stancode(y ~ 0 + intercept + x, data = dat)
@@ -29,21 +29,21 @@ test_that("rm_int_fe works as expected", {
 test_that("change_prior returns expected lists", {
   pars <- c("b", "b_1", "bp", "bp_1", "prior_b", "prior_b_1", 
             "prior_b_3", "sd_x[1]", "prior_bp_1")
-  expect_equal(change_prior(class = "b", pars = pars, 
-                           names = c("x1", "x3", "x2")),
-               list(list(pos = 6, oldname = "prior_b_1", 
-                         pnames = "prior_b_x1", fnames = "prior_b_x1"),
-                    list(pos = 7, oldname = "prior_b_3", 
-                         pnames = "prior_b_x2", fnames = "prior_b_x2")))
-  expect_equal(change_prior(class = "bp", pars = pars, 
-                           names = c("x1", "x2"), new_class = "b"),
-               list(list(pos = 9, oldname = "prior_bp_1", 
-                         pnames = "prior_b_x1", fnames = "prior_b_x1")))
+  expect_equal(
+    change_prior(class = "b", pars = pars, names = c("x1", "x3", "x2")),
+    list(list(pos = 6, fnames = "prior_b_x1"),
+         list(pos = 7, fnames = "prior_b_x2"))
+  )
+  expect_equal(
+    change_prior(class = "bp", pars = pars, 
+                 names = c("x1", "x2"), new_class = "b"),
+    list(list(pos = 9, fnames = "prior_b_x1")))
 })
 
 test_that("change_old_re and change_old_re2 return expected lists", {
   data <- data.frame(y = rnorm(10), x = rnorm(10), g = 1:10)
-  bterms <- parse_bf(bf(y ~ a, a ~ x + (1+x|g), nl = TRUE))
+  bterms <- parse_bf(bf(y ~ a, a ~ x + (1+x|g), 
+                        family = gaussian(), nl = TRUE))
   ranef <- brms:::tidy_ranef(bterms, data = data)
   target <- list(
     list(pos = c(rep(FALSE, 2), TRUE, rep(FALSE, 22)),

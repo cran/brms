@@ -61,7 +61,7 @@ make_stancode <- function(formula, data, family = gaussian(),
       bterms, data = data, ranef = ranef, 
       prior = prior, sparse = sparse
     )
-    bterms$auxpars[["mu"]] <- NULL
+    bterms$dpars[["mu"]] <- NULL
   } else {
     text_effects_mv <- list()
   }
@@ -85,8 +85,8 @@ make_stancode <- function(formula, data, family = gaussian(),
     autocor, bterms = bterms, family = family, prior = prior
   )
   text_mv <- stan_mv(family, response = bterms$response, prior = prior)
-  disc <- "disc" %in% names(bterms$auxpars) || 
-    isTRUE(bterms$fauxpars$disc != 1)
+  disc <- "disc" %in% names(bterms$dpars) || 
+    isTRUE(bterms$fdpars$disc$value != 1)
   text_ordinal <- stan_ordinal(
     family, prior = prior, cs = has_cs(bterms), disc = disc
   )
@@ -199,23 +199,23 @@ make_stancode <- function(formula, data, family = gaussian(),
   # generate transformed parameters block
   text_transformed_parameters <- paste0(
     "transformed parameters { \n",
-      text_effects$transD,
-      text_mixture$transD,
-      text_ranef$transD,
-      text_autocor$transD, 
-      text_ordinal$transD,
-      text_mv$transD,
-      text_effects$transC1,
-      text_mixture$transC1,
-      text_ranef$transC1,
-      text_autocor$transC1, 
-      text_ordinal$transC1, 
-      text_mv$transC1,
+      text_effects$tparD,
+      text_mixture$tparD,
+      text_ranef$tparD,
+      text_autocor$tparD, 
+      text_ordinal$tparD,
+      text_mv$tparD,
+      text_effects$tparC1,
+      text_mixture$tparC1,
+      text_ranef$tparC1,
+      text_autocor$tparC1, 
+      text_ordinal$tparC1, 
+      text_mv$tparC1,
     "} \n"
   )
   
   # generate model block
-  # list auxpars before pred as part of fixing issue #124
+  # list dpars before pred as part of fixing issue #124
   text_model_loop <- paste0(
     text_effects$modelC2, 
     text_autocor$modelC2,
@@ -251,9 +251,9 @@ make_stancode <- function(formula, data, family = gaussian(),
       text_disp$modelC1,
       text_model_loop,
       text_families$modelC,
-      "  // prior specifications \n", 
+      "  // priors including all constants \n", 
       text_prior, 
-      "  // likelihood contribution \n",
+      "  // likelihood including all constants \n",
       "  if (!prior_only) { \n  ",
       text_llh, 
       text_lp_pre$modelC,

@@ -32,30 +32,30 @@ stan_llh.default <- function(family, bterms, data, autocor,
   has_trunc <- any(bounds$lb > -Inf) || any(bounds$ub < Inf)
   llh_adj <- stan_llh_adj(bterms$adforms)
   
-  auxpars <- names(bterms$auxpars)
+  dpars <- names(bterms$dpars)
   reqn <- llh_adj || is_categorical || is_ordinal || 
           is_hurdle || is_zero_inflated || is_mix ||
           is_zero_one_inflated(family) ||
           is_wiener(family) || is_exgaussian(family) || 
           is_asym_laplace(family) || is_gev(family) ||
           has_sigma && has_se && !use_cov(autocor) ||
-          any(c("phi", "kappa") %in% auxpars)
+          any(c("phi", "kappa") %in% dpars)
   n <- ifelse(reqn, "[n]", "")
-  # prepare auxiliary parameters
-  p <- named_list(auxpars())
+  # prepare distributional parameters
+  p <- named_list(dpars())
   p$mu <- paste0(ifelse(is_mv || is_categorical, "Mu", "mu"), mix, n)
   p$sigma <- stan_llh_sigma(family, bterms, mix)
   p$shape <- stan_llh_shape(family, bterms, mix)
-  for (ap in setdiff(auxpars(), c("mu", "sigma", "shape"))) {
-    p[[ap]] <- paste0(ap, mix, if (reqn && ap %in% auxpars) "[n]")
+  for (ap in setdiff(dpars(), c("mu", "sigma", "shape"))) {
+    p[[ap]] <- paste0(ap, mix, if (reqn && ap %in% dpars) "[n]")
   }
   if (family == "skew_normal") {
     # required because of CP parameterization of mu and sigma
-    nomega <- if (reqn && any(c("sigma", "alpha") %in% auxpars)) "[n]"
+    nomega <- if (reqn && any(c("sigma", "alpha") %in% dpars)) "[n]"
     p$omega <- paste0("omega", mix, nomega)
   }
   ord_args <- sargs(p$mu, if (has_cs) "mucs[n]", "temp_Intercept", p$disc)
-  usc_logit <- stan_llh_auxpar_usc_logit(c("zi", "hu"), bterms)
+  usc_logit <- stan_llh_dpar_usc_logit(c("zi", "hu"), bterms)
   trials <- ifelse(llh_adj || is_zero_inflated, "trials[n]", "trials")
   
   if (is_mv) {
@@ -84,7 +84,7 @@ stan_llh.default <- function(family, bterms, data, autocor,
   }
   
   simplify <- stan_has_built_in_fun(nlist(family, link)) &&
-    !has_trunc && !has_cens && !"disc" %in% auxpars
+    !has_trunc && !has_cens && !"disc" %in% dpars
   if (simplify) { 
     llh_pre <- switch(family,
       poisson = c(
@@ -326,7 +326,7 @@ stan_llh.default <- function(family, bterms, data, autocor,
     mix = stan_llh_mix(llh_pre, family, mix, ptheta, bounds),
     cens = stan_llh_cens(llh_pre, family, interval, has_weights, bounds),
     weights = stan_llh_weights(llh_pre, family, bounds),
-    general = stan_llh_general(llh_pre, reqn, bounds)
+    general = stan_llh_general(llh_pre, family, reqn, bounds)
   ) 
   if (reqn && !is_mix) {
     # loop over likelihood if it cannot be vectorized
@@ -337,14 +337,14 @@ stan_llh.default <- function(family, bterms, data, autocor,
 
 #' @export
 stan_llh.mixfamily <- function(family, bterms, ...) {
-  ap_ids <- auxpar_id(names(bterms$auxpars))
-  fap_ids <- auxpar_id(names(bterms$fauxpars))
-  ptheta <- any(auxpar_class(names(bterms$auxpars)) %in% "theta")
+  ap_ids <- dpar_id(names(bterms$dpars))
+  fap_ids <- dpar_id(names(bterms$fdpars))
+  ptheta <- any(dpar_class(names(bterms$dpars)) %in% "theta")
   llh <- rep(NA, length(family$mix))
   for (i in seq_along(family$mix)) {
     sbterms <- bterms
-    sbterms$auxpars <- sbterms$auxpars[ap_ids == i]
-    sbterms$fauxpars <- sbterms$fauxpars[fap_ids == i]
+    sbterms$dpars <- sbterms$dpars[ap_ids == i]
+    sbterms$fdpars <- sbterms$fdpars[fap_ids == i]
     llh[i] <- stan_llh(
       family$mix[[i]], sbterms, mix = i, ptheta = ptheta, ...
     )
@@ -360,16 +360,17 @@ stan_llh.mixfamily <- function(family, bterms, ...) {
   )
 }
 
-stan_llh_general <- function(llh_pre, reqn, bounds = NULL) {
+stan_llh_general <- function(llh_pre, family, reqn, bounds = NULL) {
   # default likelihood in Stan language
   # Args:
   #   reqn: does Y require the index 'n'?
   #   bounds: a list containing elements lb and ub
   stopifnot(length(llh_pre) == 2L)
+  lpdf <- ifelse(use_int(family), "_lpmf", "_lpdf")
   tr <- stan_llh_trunc(llh_pre, bounds = bounds)
   paste0(
-    "  Y", ifelse(reqn, "[n]", ""), " ~ ", llh_pre[1], 
-    "(", llh_pre[2], ")", tr, "; \n"
+    tp(), llh_pre[1], lpdf, "(Y", ifelse(reqn, "[n]", ""), 
+    " | ", llh_pre[2], ")", tr, "; \n"
   )
 }
 
@@ -381,16 +382,15 @@ stan_llh_cens <- function(llh_pre, family, interval,
   #   weights: is the model additionally weighted?
   stopifnot(length(llh_pre) == 2L)
   s <- collapse(rep(" ", 6))
-  tp <- "  target += "
-  lpdf <- ifelse(use_int(family), "lpmf", "lpdf")
+  lpdf <- ifelse(use_int(family), "_lpmf", "_lpdf")
   w <- ifelse(weights, "weights[n] * ", "")
-  tr <- stan_llh_trunc(llh_pre, bounds = bounds, general = FALSE)
+  tr <- stan_llh_trunc(llh_pre, bounds = bounds)
+  tp <- tp()
   if (interval) {
     int_cens <- paste0(
       s, "} else if (cens[n] == 2) { \n",
       s, tp, w, "log_diff_exp(", 
-      llh_pre[1], "_lcdf(rcens[n] | ", llh_pre[2], "), \n",
-      collapse(rep(" ", 31)),
+      llh_pre[1], "_lcdf(rcens[n] | ", llh_pre[2], "), ",
       llh_pre[1], "_lcdf(Y[n] | ", llh_pre[2], "))", tr, "; \n"
     )
   } else {
@@ -399,7 +399,7 @@ stan_llh_cens <- function(llh_pre, family, interval,
   paste0(
     "  // special treatment of censored data \n",
     s, "if (cens[n] == 0) {\n", 
-    s, tp, w, llh_pre[1], "_", lpdf, "(Y[n] | ", llh_pre[2], ")", tr, ";\n",
+    s, tp, w, llh_pre[1], lpdf, "(Y[n] | ", llh_pre[2], ")", tr, ";\n",
     s, "} else if (cens[n] == 1) {\n",         
     s, tp, w, llh_pre[1], "_lccdf(Y[n] | ", llh_pre[2], ")", tr, ";\n",
     s, "} else if (cens[n] == -1) {\n",
@@ -411,7 +411,7 @@ stan_llh_cens <- function(llh_pre, family, interval,
 stan_llh_weights <- function(llh_pre, family, bounds = NULL) {
   # weighted likelihood in Stan language
   stopifnot(length(llh_pre) == 2L)
-  tr <- stan_llh_trunc(llh_pre, bounds = bounds, general = FALSE)
+  tr <- stan_llh_trunc(llh_pre, bounds = bounds)
   lpdf <- ifelse(use_int(family), "lpmf", "lpdf")
   paste0(
     "  lp_pre[n] = ", llh_pre[1], "_", lpdf, 
@@ -425,7 +425,7 @@ stan_llh_mix <- function(llh_pre, family, mix, ptheta, bounds = NULL) {
   theta <- ifelse(ptheta,
     paste0("theta", mix, "[n]"), paste0("log(theta", mix, ")")
   )
-  tr <- stan_llh_trunc(llh_pre, bounds = bounds, general = FALSE)
+  tr <- stan_llh_trunc(llh_pre, bounds = bounds)
   lpdf <- ifelse(use_int(family), "lpmf", "lpdf")
   paste0(
     "  ps[", mix, "] = ", theta, " + ",
@@ -433,11 +433,11 @@ stan_llh_mix <- function(llh_pre, family, mix, ptheta, bounds = NULL) {
   )
 }
 
-stan_llh_trunc <- function(llh_pre, bounds, general = TRUE) {
+stan_llh_trunc <- function(llh_pre, bounds, short = FALSE) {
   # truncated part of the likelihood
   # Args:
-  #   general: use the T[, ] syntax?
-  if (general) {
+  #   short: use the T[, ] syntax?
+  if (short) {
     if (any(bounds$lb > -Inf) || any(bounds$ub < Inf)) {
       # truncation using T[, ] syntax
       lb <- ifelse(any(bounds$lb > -Inf), "lb[n]", "")
@@ -448,7 +448,7 @@ stan_llh_trunc <- function(llh_pre, bounds, general = TRUE) {
     }
   } else {
     # truncation making use of _lcdf functions
-    ms <- paste0(" - \n", collapse(rep(" ", 18)))
+    ms <- paste0(" - \n", collapse(rep(" ", 8)))
     if (any(bounds$lb > -Inf) && !any(bounds$ub < Inf)) {
       tr <- paste0(ms, llh_pre[1], "_lccdf(lb[n] | ", llh_pre[2], ")")
     } else if (!any(bounds$lb > -Inf) && any(bounds$ub < Inf)) {
@@ -456,10 +456,7 @@ stan_llh_trunc <- function(llh_pre, bounds, general = TRUE) {
     } else if (any(bounds$lb > -Inf) && any(bounds$ub < Inf)) {
       trr <- paste0(llh_pre[1], "_lcdf(ub[n] | ", llh_pre[2], ")")
       trl <- paste0(llh_pre[1], "_lcdf(lb[n] | ", llh_pre[2], ")")
-      tr <- paste0(
-        ms, "log_diff_exp(", trr, ", \n",
-        collapse(rep(" ", 31)), trl, ")"
-      )
+      tr <- paste0(ms, "log_diff_exp(", trr, ", ", trl, ")")
     } else {
       tr <- ""
     }
@@ -473,10 +470,10 @@ stan_llh_sigma <- function(family, bterms, mix = "") {
   has_se <- is.formula(bterms$adforms$se)
   has_disp <- is.formula(bterms$adforms$disp)
   llh_adj <- stan_llh_adj(bterms$adforms)
-  auxpars <- names(bterms$auxpars)
-  nsigma <- llh_adj || has_se || nzchar(mix) || 
-            is_exgaussian(family) || is_gev(family)
-  nsigma <- nsigma && (has_disp || paste0("sigma", mix) %in% auxpars)
+  dpars <- names(bterms$dpars)
+  nsigma <- llh_adj || has_se || nzchar(mix) ||
+    family %in% c("exgaussian", "gen_extreme_value", "asym_laplace")
+  nsigma <- nsigma && (has_disp || paste0("sigma", mix) %in% dpars)
   nsigma <- if (nsigma) "[n]"
   nse <- if (llh_adj) "[n]"
   if (has_sigma) {
@@ -499,19 +496,19 @@ stan_llh_shape <- function(family, bterms, mix = "") {
   # prepare the code for 'shape' in the likelihood statement
   has_disp <- is.formula(bterms$adforms$disp)
   llh_adj <- stan_llh_adj(bterms$adforms)
-  auxpars <- names(bterms$auxpars)
+  dpars <- names(bterms$dpars)
   nshape <- (llh_adj || is_forked(family) || nzchar(mix)) &&
-            (has_disp || paste0("shape", mix) %in% auxpars)
+            (has_disp || paste0("shape", mix) %in% dpars)
   nshape <- if (nshape) "[n]"
   paste0(if (has_disp) "disp_", "shape", mix, nshape)
 }
 
-stan_llh_auxpar_usc_logit <- function(auxpars, bterms) {
-  # prepare _logit suffix for auxiliary parameters
+stan_llh_dpar_usc_logit <- function(dpars, bterms) {
+  # prepare _logit suffix for distributional parameters
   # currently only used in zero-inflated and hurdle models
   stopifnot(is.brmsterms(bterms))
-  use_logit <- any(ulapply(auxpars, function(ap) 
-    isTRUE(bterms$auxpars[[ap]]$family$link == "logit")
+  use_logit <- any(ulapply(dpars, function(dp) 
+    isTRUE(bterms$dpars[[dp]]$family$link == "logit")
   ))
   ifelse(use_logit, "_logit", "")
 }
@@ -528,4 +525,9 @@ stan_llh_adj <- function(adforms, adds = c("weights", "cens", "trunc")) {
 sargs <- function(...) {
   # prepare arguments of Stan likelihood statements
   paste0(c(...), collapse = ", ")
+}
+
+tp <- function(wsp = 2) {
+  wsp <- collapse(rep(" ", wsp))
+  paste0(wsp, "target += ")
 }
