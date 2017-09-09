@@ -42,17 +42,19 @@ make_standata <- function(formula, data, family = gaussian(),
   # use deprecated arguments if specified
   cov_ranef <- use_alias(cov_ranef, dots$cov.ranef, warn = FALSE)
   # some input checks
-  formula <- amend_formula(formula, data = data, family = family,
-                           nonlinear = nonlinear)
+  formula <- amend_formula(
+    formula, data = data, family = family, 
+    autocor = autocor, nonlinear = nonlinear
+  )
   family <- formula$family
+  autocor <- formula$autocor
+  bterms <- parse_bf(formula)
   old_mv <- isTRUE(formula[["old_mv"]])
-  autocor <- check_autocor(autocor)
   is_linear <- is_linear(family)
   is_ordinal <- is_ordinal(family)
   is_count <- is_count(family)
   is_forked <- is_forked(family)
   is_categorical <- is_categorical(family)
-  bterms <- parse_bf(formula, family = family, autocor = autocor)
   sample_prior <- check_sample_prior(sample_prior)
   check_prior_content(prior, family = family, warn = FALSE)
   prior <- check_prior_special(bterms, prior = prior)
@@ -62,27 +64,9 @@ make_standata <- function(formula, data, family = gaussian(),
     drop.unused.levels = !is_newdata, knots = knots,
     terms_attr = control$terms_attr
   )
-  
-  # sort data in case of autocorrelation models
   if (has_arma(autocor) || is.cor_bsts(autocor)) {
-    if (old_mv) {
-      to_order <- rmNULL(list(
-        data[["trait"]], 
-        data[[bterms$time$group]], 
-        data[[bterms$time$time]]
-      ))
-    } else {
-      to_order <- rmNULL(list(
-        data[[bterms$time$group]], 
-        data[[bterms$time$time]]
-      ))
-    }
-    if (length(to_order)) {
-      new_order <- do.call(order, to_order)
-      data <- data[new_order, ]
-      # old_order will allow to retrieve the initial order of the data
-      attr(data, "old_order") <- order(new_order)
-    }
+    # order data in case of autocorrelation models
+    data <- order_data(data, bterms = bterms, old_mv = old_mv)
   }
   
   # response variable
@@ -207,6 +191,7 @@ make_standata <- function(formula, data, family = gaussian(),
     }
     out <- c(out,
       data_gr(ranef, data, cov_ranef = cov_ranef),
+      data_Xme(bterms, data),
       data_mixture(bterms, prior = prior)
     )
   }

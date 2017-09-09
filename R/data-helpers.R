@@ -13,11 +13,14 @@ update_data <- function(data, bterms, na.action = na.omit,
   #     this ensures that (1) calls to 'poly' work correctly
   #     and (2) that the number of variables matches the number 
   #     of variable names; fixes issue #73
-  #   knots: a list of knot values for GAMMS
+  #   knots: a list of knot values for GAMMs
   # Returns:
   #   model.frame for use in brms functions
   if (missing(data)) {
     stop2("Argument 'data' is missing.")
+  }
+  if (is.null(knots)) {
+    knots <- attr(data, "knots", TRUE)
   }
   if (is.null(attr(data, "terms")) && "brms.frame" %in% class(data)) {
     # to avoid error described in #30
@@ -216,24 +219,58 @@ fix_factor_contrasts <- function(data, optdata = NULL, ignore = NULL) {
   data
 }
 
+order_data <- function(data, bterms, old_mv = FALSE) {
+  # order data for use in time-series models
+  # Args:
+  #   data: data.frame to be ordered
+  #   bterms: brmsterm object
+  #   old_mv: indicator if the model is an old multivariate one
+  # Returns:
+  #   potentially ordered data
+  if (old_mv) {
+    to_order <- rmNULL(list(
+      data[["trait"]], 
+      data[[bterms$time$group]], 
+      data[[bterms$time$time]]
+    ))
+  } else {
+    to_order <- rmNULL(list(
+      data[[bterms$time$group]], 
+      data[[bterms$time$time]]
+    ))
+  }
+  if (length(to_order)) {
+    new_order <- do.call(order, to_order)
+    data <- data[new_order, , drop = FALSE]
+    # old_order will allow to retrieve the initial order of the data
+    attr(data, "old_order") <- order(new_order)
+  }
+  data
+}
+
 amend_newdata <- function(newdata, fit, re_formula = NULL, 
                           allow_new_levels = FALSE,
                           check_response = FALSE,
                           only_response = FALSE,
                           incl_autocor = TRUE,
                           return_standata = TRUE,
+                          all_group_vars = NULL,
                           new_objects = list()) {
   # amend newdata passed to predict and fitted methods
   # Args:
   #   newdata: a data.frame containing new data for prediction 
   #   fit: an object of class brmsfit
   #   re_formula: a group-level formula
-  #   allow_new_levels: Are new group-leveld allowed?
+  #   allow_new_levels: Are new group-levels allowed?
   #   check_response: Should response variables be checked
-  #                   for existence and validity?
+  #     for existence and validity?
+  #   only_response: compute only response related stuff
+  #     in make_standata?
   #   incl_autocor: Check data of autocorrelation terms?
   #   return_standata: Compute the data to be passed to Stan
-  #                    or just return the updated newdata?
+  #     or just return the updated newdata?
+  #   all_group_vars: optional names of all grouping 
+  #     variables in the model
   #   new_objects: see function 'add_new_objects'
   # Returns:
   #   updated data.frame being compatible with formula(fit)
@@ -256,60 +293,57 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
   if (is(newdata, "try-error")) {
     stop2("Argument 'newdata' must be coercible to a data.frame.")
   }
-  # standata will be based on an updated formula if re_formula is specified
   new_formula <- update_re_terms(formula(fit), re_formula = re_formula)
-  bterms <- parse_bf(
-    new_formula, family = family(fit),
-    autocor = fit$autocor, resp_rhs_all = FALSE
-  )
-  resp_only_vars <- setdiff(
-    all.vars(bterms$respform), all.vars(rhs(bterms$allvars))
-  )
-  # fixes #162
-  resp_only_vars <- c(resp_only_vars, all.vars(bterms$adforms$dec))
-  missing_resp <- setdiff(resp_only_vars, names(newdata))
-  if (check_response && length(missing_resp)) {
-    stop2("Response variables must be specified in 'newdata'.\n",
-          "Missing variables: ", collapse_comma(missing_resp))
-  } else {
-    for (resp in missing_resp) {
-      # add irrelevant response variables but make sure they pass all checks
-      newdata[[resp]] <- NA 
+  bterms <- parse_bf(new_formula, resp_rhs_all = FALSE)
+  only_resp <- all.vars(bterms$respform)
+  only_resp <- setdiff(only_resp, all.vars(rhs(bterms$allvars)))
+  # always include 'dec' variables in 'only_resp'
+  only_resp <- c(only_resp, all.vars(bterms$adforms$dec))
+  missing_resp <- setdiff(only_resp, names(newdata))
+  if (length(missing_resp)) {
+    if (check_response) {
+      stop2("Response variables must be specified in 'newdata'.\n",
+            "Missing variables: ", collapse_comma(missing_resp))
+    } else {
+      newdata[, missing_resp] <- NA
     }
   }
+  # censoring and weighting vars are unused in post-processing methods
   cens_vars <- all.vars(bterms$adforms$cens)
   for (v in setdiff(cens_vars, names(newdata))) {
-    # censoring vars are unused in predict and related methods
     newdata[[v]] <- 0
   }
   weights_vars <- all.vars(bterms$adforms$weights)
   for (v in setdiff(weights_vars, names(newdata))) {
-    # weighting vars are unused in predict and related methods
     newdata[[v]] <- 1
   }
   new_ranef <- tidy_ranef(bterms, data = model.frame(fit))
-  group_vars <- unique(ulapply(new_ranef$gcall, "[[", "groups"))
-  if (nrow(fit$ranef)) {
-    if (nrow(new_ranef) && allow_new_levels) {
-      # grouping factors do not need to be specified 
-      # by the user if new levels are allowed
-      new_gf <- unique(unlist(strsplit(group_vars, split = ":")))
-      missing_gf <- setdiff(new_gf, names(newdata))
-      newdata[, missing_gf] <- NA
-    }
+  group_vars <- get_all_group_vars(new_ranef)
+  group_vars <- union(group_vars, bterms$time$group)
+  if (allow_new_levels) {
+    # grouping factors do not need to be specified 
+    # by the user if new levels are allowed
+    new_gf <- unique(unlist(strsplit(group_vars, split = ":")))
+    missing_gf <- setdiff(new_gf, names(newdata))
+    newdata[, missing_gf] <- NA
   }
   newdata <- combine_groups(newdata, group_vars)
   # validate factor levels in newdata
-  list_data <- lapply(as.list(fit$data), function(x)
-    if (is_like_factor(x)) as.factor(x) else x)
-  is_factor <- sapply(list_data, is.factor)
-  all_group_vars <- ulapply(fit$ranef$gcall, "[[", "groups")
+  mf <- model.frame(fit)
+  for (i in seq_along(mf)) {
+    if (is_like_factor(mf[[i]])) {
+      mf[[i]] <- as.factor(mf[[i]])
+    }
+  }
+  if (is.null(all_group_vars)) {
+    all_group_vars <- get_all_group_vars(fit) 
+  }
   dont_check <- c(all_group_vars, cens_vars)
-  dont_check <- names(list_data) %in% dont_check
-  factors <- list_data[is_factor & !dont_check]
+  dont_check <- names(mf) %in% dont_check
+  is_factor <- ulapply(mf, is.factor)
+  factors <- mf[is_factor & !dont_check]
   if (length(factors)) {
     factor_names <- names(factors)
-    factor_levels <- lapply(factors, levels) 
     for (i in seq_along(factors)) {
       new_factor <- newdata[[factor_names[i]]]
       if (!is.null(new_factor)) {
@@ -317,7 +351,7 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
           new_factor <- factor(new_factor)
         }
         new_levels <- levels(new_factor)
-        old_levels <- factor_levels[[i]]
+        old_levels <- levels(factors[[i]])
         old_contrasts <- contrasts(factors[[i]])
         to_zero <- is.na(new_factor) | new_factor %in% "zero__"
         # don't add the 'zero__' level to response variables
@@ -331,8 +365,8 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
         if (any(!new_levels %in% old_levels)) {
           stop2(
             "New factor levels are not allowed.",
-            "\nLevels allowed: ", paste(old_levels, collapse = ", "),
-            "\nLevels found: ", paste(new_levels, collapse = ", ")
+            "\nLevels allowed: ", collapse_comma(old_levels),
+            "\nLevels found: ", collapse_comma(new_levels)
           )
         }
         newdata[[factor_names[i]]] <- factor(new_factor, old_levels)
@@ -341,50 +375,56 @@ amend_newdata <- function(newdata, fit, re_formula = NULL,
       }
     }
   }
+  # check if originally numeric variables are still numeric
+  num_names <- names(mf)[!is_factor]
+  num_names <- setdiff(num_names, all_group_vars)
+  for (nm in intersect(num_names, names(newdata))) {
+    if (!anyNA(newdata[[nm]]) && !is.numeric(newdata[[nm]])) {
+      stop2("Variable '", nm, "' was originally ", 
+            "numeric but is not in 'newdata'.")
+    }
+  }
   # validate monotonic variables
-  if (is.formula(bterms$mo)) {
-    take_num <- !is_factor & names(list_data) %in% all.vars(bterms$mo)
+  mo_forms <- get_effect(bterms, "mo")
+  if (length(mo_forms)) {
+    mo_vars <- unique(ulapply(mo_forms, all.vars))
     # factors have already been checked
-    num_mo_vars <- names(list_data)[take_num]
+    num_mo_vars <- names(mf)[!is_factor & names(mf) %in% mo_vars]
     for (v in num_mo_vars) {
-      # use 'get' to check whether v is defined in newdata
       new_values <- get(v, newdata)
-      min_value <- min(list_data[[v]])
-      invalid <- new_values < min_value | 
-        new_values > max(list_data[[v]]) |
-        !is_wholenumber(new_values)
+      min_value <- min(mf[[v]])
+      invalid <- new_values < min_value | new_values > max(mf[[v]])
+      invalid <- invalid | !is_wholenumber(new_values)
       if (sum(invalid)) {
-        stop2(
-          "Invalid values in variable '", v, "': ",
-          paste0(new_values[invalid], collapse = ", ")
-        )
+        stop2("Invalid values in variable '", v, "': ",
+              paste0(new_values[invalid], collapse = ", "))
       }
       attr(newdata[[v]], "min") <- min_value
     }
   }
-  # brms:::update_data expects all original variables to be present
-  # even if not actually used later on
-  rsv_vars <- rsv_vars(bterms)
-  used_vars <- unique(c(names(newdata), all.vars(bterms$allvars), rsv_vars))
-  all_vars <- all.vars(str2formula(names(model.frame(fit))))
+  # update_data expects all original variables to be present
+  used_vars <- c(names(newdata), all.vars(bterms$allvars))
+  used_vars <- union(used_vars, rsv_vars(bterms))
+  all_vars <- all.vars(str2formula(names(mf)))
   unused_vars <- setdiff(all_vars, used_vars)
   if (length(unused_vars)) {
     newdata[, unused_vars] <- NA
   }
   # validate grouping factors
-  gnames <- unique(new_ranef$group)
   old_levels <- attr(new_ranef, "levels")
-  new_levels <- attr(tidy_ranef(bterms, data = newdata), "levels")
-  for (g in gnames) {
-    unknown_levels <- setdiff(new_levels[[g]], old_levels[[g]])
-    if (!allow_new_levels && length(unknown_levels)) {
-      unknown_levels <- paste0("'", unknown_levels, "'", collapse = ", ")
-      stop2(
-        "Levels ", unknown_levels, " of grouping factor '", g, "' ",
-        "cannot be found in the fitted model. ",
-        "Consider setting argument 'allow_new_levels' to TRUE."
-      )
-    }
+  if (!allow_new_levels) {
+    new_levels <- attr(tidy_ranef(bterms, data = newdata), "levels")
+    for (g in names(old_levels)) {
+      unknown_levels <- setdiff(new_levels[[g]], old_levels[[g]])
+      if (length(unknown_levels)) {
+        unknown_levels <- collapse_comma(unknown_levels)
+        stop2(
+          "Levels ", unknown_levels, " of grouping factor '", g, "' ",
+          "cannot be found in the fitted model. ",
+          "Consider setting argument 'allow_new_levels' to TRUE."
+        )
+      }
+    } 
   }
   if (return_standata) {
     fit <- add_new_objects(fit, newdata, new_objects)
@@ -487,46 +527,6 @@ get_model_matrix <- function(formula, data = environment(formula),
   X
 }
 
-mo_design_matrix <- function(formula, data, check = TRUE) {
-  # compute the design matrix of monotonic effects
-  # Args:
-  #   formula: formula containing mononotic terms
-  #   data: a data.frame or named list
-  #   check: check the number of levels? 
-  data <- model.frame(formula, data)
-  vars <- names(data)
-  for (i in seq_along(vars)) {
-    # validate predictors to be modeled as monotonic
-    if (is.ordered(data[[vars[i]]])) {
-      # counting starts at zero
-      data[[vars[i]]] <- as.numeric(data[[vars[i]]]) - 1 
-    } else if (all(is_wholenumber(data[[vars[i]]]))) {
-      min_value <- attr(data[[vars[i]]], "min")
-      if (is.null(min_value)) {
-        min_value <- min(data[[vars[i]]])
-      }
-      data[[vars[i]]] <- data[[vars[i]]] - min_value
-    } else {
-      stop2(
-        "Monotonic predictors must be either integers or ",
-        "ordered factors. Error occured for variable '", 
-        vars[i], "'."
-      )
-    }
-    if (check && max(data[[vars[i]]]) < 2L) {
-      stop2(
-        "Monotonic predictors must have at least 3 different ", 
-        "values. Error occured for variable '", vars[i], "'."
-      )
-    }
-  }
-  out <- get_model_matrix(formula, data, cols2remove = "(Intercept)")
-  if (any(grepl(":", colnames(out), fixed = TRUE))) {
-    stop2("Modeling interactions as monotonic is not meaningful.")
-  }
-  out
-}
-
 arr_design_matrix <- function(Y, r, group)  { 
   # compute the design matrix for ARR effects
   # Args:
@@ -558,11 +558,22 @@ arr_design_matrix <- function(Y, r, group)  {
   out
 }
 
+make_Jmo_list <- function(x, data, ...) {
+  # compute Jmo values based on the original data
+  # as the basis for doing predictions with new data
+  UseMethod("make_Jmo_list")
+}
+
 #' @export
 make_Jmo_list.btl <- function(x, data, ...) {
   if (!is.null(x$mo)) {
-    Xmo <- mo_design_matrix(x$mo, data, ...)
-    out <- as.array(apply(Xmo, 2, max)) 
+    # do it like data_mo()
+    monef <- get_mo_labels(x, data)
+    calls_mo <- unlist(attr(monef, "calls_mo"))
+    Xmo <- lapply(calls_mo, 
+      function(x) attr(eval2(x, data), "var")
+    )
+    out <- as.array(ulapply(Xmo, max))
   } else {
     out <- NULL
   }
@@ -587,6 +598,12 @@ make_Jmo_list.brmsterms <- function(x, data, ...) {
   out
 }
 
+make_smooth_list <- function(x, data, ...) {
+  # compute smooth objects based on the original data
+  # as the basis for doing predictions with new data
+  UseMethod("make_smooth_list")
+}
+
 #' @export
 make_smooth_list.btl <- function(x, data, ...) {
   if (has_smooths(x)) {
@@ -599,7 +616,7 @@ make_smooth_list.btl <- function(x, data, ...) {
     sm_labels <- get_sm_labels(x)
     out <- named_list(sm_labels)
     for (i in seq_along(sm_labels)) {
-      sc_args <- c(list(eval_smooth(sm_labels[i])), gam_args)
+      sc_args <- c(list(eval2(sm_labels[i])), gam_args)
       out[[i]] <- do.call(mgcv::smoothCon, sc_args)
     }
   } else {
@@ -624,6 +641,12 @@ make_smooth_list.brmsterms <- function(x, data, ...) {
     out[[i]] <- make_smooth_list(x$dpars[[i]], data, ...)
   }
   out
+}
+
+make_gp_list <- function(x, data, ...) {
+  # compute objects for GP terms based on the original data
+  # as the basis for doing predictions with new data
+  UseMethod("make_gp_list")
 }
 
 #' @export

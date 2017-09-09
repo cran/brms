@@ -260,7 +260,7 @@
 #' ## Poisson regression for the number of seizures in epileptic patients
 #' ## using student_t priors for population-level effects 
 #' ## and half cauchy priors for standard deviations of group-level effects 
-#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c  
+#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt  
 #'               + (1|patient) + (1|obs), 
 #'             data = epilepsy, family = poisson(), 
 #'             prior = c(prior(student_t(5,0,10), class = b),
@@ -393,13 +393,15 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     x$fit <- rstan::get_stanmodel(x$fit)
   } else {  
     # build new model
-    family <- check_family(family, threshold = threshold)
     formula <- amend_formula(
-      formula, data = data, family = family, nonlinear = nonlinear
+      formula, data = data, family = family, 
+      autocor = autocor, threshold = threshold, 
+      nonlinear = nonlinear
     )
     family <- formula$family
+    autocor <- formula$autocor
+    bterms <- parse_bf(formula)
     check_brm_input(nlist(family))
-    bterms <- parse_bf(formula, autocor = autocor)
     if (is.null(dots$data.name)) {
       data.name <- substr(Reduce(paste, deparse(substitute(data))), 1, 50)
     } else {
@@ -408,8 +410,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     }
     data <- update_data(data, bterms = bterms)
     prior <- check_prior(
-      prior, formula = formula, data = data, family = family, 
-      sample_prior = sample_prior, autocor = autocor, warn = TRUE
+      prior, formula, data = data,  
+      sample_prior = sample_prior, warn = TRUE
     )
     # initialize S3 object
     x <- brmsfit(
@@ -425,12 +427,11 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       save_all_pars = save_all_pars
     )
     x$model <- make_stancode(
-      formula = formula, data = data, family = family, 
-      prior = prior, autocor = autocor, 
+      formula = formula, data = data, prior = prior, 
       sparse = sparse, cov_ranef = cov_ranef,
       sample_prior = sample_prior, knots = knots, 
       stan_funs = stan_funs, save_model = save_model, 
-      brm_call = TRUE, silent = silent
+      brm_call = TRUE
     )
     # generate Stan data before compiling the model to avoid
     # unnecessary compilations in case of invalid data
@@ -518,4 +519,84 @@ deprecated_brm_args <- function() {
   # list all deprecated arguments of the brm function
   c("n.iter", "n.warmup", "n.thin", "n.chains", "cluster", "cov.ranef",
     "ranef", "sample.prior", "save.model", "cluster_type")
+}
+
+exclude_pars <- function(bterms, data = NULL, ranef = empty_ranef(),
+                         save_ranef = TRUE, save_mevars = FALSE,
+                         save_all_pars = FALSE) {
+  # list parameters NOT to be saved by Stan
+  # Args:
+  #   bterms: object of class brmsterms
+  #   data: data passed by the user
+  #   ranef: output of tidy_ranef
+  #   save_ranef: should group-level effects be saved?
+  #   save_mevars: should samples of noise-free variables be saved?
+  # Returns:
+  #   a vector of parameters to be excluded
+  .exclude_pars <- function(bt) {
+    stopifnot(is.btl(bt))
+    p <- usc(combine_prefix(bt))
+    out <- c(
+      paste0("temp", p, "_Intercept"),
+      paste0(c("hs_local", "hs_global", "zb"), p)
+    )
+    sms <- get_sm_labels(bt, data)
+    if (length(sms) && !is.null(data)) {
+      for (i in seq_along(sms)) {
+        nb <- seq_len(attr(sms, "nbases")[[i]])
+        out <- c(out, paste0("zs", p, "_", i, "_", nb))
+      } 
+    }
+    return(out)
+  }
+  
+  stopifnot(is.brmsterms(bterms))
+  save_ranef <- as_one_logical(save_ranef)
+  save_mevars <- as_one_logical(save_mevars)
+  save_all_pars <- as_one_logical(save_all_pars)
+  out <- c(
+    "Rescor", "Sigma", "res_cov_matrix",
+    intersect(dpars(), names(bterms$dpars))
+  )
+  if (!save_all_pars) {
+    out <- c(out,
+             "temp_Intercept1", "ordered_Intercept", 
+             "Lrescor", "LSigma", "theta", "zcar"
+    )
+    if (!save_mevars) {
+      # exclude noise-free variables
+      uni_me <- get_uni_me(bterms)
+      out <- c(out, paste0("Xme_", seq_along(uni_me)))
+    }
+    if (length(bterms$response) > 1L) {
+      for (r in bterms$response) {
+        bterms$dpars$mu$resp <- r
+        out <- c(out, .exclude_pars(bterms$dpars$mu))
+      }
+      bterms$dpars$mu <- NULL
+    }
+    for (dp in names(bterms$dpars)) {
+      bt <- bterms$dpars[[dp]]
+      if (length(bt$nlpars)) {
+        for (nlp in names(bt$nlpars)) {
+          out <- c(out, .exclude_pars(bt$nlpars[[nlp]]))
+        }
+      } else {
+        out <- c(out, .exclude_pars(bt))
+      }
+    }
+  }
+  # exclude group-level helper parameters
+  if (nrow(ranef)) {
+    rm_re_pars <- c(if (!save_all_pars) c("z", "L"), "Cor", "r")
+    for (id in unique(ranef$id)) {
+      out <- c(out, paste0(rm_re_pars, "_", id))
+    }
+    if (!save_ranef) {
+      p <- usc(combine_prefix(ranef))
+      out <- c(out, paste0("r_", ranef$id, p, "_", ranef$cn))
+    }
+  }
+  att <- nlist(save_ranef, save_mevars, save_all_pars)
+  do.call(structure, c(list(out), att))
 }

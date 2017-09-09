@@ -5,8 +5,8 @@
 \alias{bf}
 \title{Set up a model formula for use in \pkg{brms}}
 \usage{
-brmsformula(formula, ..., flist = NULL, family = NULL, nl = NULL,
-  nonlinear = NULL)
+brmsformula(formula, ..., flist = NULL, family = NULL, autocor = NULL,
+  nl = NULL, nonlinear = NULL)
 }
 \arguments{
 \item{formula}{An object of class \code{formula} 
@@ -53,6 +53,13 @@ same way as formulas passed via the \code{...} argument.}
 If \code{family} is specified \code{brmsformula}, it will overwrite
 the value specified in \code{\link[brms:brm]{brm}}.}
 
+\item{autocor}{An optional \code{\link{cor_brms}} object describing 
+the correlation structure within the response variable 
+(i.e., the 'autocorrelation'). 
+See the documentation of \code{\link{cor_brms}} for a description 
+of the available correlation structures. Defaults to \code{NULL}, 
+corresponding to no correlations.}
+
 \item{nl}{Logical; Indicates whether \code{formula} should be
 treated as specifying a non-linear model. By default, \code{formula} 
 is treated as an ordinary linear model formula.}
@@ -95,12 +102,14 @@ models for all parameters of the assumed response distribution.
   call them 'group-level' effects or (adopting frequentist 
   vocabulary) 'random' effects, although the latter name is misleading
   in a Bayesian context.
-  For more details type \code{vignette("brms_overview")}.
+  For more details type \code{vignette("brms_overview")} and
+  \code{vignette("brms_multilevel")}. 
   
   \bold{Group-level terms}
   
   Multiple grouping factors each with multiple group-level effects 
-  are possible. 
+  are possible (of course can also run models without any
+  group-level effects). 
   Instead of \code{|} you may use \code{||} in grouping terms
   to prevent correlations from being modeled. 
   Alternatively, it is possible to model different group-level terms of 
@@ -120,13 +129,12 @@ models for all parameters of the assumed response distribution.
   
   \bold{Special predictor terms}
   
-  Smoothing terms can modeled using the \code{\link[mgcv:s]{s}}
-  and \code{\link[mgcv:t2]{t2}} functions of the \pkg{mgcv} package 
-  in the \code{pterms} part of the model formula.
-  This allows to fit generalized additive mixed models (GAMMs) with \pkg{brms}. 
-  The implementation is similar to that used in the \pkg{gamm4} package.
-  For more details on this model class see \code{\link[mgcv:gam]{gam}} 
-  and \code{\link[mgcv:gamm]{gamm}}.
+  Smoothing terms can modeled using the \code{\link[brms:s]{s}}
+  and \code{\link[brms:t2]{t2}} functions in the \code{pterms} part 
+  of the model formula. This allows to fit generalized additive mixed
+  models (GAMMs) with \pkg{brms}. The implementation is similar to that 
+  used in the \pkg{gamm4} package. For more details on this model class 
+  see \code{\link[mgcv:gam]{gam}} and \code{\link[mgcv:gamm]{gamm}}.
   
   Gaussian process terms can be fitted using the \code{\link[brms:gp]{gp}}
   function in the \code{pterms} part of the model formula. Similar to
@@ -137,7 +145,7 @@ models for all parameters of the assumed response distribution.
   
   The \code{pterms} and \code{gterms} parts may contain three non-standard
   effect types namely monotonic, measurement error, and category specific effects,
-  which can be specified using terms of the form \code{mo(<predictors>)},
+  which can be specified using terms of the form \code{mo(predictor)},
   \code{me(predictor, sd_predictor)}, and \code{cs(<predictors>)}, 
   respectively. Category specific effects can only be estimated in
   ordinal models and are explained in more detail in the package's 
@@ -388,6 +396,7 @@ models for all parameters of the assumed response distribution.
   Non-linear models may not be uniquely identified and / or show bad convergence.
   For this reason it is mandatory to specify priors on the non-linear parameters.
   For instructions on how to do that, see \code{\link[brms:set_prior]{set_prior}}.
+  For some examples of non-linear models, see \code{vignette("brms_nonlinear")}.
   
   \bold{Formula syntax for predicting distributional parameters}
   
@@ -395,7 +404,8 @@ models for all parameters of the assumed response distribution.
   distribution such as the residual standard deviation \code{sigma} 
   in gaussian models or the hurdle probability \code{hu} in hurdle models. 
   The syntax closely resembles that of a non-linear 
-  parameter, for instance \code{sigma ~ x + s(z) + (1+x|g)}.
+  parameter, for instance \code{sigma ~ x + s(z) + (1+x|g)}. 
+  For some examples of distributional models, see \code{vignette("brms_distreg")}.
   
   Alternatively, one may fix distributional parameters to certain values.
   However, this is mainly useful when models become too 

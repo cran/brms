@@ -12,8 +12,6 @@ test_that("brm produces expected errors", {
                "Non-linear formulas are not yet allowed for this family")
   expect_error(brm(bf(y ~ 0 + a), dat, family = cumulative()),
                "Cannot remove the intercept in an ordinal model")
-  expect_error(brm(y ~ mono(1), dat),
-               "No variable supplied to function 'mo'")
   expect_error(brm(bf(y | se(sei) ~ x, sigma ~ x), dat),
                "Parameter 'sigma' is not part of the model")
   expect_error(brm(y | se(sei) ~ x, dat, family = weibull()),
@@ -33,6 +31,8 @@ test_that("brm produces expected errors", {
                "Can only combine group-level terms")
   expect_error(brm(y ~ x + (1|g) + (x|g), dat), 
                "Duplicated group-level effects are not allowed")
+  expect_error(brm(bf(cbind(y, x) ~ a, a ~ x, nl = TRUE), dat),
+               "Multivariate non-linear models are not yet implemented")
   
   # autocorrelation
   expect_error(brm(y ~ 1, dat, autocor = cor_ar(~x+y|g)), 

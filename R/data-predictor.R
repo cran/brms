@@ -1,3 +1,8 @@
+data_effects <- function(x, ...) {
+  # generate data for various kind of effects 
+  UseMethod("data_effects")
+}
+
 #' @export
 data_effects.btl <- function(x, data, ranef = empty_ranef(), 
                              prior = brmsprior(), knots = NULL, 
@@ -89,7 +94,7 @@ data_fe <- function(bterms, data, knots = NULL,
       smooths <- named_list(sm_labels)
       for (i in seq_along(sm_labels)) {
         smooths[[i]] <- mgcv::smoothCon(
-          eval_smooth(sm_labels[i]), data = data, 
+          eval2(sm_labels[i]), data = data, 
           knots = knots, absorb.cons = TRUE
         )
       }
@@ -132,39 +137,53 @@ data_mo <- function(bterms, data, ranef = empty_ranef(),
                     prior = brmsprior(), Jmo = NULL) {
   # prepare data for monotonic effects for use in Stan
   # Args: see data_effects
+  out <- list()
+  monef <- get_mo_labels(bterms, data)
+  if (!length(monef)) {
+    return(out) 
+  }
   px <- check_prefix(bterms)
   p <- usc(combine_prefix(px))
-  out <- list()
-  if (is.formula(bterms[["mo"]])) {
-    Xmo <- mo_design_matrix(bterms$mo, data, check = is.null(Jmo))
-    avoid_dpars(colnames(Xmo), bterms = bterms)
-    if (is.null(Jmo)) {
-      Jmo <- as.array(apply(Xmo, 2, max))
-    }
-    out <- c(out, 
-      setNames(
-        list(ncol(Xmo), Xmo, Jmo), 
-        paste0(c("Kmo", "Xmo", "Jmo"), p)
-      )
+  att <- attributes(monef)
+  # store monotonic variables
+  out[[paste0("Kmo", p)]] <- length(monef)
+  out[[paste0("Imo", p)]] <- max(unlist(att$Imo))
+  Xmo <- lapply(unlist(att$calls_mo), 
+    function(x) as.array(attr(eval2(x, data), "var"))
+  )
+  Xmo_names <- paste0("Xmo", p, "_", seq_along(Xmo))
+  out <- c(out, setNames(Xmo, Xmo_names))
+  compute_Jmo <- is.null(Jmo)
+  if (is.null(Jmo)) {
+    Jmo <- as.array(ulapply(Xmo, max))
+  }
+  out[[paste0("Jmo", p)]] <- Jmo
+  # store covariates of monotonic variables
+  Cmo <- get_model_matrix(bterms$mo, data)
+  avoid_dpars(colnames(Cmo), bterms = bterms)
+  Cmo <- Cmo[, att$not_one, drop = FALSE]
+  Cmo <- lapply(seq_len(ncol(Cmo)), function(i) as.array(Cmo[, i]))
+  if (length(Cmo)) {
+    Cmo_names <- paste0("Cmo", p, "_", seq_along(Cmo))
+    out <- c(out, setNames(Cmo, Cmo_names))
+  }
+  # store prior concentration of simplex parameters
+  simo_coef <- get_simo_labels(monef)
+  for (i in seq_along(simo_coef)) {
+    simo_prior <- subset2(prior, 
+      class = "simo", coef = simo_coef[i], ls = px
     )
-    # validate and assign vectors for dirichlet prior
-    monef <- colnames(Xmo)
-    for (i in seq_along(monef)) {
-      simplex_prior <- subset2(prior,
-        class = "simplex", coef = monef[i], ls = px
-      )
-      simplex_prior <- simplex_prior$prior
-      if (isTRUE(nzchar(simplex_prior))) {
-        simplex_prior <- eval2(simplex_prior)
-        if (length(simplex_prior) != Jmo[i]) {
-          stop2("Invalid Dirichlet prior for the simplex of coefficient '",
-                monef[i], "'. Expected input of length ", Jmo[i], ".")
-        }
-        out[[paste0("con_simplex", p, "_", i)]] <- simplex_prior
-      } else {
-        out[[paste0("con_simplex", p, "_", i)]] <- rep(1, Jmo[i]) 
+    simo_prior <- simo_prior$prior
+    if (isTRUE(nzchar(simo_prior))) {
+      simo_prior <- eval2(simo_prior)
+      if (length(simo_prior) != Jmo[i]) {
+        stop2("Invalid Dirichlet prior for the simplex of coefficient '",
+              simo_coef[i], "'. Expected input of length ", Jmo[i], ".")
       }
+    } else {
+      simo_prior <- rep(1, Jmo[i])
     }
+    out[[paste0("con_simo", p, "_", i)]] <- simo_prior
   }
   out
 }
@@ -214,7 +233,6 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
   # compute data specific for each group-level-ID
   # Args:
   #   ranef: data.frame returned by tidy_ranef
-  #   data: the model.frame
   #   cov_ranef: name list of user-defined covariance matrices
   out <- list()
   ids <- unique(ranef$id)
@@ -293,10 +311,8 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
 }
 
 data_cs <- function(bterms, data) {
-  # prepare data for category specific effects for use in Stan
-  # Args:
-  #   bterms: object of class brmsterms
-  #   data: the data passed by the user
+  # prepare data for category specific effects
+  # Args: see data_effects
   out <- list()
   px <- check_prefix(bterms)
   if (length(all_terms(bterms[["cs"]]))) {
@@ -308,41 +324,50 @@ data_cs <- function(bterms, data) {
 }
 
 data_me <- function(bterms, data) {
-  # prepare data of meausurement error variables for use in Stan
-  # Args:
-  #   bterms: object of class brmsterms
-  #   data: the data passed by the user
+  # prepare formula specific data of noise-free variables
+  # Args: see data_effects
   out <- list()
   px <- check_prefix(bterms)
   meef <- get_me_labels(bterms, data)
   if (length(meef)) {
+    att <- attributes(meef)
     p <- usc(combine_prefix(px))
     Cme <- get_model_matrix(bterms$me, data)
     avoid_dpars(colnames(Cme), bterms = bterms)
-    Cme <- Cme[, attr(meef, "not_one"), drop = FALSE]
+    Cme <- Cme[, att$not_one, drop = FALSE]
     Cme <- lapply(seq_len(ncol(Cme)), function(i) Cme[, i])
     if (length(Cme)) {
       Cme <- setNames(Cme, paste0("Cme", p, "_", seq_along(Cme)))
     }
-    uni_me <- attr(meef, "uni_me")
+    Kme <- setNames(list(length(meef)), paste0("Kme", p))
+    out <- c(out, Cme, Kme)
+  }
+  out
+}
+
+data_Xme <- function(bterms, data) {
+  # prepare global data for noise free variables
+  stopifnot(is.brmsterms(bterms))
+  out <- list()
+  uni_me <- get_uni_me(bterms)
+  if (length(uni_me)) {
     Xn <- noise <- named_list(uni_me)
     for (i in seq_along(uni_me)) {
       temp <- eval2(uni_me[i], data)
       Xn[[i]] <- as.array(attr(temp, "var"))
       noise[[i]] <- as.array(attr(temp, "noise"))
     }
-    names(Xn) <- paste0("Xn", p, "_", seq_along(Xn))
-    names(noise) <- paste0("noise", p, "_", seq_along(Xn))
-    Kme <- setNames(list(length(meef)), paste0("Kme", p))
-    out <- c(out, Xn, noise, Cme, Kme)
+    K <- seq_along(uni_me)
+    names(Xn) <- paste0("Xn_", K)
+    names(noise) <- paste0("noise_", K)
+    out <- c(out, Xn, noise)
   }
   out
 }
 
 data_gp <- function(bterms, data, gps = NULL) {
   # prepare data for Gaussian process terms
-  # Args:
-  #   see data_effects.btl
+  # Args: see data_effects
   out <- list()
   px <- check_prefix(bterms)
   gpef <- get_gp_labels(bterms)
@@ -393,6 +418,7 @@ data_gp <- function(bterms, data, gps = NULL) {
 
 data_offset <- function(bterms, data) {
   # prepare data of offsets for use in Stan
+  # Args: see data_effects
   out <- list()
   px <- check_prefix(bterms)
   if (is.formula(bterms$offset)) {

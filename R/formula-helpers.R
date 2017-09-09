@@ -85,10 +85,7 @@ resp_se <- function(x, sigma = FALSE) {
   if (min(x) < 0) {
     stop2("Standard errors must be non-negative.")
   }
-  sigma <- as.logical(sigma)
-  if (length(sigma) != 1L) {
-    stop2("Argument 'sigma' must be either TRUE or FALSE.")
-  }
+  sigma <- as_one_logical(sigma)
   structure(x, sigma = sigma)  
 }
 
@@ -188,11 +185,13 @@ resp_cens <- function(x, y2 = NULL) {
   }
   cens <- unname(ulapply(x, prepare_cens))
   if (!all(is_wholenumber(cens) & cens %in% -1:2)) {
-    stop2("Invalid censoring data. Accepted values are ", 
-          "'left', 'none', 'right', and 'interval'\n",
-          "(abbreviations are allowed) or -1, 0, 1, and 2.\n",
-          "TRUE and FALSE are also accepted ",
-          "and refer to 'right' and 'none' respectively.")
+    stop2(
+      "Invalid censoring data. Accepted values are ", 
+      "'left', 'none', 'right', and 'interval'\n",
+      "(abbreviations are allowed) or -1, 0, 1, and 2.\n",
+      "TRUE and FALSE are also accepted ",
+      "and refer to 'right' and 'none' respectively."
+    )
   }
   if (any(cens %in% 2)) {
     if (length(y2) != length(cens)) {
@@ -212,6 +211,50 @@ resp_trunc <- function(lb = -Inf, ub = Inf) {
     stop2("Truncation bounds are invalid: lb >= ub")
   }
   nlist(lb, ub)
+}
+
+#' Defining smooths in \pkg{brms} formulae
+#' 
+#' Functions used in definition of smooth terms within a model formulae. 
+#' The function does not evaluate a (spline) smooth - it exists purely 
+#' to help set up a model using spline based smooths.
+#' 
+#' @param ... Arguments passed to \code{\link[mgcv:s]{mgcv::s}} or
+#'  \code{\link[mgcv:t2]{mgcv::t2}}.
+#'  
+#' @details The function defined here are just simple wrappers
+#'  of the respective functions of the \pkg{mgcv} package.
+#'  
+#' @seealso \code{\link[brms:brmsformula]{brmsformula}},
+#'   \code{\link[mgcv:s]{mgcv::s}}, \code{\link[mgcv:t2]{mgcv::t2}}
+#'  
+#' @examples
+#' \dontrun{
+#' # simulate some data
+#' dat <- mgcv::gamSim(1, n = 200, scale = 2)
+#' 
+#' # fit univariate smooths for all predictors
+#' fit1 <- brm(y ~ s(x0) + s(x1) + s(x2) + s(x3), 
+#'             data = dat, chains = 2)
+#' summary(fit1)
+#' plot(marginal_smooths(fit1), ask = FALSE)
+#' 
+#' # fit a more complicated smooth model
+#' fit2 <- brm(y ~ t2(x0, x1) + s(x2, by = x3), 
+#'             data = dat, chains = 2)
+#' summary(fit2)
+#' plot(marginal_smooths(fit2), ask = FALSE)
+#' }
+#' 
+#' @export
+s <- function(...) {
+  mgcv::s(...)
+}
+
+#' @rdname s
+#' @export
+t2 <- function(...) {
+  mgcv::t2(...)
 }
 
 #' Predictors with Measurement Error in \pkg{brms} Models
@@ -299,9 +342,8 @@ cse <- function(expr) {
 #' 
 #' @aliases mono monotonic
 #' 
-#' @param expr Expression containing predictors,
-#'  for which monotonic effects should be estimated. 
-#'  For evaluation, \R formula syntax is applied.
+#' @param x An integer variable or an orderd factor
+#'   to be modeled as monotonic.
 #'  
 #' @details For detailed documentation see \code{help(brmsformula)}
 #'   as well as \code{vignette("brms_monotonic")}.
@@ -322,29 +364,57 @@ cse <- function(expr) {
 #' dat <- data.frame(income, ls)
 #' 
 #' # fit a simple monotonic model
-#' fit <- brm(ls ~ mo(income), data = dat)
+#' fit1 <- brm(ls ~ mo(income), data = dat)
 #' 
 #' # summarise the model
-#' summary(fit)
-#' plot(fit, N = 6)
-#' plot(marginal_effects(fit), points = TRUE)
+#' summary(fit1)
+#' plot(fit1, N = 6)
+#' plot(marginal_effects(fit1), points = TRUE)
+#' 
+#' # model interaction with other variables
+#' dat$x <- sample(c("a", "b", "c"), 100, TRUE)
+#' fit2 <- brm(ls ~ mo(income)*x, data = dat)
+#' 
+#' # summarise the model
+#' summary(fit2)
+#' plot(marginal_effects(fit2), points = TRUE)
 #' } 
 #'  
 #' @export
-mo <- function(expr) {
-  deparse_no_string(substitute(expr))
+mo <- function(x) {
+  x_name <- attr(x, "x_name")
+  if (is.null(x_name)) {
+    x_name <- deparse_combine(substitute(x))  
+  }
+  if (is.ordered(x)) {
+    # counting starts at zero
+    x <- as.numeric(x) - 1 
+  } else if (all(is_wholenumber(x))) {
+    min_value <- attr(x, "min")
+    if (is.null(min_value)) {
+      min_value <- min(x)
+    }
+    x <- x - min_value
+  } else {
+    stop2(
+      "Monotonic predictors must be integers or ordered ", 
+      "factors. Error occured for variable '", x_name, "'."
+    )
+  }
+  out <- rep(1, length(x))
+  structure(out, var = x) 
 }
 
 #' @export
-mono <- function(expr) {
-  # alias of function 'mo'
-  deparse_no_string(substitute(expr))
+mono <- function(x) {
+  attr(x, "x_name") <- deparse_combine(substitute(x)) 
+  mo(x)
 }
 
 #' @export
-monotonic <- function(expr) {
-  # alias of function 'mo'
-  deparse_no_string(substitute(expr))
+monotonic <- function(x) {
+  attr(x, "x_name") <- deparse_combine(substitute(x))
+  mo(x)
 }
 
 #' Set up Gaussian process terms in \pkg{brms}
@@ -443,10 +513,7 @@ gp <- function(..., by = NA, cov = "exp_quad", scale = TRUE) {
   label <- deparse(match.call())
   vars <- as.list(substitute(list(...)))[-1]
   by <- deparse(substitute(by)) 
-  scale <- as.logical(scale)
-  if (anyNA(scale) || length(scale) != 1L) {
-    stop2("'scale' should be either TRUE or FALSE.")
-  }
+  scale <- as_one_logical(scale)
   term <- ulapply(vars, deparse, backtick = TRUE, width.cutoff = 500)
   structure(nlist(term, label, by, cov, scale), class = "gpterm")
 }
@@ -533,10 +600,7 @@ mm <- function(..., weights = NULL, scale = TRUE) {
             "only variable names combined by the symbol ':'")
     }
   }
-  scale <- as.logical(scale)
-  if (anyNA(scale) || length(scale) != 1L) {
-    stop2("'scale' should be either TRUE or FALSE.")
-  }
+  scale <- as_one_logical(scale)
   weights <- substitute(weights)
   weightvars <- all.vars(weights)
   allvars <- str2formula(c(groups, weightvars))
@@ -575,7 +639,7 @@ str2formula <- function(x, ...) {
   #   ...: passed to formula(.)
   # Returns:
   #   a formula
-  if (length(x)) {
+  if (length(x) && any(nzchar(x))) {
     x <- paste(x, collapse = "+") 
   } else {
     x <- "1"

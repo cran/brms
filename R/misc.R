@@ -68,6 +68,37 @@ select_indices <- function(x, i) {
   x
 }
 
+array2list <- function(x) {
+  # convert array to list of elements with reduced dimension
+  # Args: 
+  #   x: an arrary of dimension d
+  # Returns: 
+  #   A list of arrays of dimension d-1
+  if (is.null(dim(x))) {
+    stop("Argument 'x' has no dimension.")
+  }
+  ndim <- length(dim(x))
+  l <- list(length = dim(x)[ndim])
+  ind <- collapse(rep(",", ndim - 1))
+  for (i in seq_len(dim(x)[ndim])) {
+    l[[i]] <- eval(parse(text = paste0("x[", ind, i, "]"))) 
+  }
+  names(l) <- dimnames(x)[[ndim]]
+  l
+}
+
+first_greater <- function(A, target, i = 1) {
+  # find the first element in A that is greater than target
+  # Args: 
+  #   A: a matrix
+  #   target: a vector of length nrow(A)
+  #   i: column of A being checked first
+  # Returns: 
+  #   A vector of the same length as target containing the column ids 
+  #   where A[,i] was first greater than target
+  ifelse(target <= A[, i] | ncol(A) == i, i, first_greater(A, target, i + 1))
+}
+
 isNULL <- function(x) {
   # check if an object is NULL
   is.null(x) || ifelse(is.vector(x), all(sapply(x, is.null)), FALSE)
@@ -315,7 +346,27 @@ named_list <- function(names, values = NULL) {
     values <- vector("list", length(names))
   }
   setNames(values, names)
-} 
+}
+
+'replace_args<-' <- function(x, dont_replace = NULL, value) {
+  # replace elements in x with elements in value
+  # Args:
+  #   x: named list like object
+  #   value: another named list like object
+  #   dont_replace names of elements that cannot be replaced
+  value_name <- deparse_combine(substitute(value))
+  value <- as.list(value)
+  if (length(value) && is.null(names(value))) {
+    stop2("Argument '", value_name, "' must be named.")
+  }
+  invalid <- names(value)[names(value) %in% dont_replace]
+  if (length(invalid)) {
+    invalid <- collapse_comma(invalid)
+    stop2("Argument(s) ", invalid, " cannot be replaced.")
+  }
+  x[names(value)] <- value
+  x
+}
 
 deparse_no_string <- function(x) {
   # deparse x if it is no string
@@ -353,10 +404,6 @@ eval_silent <- function(expr, type = "output", silent = TRUE, ...) {
     out <- eval(expr, envir)
   }
   out
-}
-
-eval_smooth <- function(x) {
-  eval2(paste0("mgcv::", x))
 }
 
 stop2 <- function(...) {
@@ -663,6 +710,11 @@ wsp <- function(x = "", nsp = 1) {
   out
 }
 
+rm_wsp <- function(x) {
+  # remove whitespaces from strings
+  gsub("[ \t\r\n]+", "", x, perl = TRUE)
+}
+
 limit_chars <- function(x, chars = NULL, lsuffix = 4) {
   # limit the number of characters of a vector
   # Args:
@@ -727,8 +779,7 @@ expect_match2 <- function(object, regexp, ..., all = TRUE) {
     "Useful instructions\n", 
     "can be found by typing help('brms'). A more detailed introduction\n", 
     "to the package is available through vignette('brms_overview').\n",
-    "Plotting theme set to bayesplot::theme_default()."
+    "Run theme_set(theme_default()) to use the default bayesplot theme."
   )
-  ggplot2::theme_set(bayesplot::theme_default())
   invisible(NULL)
 }

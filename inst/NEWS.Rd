@@ -2,6 +2,64 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.10.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Rebuild monotonic effects from scratch
+      to allow specifying interactions with other
+      variables. (#239)
+      \item Introduce methods \code{posterior_linpred}
+      and \code{posterior_interval} for consistency
+      with other model fitting packages based on 
+      \pkg{Stan}.
+      \item Introduce function \code{theme_black}
+      providing a black \pkg{ggplot2} theme.
+      \item Specify special group-level effects within 
+      the same terms as ordinary group-level effects.
+      \item Add argument \code{prob} to 
+      \code{summary}, which allows to control the 
+      width of the computed uncertainty intervals. (#259)
+      \item Add argument \code{newdata} to the 
+      \code{kfold} method.
+      \item Add several arguments to the \code{plot}
+      method of \code{marginal_effects} to improve
+      control over the appearences of the plots.
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Use the same noise-free variables
+      for all model parts in measurement error models. (#257)
+      \item Make names of local-level terms used
+      in the \code{cor_bsts} structure more informative.
+      \item Store the \code{autocor} argument
+      within \code{brmsformula} objects.
+      \item Store posterior and prior samples in separate
+      slots in the output of method \code{hypothesis}.
+      \item No longer change the default theme of
+      \pkg{ggplot2} when attaching \pkg{brms}. (#256)
+      \item Make sure signs of estimates are not dropped 
+      when rounding to zero in \code{summary.brmsfit}. (#263)
+      \item Refactor parts of \code{extract_draws}
+      and \code{linear_predictor} to be more consistent
+      with the rest of the package.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Do not silence the \pkg{Stan} parser
+      when calling \code{brm} to get informative
+      error messages about invalid priors.
+      \item Fix problems with spaces in priors
+      passed to \code{set_prior}.
+      \item Handle non \code{data.frame} objects 
+      correctly in \code{hypothesis.default}.
+      \item Fix a problem relating to the colour
+      of points displayed in \code{marginal_effects}.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.9.0}{
   \subsection{NEW FEATURES}{
     \itemize{

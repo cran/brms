@@ -30,13 +30,11 @@
 #' @export
 parse_bf <- function(formula, family = NULL, autocor = NULL, 
                      check_response = TRUE, resp_rhs_all = TRUE) {
-  x <- bf(formula, family = family)
+  x <- bf(formula, family = family, autocor = autocor)
   old_mv <- isTRUE(x[["old_mv"]])
-  if (!(is.null(autocor) || is.cor_brms(autocor))) {
-    stop2("Argument 'autocor' has to be of class 'cor_brms'")
-  }
   formula <- x$formula
   family <- x$family
+  autocor <- x$autocor
   y <- nlist(formula, family, autocor) 
   class(y) <- "brmsterms"
   
@@ -103,7 +101,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
     dpar_of_nlpars[i] <- dpar
   }
   for (dp in dpars) {
-    if (isTRUE(attr(dpar_forms[[dp]], "nl"))) {
+    if (get_nl(dpar_forms[[dp]])) {
       if (is.mixfamily(family) || is_ordinal(family) || is_categorical(family)) {
         stop2("Non-linear formulas are not yet allowed for this family.")
       }
@@ -117,6 +115,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
     # temporary until brms 2.0.0
     y$dpars[[dp]]$resp <- ""
   }
+  y <- store_uni_me(y)
   # fixed distributional parameters
   inv_fixed_dpars <- setdiff(names(x$pfix), valid_dpars(family, y))
   if (length(inv_fixed_dpars)) {
@@ -150,7 +149,7 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
   }
   environment(y$allvars) <- environment(formula)
   
-  if (is_linear(family) && length(y$response) > 1L) {
+  if (length(y$response) > 1L) {
     if (any(!names(y$adforms) %in% "weights")) {
       stop2("Multivariate models currently allow only ",
             "addition argument 'weights'.")
@@ -158,6 +157,10 @@ parse_bf <- function(formula, family = NULL, autocor = NULL,
     if (length(y$dpars) > 1L) {
       stop2("Distributional parameters cannot yet be ", 
             "predicted in multivariate models.")
+    }
+    if (length(y$dpars$mu$nlpars)) {
+      stop2("Multivariate non-linear models are not ",
+            "yet implemented.")
     }
   }
   if (check_response && old_mv) {
@@ -184,49 +187,19 @@ parse_lf <- function(formula, family = NULL) {
   #   object of class 'btl'
   formula <- rhs(as.formula(formula))
   y <- nlist(formula)
-  
-  terms <- terms(formula)
-  all_terms <- all_terms(formula)
-  pos_re_terms <- grepl("\\|", all_terms)
-  re_terms <- all_terms[pos_re_terms]
-  mo_form <- parse_mo(formula)
-  if (is.formula(mo_form)) {
-    y[["mo"]] <- mo_form
+  types <- c("re", "mo", "cs", "me", "sm", "gp", "offset")
+  for (t in types) {
+    tmp <- do.call(paste0("parse_", t), list(formula))
+    if (is.data.frame(tmp) || is.formula(tmp)) {
+      y[[t]] <- tmp 
+    }
   }
-  cs_form <- parse_cs(formula)
-  if (is.formula(cs_form)) {
-    y[["cs"]] <- cs_form
-  }
-  me_form <- parse_me(formula)
-  if (is.formula(me_form)) {
-    y[["me"]] <- me_form
-  }
-  sm_form <- parse_sm(formula)
-  if (is.formula(sm_form)) {
-    y[["sm"]] <- sm_form
-  }
-  gp_form <- parse_gp(formula)
-  if (is.formula(gp_form)) {
-    y[["gp"]] <- gp_form
-  }
-  offset_form <- parse_offset(formula)
-  if (is.formula(offset_form)) {
-    y[["offset"]] <- offset_form
-  }
-  rm_pos <- list(mo_form, cs_form, me_form, sm_form, gp_form)
-  rm_pos <- c(lapply(rm_pos, attr, "pos"), list(pos_re_terms))
-  fe_terms <- all_terms[!Reduce("|", rm_pos)]
-  int_term <- ifelse(attr(terms, "intercept") == 1, "1", "0")
-  fe_terms <- paste(c(int_term, fe_terms), collapse = "+")
-  y[["fe"]] <- str2formula(fe_terms)
-  if (has_rsv_intercept(y[["fe"]])) {
-    attr(y[["fe"]], "rsv_intercept") <- TRUE
-  }
+  pos_special <- Reduce("|", rmNULL(lapply(y[types], attr, "pos")))
+  y$fe <- parse_fe(formula, pos_special)
   if (is_forked(family)) {
-    attr(y[["fe"]], "forked") <- TRUE
+    # retained for backwards compatibility with brms < 1.0.0
+    attr(y$fe, "forked") <- TRUE
   }
-  # parse group-level terms
-  y$re <- parse_re(re_terms)
   lformula <- c(
     y[c("fe", "cs", "mo", "me")], 
     attr(y$sm, "allvars"), attr(y$gp, "allvars"),
@@ -289,11 +262,10 @@ parse_ad <- function(formula, family = NULL, check_response = TRUE) {
   ad_funs <- sub("^resp_", "", ad_funs)
   families <- family_names(family)
   if (is.family(family) && any(nzchar(families))) {
-    ad <- get_matches("\\|[^~]*~", formula2str(formula))
+    str_formula <- formula2str(formula)
+    ad <- get_matches("(?<=\\|)[^~]*(?=~)", str_formula, perl = TRUE)
     if (length(ad)) {
-      # replace deprecated '|' by '+'
-      ad <- paste("~", rename(substr(ad, 2, nchar(ad) - 1), "|", "+"))
-      ad_terms <- attr(terms(formula(ad)), "term.labels")
+      ad_terms <- attr(terms(formula(paste("~", ad))), "term.labels")
       for (a in ad_funs) {
         matches <- grep(paste0("^(resp_)?", a, "\\(.+\\)$"), ad_terms)
         if (length(matches) == 1L) {
@@ -333,19 +305,38 @@ parse_ad <- function(formula, family = NULL, check_response = TRUE) {
   x
 }
 
+parse_fe <- function(formula, pos_special = NULL) {
+  # extract fixed effects terms
+  # Args:
+  #   pos_special: logical position vector of non-FE terms
+  terms <- terms(formula)
+  all_terms <- all_terms(terms)
+  if (length(pos_special)) {
+    stopifnot(length(pos_special) == length(all_terms))
+    fe_terms <- all_terms[!pos_special]
+  } else {
+    fe_terms <- all_terms
+  }
+  int_term <- attr(terms, "intercept")
+  fe_terms <- paste(c(int_term, fe_terms), collapse = "+")
+  fe_form <- str2formula(fe_terms)
+  if (has_rsv_intercept(fe_form)) {
+    attr(fe_form, "rsv_intercept") <- TRUE
+  }
+  fe_form
+}
+
 parse_mo <- function(formula) {
   # extract monotonic terms
   # Args:
   #   formula: a formula object
   all_terms <- all_terms(formula)
-  pos_mo_terms <- grepl("^mo((no)?|(notonic)?)\\([^\\|]+$", all_terms)
+  # do not include group-level terms
+  all_terms[grepl("\\|", all_terms)] <- ""
+  pos_mo_terms <- grepl_expr(regex_mo(), all_terms)
   mo_terms <- all_terms[pos_mo_terms]
   if (length(mo_terms)) {
-    mo_terms <- ulapply(mo_terms, eval2)
     mo_terms <- str2formula(mo_terms)
-    if (!length(all.vars(mo_terms))) {
-      stop2("No variable supplied to function 'mo'.")
-    }
     attr(mo_terms, "rsv_intercept") <- TRUE
   }
   structure(mo_terms, pos = pos_mo_terms)
@@ -378,7 +369,7 @@ parse_sm <- function(formula) {
     }
     covars <- byvars <- named_list(sm_terms)
     for (i in seq_along(sm_terms)) {
-      es <- eval_smooth(sm_terms[i])
+      es <- eval2(sm_terms[i])
       covars[[i]] <- es$term
       if (es$by != "NA") {
         byvars[[i]] <- es$by 
@@ -406,10 +397,9 @@ parse_me <- function(formula) {
   pos_me_terms <- grepl_expr("^me\\([^:]*\\)$", all_terms)
   me_terms <- all_terms[pos_me_terms]
   if (length(me_terms)) {
+    uni_me <- rm_wsp(get_matches_expr("^me\\([^:]*\\)$", me_terms))
     me_terms <- str2formula(me_terms)
-    if (!length(all.vars(me_terms))) {
-      stop2("No variable supplied to function 'me'.")
-    }
+    attr(me_terms, "uni_me") <- uni_me
     attr(me_terms, "rsv_intercept") <- TRUE
   }
   structure(me_terms, pos = pos_me_terms)
@@ -458,29 +448,29 @@ parse_offset <- function(formula) {
   offset_terms
 }
 
-parse_re <- function(re_terms) {
+parse_re <- function(formula) {
   # generate a data.frame with all information about the group-level terms
   # Args:
   #   re_terms: A vector of group-level terms in extended lme4 syntax
+  re_terms <- get_re_terms(formula, brackets = FALSE)
+  re_pos <- attr(re_terms, "pos")
   re_terms <- split_re_terms(re_terms)
-  lhs_terms <- lhs_terms(re_terms)
-  mid_terms <- mid_terms(re_terms)
-  rhs_terms <- rhs_terms(re_terms)
+  re_parts <- re_parts(re_terms)
   out <- vector("list", length(re_terms))
   type <- attr(re_terms, "type")
   for (i in seq_along(re_terms)) {
-    id <- gsub("\\|", "", mid_terms[i])
+    id <- gsub("\\|", "", re_parts$mid[i])
     if (!nzchar(id)) id <- NA
-    gcall <- eval2(rhs_terms[i])
+    gcall <- eval2(re_parts$rhs[i])
     group <- paste0(gcall$type, collapse(gcall$groups))
     out[[i]] <- data.frame(
       group = group, gtype = gcall$type,
       gn = i, id = id, type = type[i],
-      cor = substr(mid_terms[i], 1, 2) != "||",
+      cor = substr(re_parts$mid[i], 1, 2) != "||",
       stringsAsFactors = FALSE
     )
     out[[i]]$gcall <- list(gcall)
-    out[[i]]$form <- list(formula(paste("~", lhs_terms[i])))
+    out[[i]]$form <- list(formula(paste("~", re_parts$lhs[i])))
   }
   if (length(out)) {
     out <- do.call(rbind, out)
@@ -492,7 +482,7 @@ parse_re <- function(re_terms) {
       type = character(0), form = character(0)
     )
   }
-  out
+  structure(out, pos = re_pos)
 }
 
 parse_resp <- function(formula, keep_dot_usc = FALSE) {
@@ -661,188 +651,6 @@ check_fdpars <- function(x) {
   invisible(TRUE)
 }
 
-illegal_group_expr <- function(group) {
-  # check if the group part of a group-level term is invalid
-  # Args:
-  #  g: the group part of a group-level term
-  valid_expr <- ":|[^([:digit:]|[:punct:])][[:alnum:]_\\.]*"
-  rsv_signs <- c("+", "-", "*", "/", "|", "::")
-  nzchar(gsub(valid_expr, "", group)) ||
-    any(ulapply(rsv_signs, grepl, x = group, fixed = TRUE))
-}
-
-get_re_terms <- function(x, formula = FALSE, brackets = TRUE) {
-  # extract RE terms from a formula of character vector
-  # Args:
-  #   x: formula or character vector
-  #   formula: return a formula containing only ranefs?
-  if (is(x, "formula")) {
-    x <- all_terms(x)
-  }
-  re_terms <- x[grepl("\\|", x)]
-  if (brackets && length(re_terms)) {
-    re_terms <- paste0("(", re_terms, ")")
-  } 
-  if (formula) {
-    if (length(re_terms)) {
-      re_terms <- formula(paste("~ 1", collapse("+", re_terms)))
-    } else {
-      re_terms <- ~ 1
-    }
-  }
-  re_terms
-}
-
-split_re_terms <- function(re_terms) {
-  # split nested group-level terms by the '/' sign
-  # and check for special effects terms
-  # Args:
-  #   re_terms: group-level terms in extended lme4 syntax
-  stopifnot(!length(re_terms) || is.character(re_terms))
-  lhs_terms <- lhs_terms(re_terms)
-  mid_terms <- mid_terms(re_terms)
-  rhs_terms <- rhs_terms(re_terms)
-  new_re_terms <- vector("list", length(re_terms))
-  type <- as.list(rep("", length(re_terms)))
-  for (i in seq_along(re_terms)) {
-    # check for special terms
-    lhs_form <- formula(paste("~", lhs_terms[i]))
-    lhs_all_terms <- all_terms(lhs_form)
-    lhs_form_mo <- parse_mo(lhs_form)
-    if (is.formula(lhs_form_mo)) {
-      pos_mo <- attr(lhs_form_mo, "pos")
-      if (!all(pos_mo)) {
-        stop2("Please specify monotonic effects ", 
-              "in separate group-level terms.")
-      }
-      lhs_terms[i] <- formula2str(lhs_form_mo, rm = 1)
-      type[[i]] <- "mo"
-    }
-    lhs_form_cs <- parse_cs(lhs_form)
-    if (is.formula(lhs_form_cs)) {
-      pos_cs <- attr(lhs_form_cs, "pos")
-      if (!all(pos_cs)) {
-        stop2("Please specify category specific effects ", 
-              "in separate group-level terms.")
-      }
-      lhs_terms[i] <- formula2str(lhs_form_cs, rm = 1)
-      type[[i]] <- "cs"
-    }
-    lhs_form_me <- parse_me(lhs_form)
-    if (is.formula(lhs_form_me)) {
-      pos_me <- attr(lhs_form_me, "pos")
-      if (!all(pos_me)) {
-        stop2("Please specify terms of noisy variables ", 
-              "in separate group-level terms.")
-      }
-      lhs_terms[i] <- formula2str(lhs_form_me, rm = 1)
-      type[[i]] <- "me"
-    }
-    # expand grouping factor terms
-    groups <- terms(formula(paste0("~", rhs_terms[i])))
-    groups <- attr(groups, "term.labels")
-    groups <- ifelse(!grepl("^(gr|mm)\\(", groups), 
-                     paste0("gr(", groups, ")"), groups)
-    new_re_terms[[i]] <- paste0(lhs_terms[i], mid_terms[i], groups)
-    type[[i]] <- rep(type[[i]], length(new_re_terms[[i]]))
-  }
-  structure_not_null(unlist(new_re_terms), type = unlist(type))
-}
-
-check_re_formula <- function(re_formula, formula) {
-  # validate the re_formula argument as passed to predict and fitted
-  # Args:
-  #   re_formula: see predict.brmsfit for documentation
-  #   formula: formula to match re_formula with
-  # Returns:
-  #   updated re_formula containign only terms existent in formula
-  old_re_formula <- get_re_terms(formula, formula = TRUE)
-  if (is.null(re_formula)) {
-    re_formula <- old_re_formula
-  } else if (SW(anyNA(re_formula))) {
-    re_formula <- ~ 1
-  } else {
-    re_formula <- get_re_terms(as.formula(re_formula), formula = TRUE)
-    new <- parse_bf(re_formula, check_response = FALSE)$dpars$mu$re
-    old <- parse_bf(old_re_formula, check_response = FALSE)$dpars$mu$re
-    if (nrow(new)) {
-      new_terms <- lapply(new$form, terms)
-      found <- rep(FALSE, nrow(new))
-      for (i in 1:nrow(new)) {
-        group <- new$group[[i]]
-        old_terms <- lapply(old$form[old$group == group], terms)
-        j <- 1
-        while (!found[i] && j <= length(old_terms)) {
-          found[i] <- isTRUE(
-            all(attr(new_terms[[i]], "term.labels") %in% 
-                attr(old_terms[[j]], "term.labels")) &&
-            attr(new_terms[[i]], "intercept") <=
-              attr(old_terms[[j]], "intercept")
-          )
-          j <- j + 1
-        }
-      }  
-      new <- new[found, ]
-      if (nrow(new)) {
-        forms <- ulapply(new$form, formula2str, rm = 1)
-        groups <- ulapply(new$gcall, "[[", "label")
-        re_terms <- paste("(", forms, "|", groups, ")")
-        re_formula <- formula(paste("~", paste(re_terms, collapse = "+")))
-      } else {
-        re_formula <- ~ 1
-      }
-    } else {
-      re_formula <- ~ 1
-    }
-  }
-  re_formula
-}
-
-update_re_terms <- function(x, re_formula = NULL) {
-  # update group-level terms
-  # Args:
-  #   x: Either 'formula' or 'brmsformula' object
-  #   re_formula: formula containing new RE terms
-  .update_re_terms <- function(formula, re_formula = NULL) {
-    # remove existing group-level terms in formula and
-    # add valid group-level terms of re_formula
-    # Args:
-    #   formula: object of class 'formula'
-    if (isTRUE(attr(formula, "nl"))) {
-      # non-linear formulas contain no group-level effects
-      return(formula)
-    }
-    re_formula <- check_re_formula(re_formula, formula)
-    new_formula <- formula2str(formula)
-    old_re_terms <- get_re_terms(formula)
-    if (length(old_re_terms)) {
-      # make sure that + before group-level terms are also removed
-      rm_terms <- c(paste0("+", old_re_terms), old_re_terms)
-      new_formula <- rename(new_formula, rm_terms, "")
-      if (grepl("~$", new_formula)) {
-        # lhs only formulas are not allowed
-        new_formula <- paste(new_formula, "1")
-      }
-    }
-    new_re_terms <- get_re_terms(re_formula)
-    new_formula <- paste(c(new_formula, new_re_terms), collapse = "+")
-    new_formula <- formula(new_formula)
-    attributes(new_formula) <- attributes(formula)
-    return(new_formula)
-  }
-  
-  if (is.formula(x)) {
-    x <- .update_re_terms(x, re_formula) 
-  } else if (is.brmsformula(x)) {
-    x$formula <- .update_re_terms(x$formula, re_formula)
-    x$pforms <- lapply(pforms(x), .update_re_terms, re_formula)
-  } else {
-    stop("Don't know how to handle objects of class ",
-         collapse_comma(class(x)))
-  }
-  x
-}
-
 ad_families <- function(x) {
   # names of valid families for addition arguments
   switch(x, 
@@ -896,55 +704,9 @@ plus_rhs <- function(x) {
   out
 }
 
-#' @export
-get_re.brmsterms <- function(x, all = TRUE, ...) {
-  # get group-level information in a data.frame
-  # Args:
-  #   bterms: object of class brmsterms
-  #   all: logical; include ranefs of nl and aux parameters?
-  old_mv <- isTRUE(attr(x$formula, "old_mv"))
-  if (all) {
-    re <- named_list(names(x$dpars))
-    for (dp in names(re)) {
-      re[[dp]] <- get_re(
-        x$dpars[[dp]], response = x$response, old_mv = old_mv
-      )
-    }
-    re <- do.call(rbind, re)
-  } else {
-    x$dpars[["mu"]]$nlpars <- NULL
-    re <- get_re(x$dpars[["mu"]])
-  }
-  re
-}
-
-#' @export
-get_re.btl <- function(x, response = "", old_mv = FALSE, ...) {
-  stopifnot(is.data.frame(x$re))
-  px <- check_prefix(x)
-  re <- x$re
-  nresp <- length(response)
-  if (!old_mv && nresp > 1L && nrow(re)) {
-    re <- replicate(nresp, re, simplify = FALSE)
-    for (i in seq_len(nresp)) {
-      re[[i]]$resp <- rep(response[i], nrow(re[[i]]))
-    }
-    re <- do.call(rbind, re)
-  } else {
-    re$resp <- rep(px$resp, nrow(re)) 
-  }
-  re$dpar <- rep(px$dpar, nrow(re))
-  re$nlpar <- rep(px$nlpar, nrow(re)) 
-  re
-}
-
-#' @export
-get_re.btnl <- function(x, ...) {
-  re <- named_list(names(x$nlpars))
-  for (nlp in names(re)) {
-    re[[nlp]] <- get_re(x$nlpars[[nlp]])
-  }
-  do.call(rbind, re)
+get_effect <- function(x, ...) {
+  # extract various kind of effects
+  UseMethod("get_effect")
 }
 
 #' @export
@@ -979,74 +741,35 @@ get_effect.btnl <- function(x, target = "fe", ...) {
   rmNULL(out)
 }
 
-get_var_combs <- function(..., alist = list()) {
-  # get all variable combinations occuring in elements of ...
-  # Args:
-  #   ...: character vectors or formulas
-  #   alist: a list of character vectors or formulas
-  dots <- c(list(...), alist)
-  for (i in seq_along(dots)) {
-    if (is(dots[[i]], "formula")) {
-      dots[[i]] <- attr(terms(dots[[i]]), "term.labels")
+get_uni_me <- function(x) {
+  # extract unique names of noise-free terms 
+  unique(ulapply(get_effect(x, "me"), attr, "uni_me"))
+}
+
+store_uni_me <- function(x) {
+  # store unique names of noise-free terms in all 'me' elements
+  stopifnot(is.brmsterms(x))
+  uni_me <- get_uni_me(x)
+  if (!length(uni_me)) {
+    return(x)
+  }
+  'uni_me<-' <- function(bt, value) {
+    stopifnot(is.btl(bt))
+    if (is.formula(bt[["me"]])) {
+      attr(bt[["me"]], "uni_me") <- value
     }
-    dots[[i]] <- lapply(dots[[i]], function(y) all.vars(parse(text = y)))
+    return(bt)
   }
-  unique(unlist(dots, recursive = FALSE))
-}
-
-#' @export
-get_all_effects.brmsterms <- function(x, rsv_vars = NULL, 
-                                      comb_all = FALSE) {
-  # get all effects for use in marginal_effects
-  # Args:
-  #   bterms: object of class brmsterms
-  #   rsv_vars: character vector of reserved variables
-  #   comb_all: include all main effects and two-way interactions?
-  # Returns:
-  #   a list with one element per valid effect / effects combination
-  #   excludes all 3-way or higher interactions
-  #stopifnot(is.brmsterms(bterms))
-  stopifnot(is.atomic(rsv_vars))
-  out <- list()
-  for (dp in names(x$dpars)) {
-    out <- c(out, get_all_effects(x$dpars[[dp]]))
+  for (i in seq_along(x$dpars)) {
+    if (is.btnl(x$dpars[[i]])) {
+      for (j in seq_along(x$dpars[[i]]$nlpars)) {
+        uni_me(x$dpars[[i]]$nlpars[[j]]) <- uni_me
+      }
+    } else {
+      uni_me(x$dpars[[i]]) <- uni_me
+    }
   }
-  out <- rmNULL(lapply(out, setdiff, y = rsv_vars))
-  if (comb_all) {
-    out <- unique(unlist(out))
-    int <- expand.grid(out, out, stringsAsFactors = FALSE)
-    int <- int[int[, 1] != int[, 2], ]
-    int <- as.list(as.data.frame(t(int), stringsAsFactors = FALSE))
-    int <- unique(unname(lapply(int, sort)))
-    out <- c(as.list(out), int)
-  }
-  out[lengths(out) <= 2L] 
-}
-
-#' @export
-get_all_effects.btl <- function(x, ...) {
-  int_formula <- function(x) {
-    formula(paste("~", paste(x, collapse = "*")))
-  }
-  covars <- attr(x$sm, "covars")
-  byvars <- attr(x$sm, "byvars")
-  svars <- mapply(c, covars, byvars, SIMPLIFY = FALSE)
-  alist <- lapply(svars, int_formula)
-  get_var_combs(x$fe, x$mo, x$cs, x$me, x$gp, alist = alist)
-}
-
-#' @export
-get_all_effects.btnl <- function(x, ...) {
-  covars <- all.vars(rhs(x$covars))
-  covars_comb <- as.list(covars)
-  if (length(covars) > 1L) {
-    covars_comb <- c(covars_comb, 
-      utils::combn(covars, 2, simplify = FALSE)
-    )
-  }
-  nl_effects <- lapply(x$nlpars, get_all_effects)
-  nl_effects <- unlist(nl_effects, recursive = FALSE)
-  unique(c(covars_comb, nl_effects))
+  x
 }
 
 get_sm_labels <- function(x, data = NULL, covars = FALSE,
@@ -1109,6 +832,63 @@ get_sm_labels <- function(x, data = NULL, covars = FALSE,
   structure_not_null(sms, byvars = byvars)
 }
 
+get_mo_labels <- function(x, data) {
+  # get labels of monotonic terms
+  # Args:
+  #   x: either a formula or a list containing an element "mo"
+  #   data: data frame containing the monotonic variables
+  if (is.formula(x)) {
+    x <- parse_bf(x, check_response = FALSE)
+    mo_form <- x$dpars$mu[["mo"]]
+  } else {
+    mo_form <- x[["mo"]]
+  }
+  if (!is.formula(mo_form)) {
+    return(character(0))
+  }
+  mm <- get_model_matrix(mo_form, data, rename = FALSE)
+  monef <- colnames(mm)
+  # prepare attributes of monef
+  not_one <- apply(mm, 2, function(x) any(x != 1))
+  Icmo <- ulapply(seq_along(not_one), function(i) sum(not_one[1:i]))
+  Imo <- calls_mo <- named_list(monef)
+  k <- 0
+  for (i in seq_along(monef)) {
+    calls_mo[[i]] <- get_matches_expr(regex_mo(), monef[i])
+    j <- length(calls_mo[[i]])
+    Imo[[i]] <- (k+1):(k+j)
+    k <- k + j
+    mo_split <- strsplit(rm_wsp(monef[i]), ":")[[1]]
+    # remove non monotonic parts from the terms
+    mo_split <- mo_split[grepl_expr(regex_mo(), mo_split)]
+    for (j in seq_along(mo_split)) {
+      mo_match <- get_matches_expr(regex_mo(), mo_split[j])
+      if (length(mo_match) > 1L || nchar(mo_match) < nchar(mo_split[j])) {
+        stop2("The monotonic term '",  mo_split[j], "' is invalid.")
+      }
+    }
+  }
+  att <- nlist(not_one, Icmo, calls_mo, Imo)
+  do.call(structure, c(list(monef), att))
+}
+
+get_simo_labels <- function(monef) {
+  # extract names of monotonic simplex parameters 
+  # Args:
+  #   monef: output of get_me_labels
+  stopifnot(is.character(monef))
+  Imo <- attr(monef, "Imo")
+  stopifnot(is.list(Imo))
+  monef <- rename(monef)
+  ulapply(seq_along(monef), 
+    function(i) paste0(monef[i], seq_along(Imo[[i]]))
+  )
+}
+
+regex_mo <- function() {
+  "^mo((no)?|(notonic)?)\\([^:]*\\)$"
+}
+
 get_me_labels <- function(x, data) {
   # get labels of measurement error terms
   # Args:
@@ -1124,10 +904,22 @@ get_me_labels <- function(x, data) {
     return(character(0))
   }
   mm <- get_model_matrix(me_form, data, rename = FALSE)
+  meef <- colnames(mm)
+  # prepare attributes of meef
   not_one <- apply(mm, 2, function(x) any(x != 1))
-  uni_me <- get_matches_expr("^me\\([^:]*\\)$", colnames(mm))
-  uni_me <- unique(gsub("[[:space:]]", "", uni_me))
-  structure(colnames(mm), not_one = not_one, uni_me = uni_me)
+  Icme <- ulapply(seq_along(not_one), function(i) sum(not_one[1:i]))
+  uni_me <- attr(me_form, "uni_me")
+  calls_me <- strsplit(rm_wsp(meef), ":")
+  for (i in seq_along(meef)) {
+    # remove non-me parts from the terms
+    take <- grepl_expr("^me\\([^:]*\\)$", calls_me[[i]])
+    calls_me[[i]] <- calls_me[[i]][take]
+    # remove 'I' (identity) function calls that 
+    # were used solely to separate formula terms
+    calls_me[[i]] <- gsub("^I\\(", "(", calls_me[[i]])
+  }
+  att <- nlist(not_one, Icme, uni_me, calls_me)
+  do.call(structure, c(list(meef), att))
 }
 
 get_gp_labels <- function(x, data = NULL, covars = FALSE) {
@@ -1174,34 +966,14 @@ get_gp_labels <- function(x, data = NULL, covars = FALSE) {
   structure_not_null(out, byvars = byvars, by_levels = by_levels)
 }
 
-all_terms <- function(formula) {
-  if (is.null(formula)) return(NULL)
-  terms <- terms(as.formula(formula))
-  gsub("[ \t\r\n]+", "", x = attr(terms, "term.labels"), perl = TRUE)
-}
-
-lhs_terms <- function(re_terms) {
-  out <- get_matches("^[^\\|]*", re_terms) 
-  if (length(out) != length(re_terms)) {
-    stop2("One or more group-levels terms were invalid.")
+all_terms <- function(x) {
+  if (!length(x)) {
+    return(character(0))
   }
-  out
-}
-
-mid_terms <- function(re_terms) {
-  out <- get_matches("\\|([^\\|]*\\||)", re_terms)
-  if (length(out) != length(re_terms)) {
-    stop2("One or more group-levels terms were invalid.")
+  if (!inherits(x, "terms")) {
+    x <- terms(as.formula(x))
   }
-  out
-}
-
-rhs_terms <- function(re_terms) {
-  out <- sub("^\\|", "", get_matches("\\|[^\\|]*$", re_terms))
-  if (length(out) != length(re_terms)) {
-    stop2("One or more group-levels terms were invalid.")
-  }
-  out
+  rm_wsp(attr(x, "term.labels"))
 }
 
 amend_terms <- function(x) {
@@ -1285,136 +1057,6 @@ has_cs <- function(bterms) {
     any(get_re(bterms)$type %in% "cs")
 }
 
-tidy_ranef <- function(bterms, data = NULL, all = TRUE, 
-                       ncat = NULL, old_levels = NULL) {
-  # combines helpful information on the group-level effects
-  # Args:
-  #   bterms: object of class brmsterms
-  #   data: data passed to brm after updating
-  #   all: include REs of non-linear and distributional parameters?
-  #   ncat: optional number of response categories
-  #         only used for category specific group-level effects
-  # Returns: 
-  #   A tidy data.frame with the following columns:
-  #     id: ID of the group-level effect 
-  #     group: name of the grouping factor
-  #     gn: number of the grouping term within the respective formula
-  #     coef: name of the group-level effect
-  #     cn: number of the effect within the ID
-  #     nlpar: name of the corresponding non-linear parameter
-  #     cor: are correlations modeled for this effect?
-  #     type: special effects type; can be "mo", "cs", or "me"
-  #     gcall: output of functions 'gr' or 'mm'
-  #     form: formula used to compute the effects
-  re <- get_re(bterms, all = all)
-  ranef <- vector("list", nrow(re))
-  used_ids <- new_ids <- NULL
-  id_groups <- list()
-  j <- 1
-  for (i in seq_len(nrow(re))) {
-    if (re$type[[i]] == "mo") {
-      coef <- mo_design_matrix(re$form[[i]], data, check = FALSE)
-      coef <- colnames(coef)
-    } else if (re$type[[i]] == "cs") {
-      coef <- colnames(get_model_matrix(re$form[[i]], data = data))
-      if (is.null(ncat)) {
-        # try to infer ncat from the data
-        Y <- as.numeric(model.response(data))
-        ncat <- max(Y) - min(Y) + 1
-      }
-      indices <- paste0("[", seq_len(ncat - 1), "]")
-      coef <- as.vector(t(outer(coef, indices, paste0)))
-    } else if (re$type[[i]] == "me") {
-      coef <- rename(get_me_labels(re$form[[i]], data))
-    } else {
-      coef <- colnames(get_model_matrix(re$form[[i]], data = data)) 
-    }
-    avoid_dpars(coef, bterms = bterms)
-    rdat <- data.frame(
-      id = re$id[[i]],
-      group = re$group[[i]],
-      gn = re$gn[[i]],
-      gtype = re$gtype[[i]],
-      coef = coef, cn = NA,
-      resp = re$resp[[i]],
-      dpar = re$dpar[[i]],
-      nlpar = re$nlpar[[i]],
-      cor = re$cor[[i]],
-      type = re$type[[i]],
-      stringsAsFactors = FALSE
-    )
-    rdat$gcall <- replicate(nrow(rdat), re$gcall[i]) 
-    rdat$form <- replicate(nrow(rdat), re$form[[i]])
-    id <- re$id[[i]]
-    if (is.na(id)) {
-      rdat$id <- j
-      j <- j + 1
-    } else {
-      if (id %in% used_ids) {
-        k <- match(id, used_ids)
-        rdat$id <- new_ids[k]
-        new_id_groups <- c(re$group[[i]], re$gcall[[i]]$groups)
-        if (!identical(new_id_groups, id_groups[[k]])) {
-          stop2("Can only combine group-level terms of the ",
-                "same grouping factors.")
-        }
-      } else {
-        used_ids <- c(used_ids, id)
-        k <- length(used_ids)
-        rdat$id <- new_ids[k] <- j
-        id_groups[[k]] <- c(re$group[[i]], re$gcall[[i]]$groups)
-        j <- j + 1
-      }
-    }
-    ranef[[i]] <- rdat 
-  }
-  ranef <- do.call(rbind, c(list(empty_ranef()), ranef))
-  # check for overlap between different group types
-  rsv_groups <- ranef[nzchar(ranef$gtype), "group"]
-  other_groups <- ranef[!nzchar(ranef$gtype), "group"]
-  inv_groups <- intersect(rsv_groups, other_groups)
-  if (length(inv_groups)) {
-    inv_groups <- paste0("'", inv_groups, "'", collapse = ", ")
-    stop2("Grouping factor names ", inv_groups, " are resevered.")
-  }
-  # check for duplicated and thus not identified effects
-  dup <- duplicated(ranef[, c("group", "coef", vars_prefix())])
-  if (any(dup)) {
-    stop2("Duplicated group-level effects are not allowed.")
-  }
-  if (nrow(ranef)) {
-    for (id in unique(ranef$id)) {
-      ranef$cn[ranef$id == id] <- seq_len(sum(ranef$id == id))
-    }
-    if (is.null(old_levels)) {
-      un_re <- re[!duplicated(re$group), ]
-      levels <- named_list(un_re$group)
-      for (i in seq_along(levels)) {
-        # combine levels of all grouping factors within one grouping term
-        levels[[i]] <- ulapply(un_re$gcall[[i]]$groups, 
-          function(g) levels(factor(get(g, data)))
-        )
-        levels[[i]] <- unique(levels[[i]])
-      }
-      attr(ranef, "levels") <- levels 
-    } else {
-      # for newdata numeration has to depend on the original levels
-      attr(ranef, "levels") <- old_levels
-    }
-  }
-  ranef
-}
-
-empty_ranef <- function() {
-  data.frame(
-    id = numeric(0), group = character(0), gn = numeric(0),
-    coef = character(0), cn = numeric(0), resp = character(0),
-    dpar = character(0), nlpar = character(0), cor = logical(0), 
-    type = character(0), form = character(0), 
-    stringsAsFactors = FALSE
-  )
-}
-
 rsv_vars <- function(bterms, incl_intercept = TRUE) {
   # returns names of reserved variables
   # Args:
@@ -1467,83 +1109,4 @@ has_cens <- function(formula, data = NULL) {
     cens <- FALSE
   }
   cens
-}
-
-exclude_pars <- function(bterms, data = NULL, ranef = empty_ranef(),
-                         save_ranef = TRUE, save_mevars = FALSE,
-                         save_all_pars = FALSE) {
-  # list irrelevant parameters NOT to be saved by Stan
-  # Args:
-  #   bterms: object of class brmsterms
-  #   data: data passed by the user
-  #   ranef: output of tidy_ranef
-  #   save_ranef: should group-level effects be saved?
-  #   save_mevars: should samples of noise-free variables be saved?
-  # Returns:
-  #   a vector of parameters to be excluded
-  .exclude_pars <- function(bt) {
-    stopifnot(is.btl(bt))
-    p <- usc(combine_prefix(bt))
-    out <- c(
-      paste0("temp", p, "_Intercept"),
-      paste0(c("hs_local", "hs_global", "zb"), p)
-    )
-    sms <- get_sm_labels(bt, data)
-    if (length(sms) && !is.null(data)) {
-      for (i in seq_along(sms)) {
-        nb <- seq_len(attr(sms, "nbases")[[i]])
-        out <- c(out, paste0("zs", p, "_", i, "_", nb))
-      } 
-    }
-    meef <- get_me_labels(bt, data)
-    if (!save_mevars && length(meef)) {
-      out <- c(out, paste0("Xme", p, "_", seq_along(meef)))
-    }
-    return(out)
-  }
-  
-  stopifnot(is.brmsterms(bterms))
-  save_ranef <- as_one_logical(save_ranef)
-  save_mevars <- as_one_logical(save_mevars)
-  save_all_pars <- as_one_logical(save_all_pars)
-  out <- c(
-    "Rescor", "Sigma", "res_cov_matrix",
-    intersect(dpars(), names(bterms$dpars))
-  )
-  if (!save_all_pars) {
-    out <- c(out,
-      "temp_Intercept1", "ordered_Intercept", 
-      "Lrescor", "LSigma", "theta", "zcar"
-    )
-    if (length(bterms$response) > 1L) {
-      for (r in bterms$response) {
-        bterms$dpars$mu$resp <- r
-        out <- c(out, .exclude_pars(bterms$dpars$mu))
-      }
-      bterms$dpars$mu <- NULL
-    }
-    for (dp in names(bterms$dpars)) {
-      bt <- bterms$dpars[[dp]]
-      if (length(bt$nlpars)) {
-        for (nlp in names(bt$nlpars)) {
-          out <- c(out, .exclude_pars(bt$nlpars[[nlp]]))
-        }
-      } else {
-        out <- c(out, .exclude_pars(bt))
-      }
-    }
-  }
-  # exclude group-level helper parameters
-  if (nrow(ranef)) {
-    rm_re_pars <- c(if (!save_all_pars) c("z", "L"), "Cor", "r")
-    for (id in unique(ranef$id)) {
-      out <- c(out, paste0(rm_re_pars, "_", id))
-    }
-    if (!save_ranef) {
-      p <- usc(combine_prefix(ranef))
-      out <- c(out, paste0("r_", ranef$id, p, "_", ranef$cn))
-    }
-  }
-  att <- nlist(save_ranef, save_mevars, save_all_pars)
-  do.call(structure, c(list(out), att))
 }

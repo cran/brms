@@ -33,17 +33,17 @@ make_stancode <- function(formula, data, family = gaussian(),
   save_model <- use_alias(save_model, dots[["save.model"]])
   dots[c("cov.ranef", "sample.prior", "save.model")] <- NULL
   # some input checks
-  family <- check_family(family, threshold = threshold)
   formula <- amend_formula(
-    formula, data = data, family = family, nonlinear = nonlinear
+    formula, data = data, family = family, 
+    autocor = autocor, threshold = threshold, 
+    nonlinear = nonlinear
   )
   family <- formula$family
-  autocor <- check_autocor(autocor)
-  bterms <- parse_bf(formula, family = family, autocor = autocor)
+  autocor <- formula$autocor
+  bterms <- parse_bf(formula)
   sample_prior <- check_sample_prior(sample_prior)
   prior <- check_prior(
-    prior, formula = formula, data = data, family = family, 
-    autocor = autocor, sample_prior = sample_prior, 
+    prior, formula, data = data, sample_prior = sample_prior,
     warn = !isTRUE(dots$brm_call)
   )
   data <- update_data(data, bterms = bterms)
@@ -52,7 +52,6 @@ make_stancode <- function(formula, data, family = gaussian(),
   is_categorical <- is_categorical(family)
   is_mv <- is_linear(family) && length(bterms$response) > 1L
   is_forked <- is_forked(family)
-  has_cens <- has_cens(bterms$adforms$cens, data = data)
   bounds <- get_bounds(bterms$adforms$trunc, data = data)
   
   ranef <- tidy_ranef(bterms, data = data)
@@ -77,32 +76,26 @@ make_stancode <- function(formula, data, family = gaussian(),
   ))
   
   # generate Stan code of the likelihood
-  text_llh <- stan_llh(
-    family, bterms = bterms, data = data, autocor = autocor
-  )
+  text_llh <- stan_llh(bterms, data = data)
   # generate Stan code specific to certain models
-  text_autocor <- stan_autocor(
-    autocor, bterms = bterms, family = family, prior = prior
-  )
-  text_mv <- stan_mv(family, response = bterms$response, prior = prior)
-  disc <- "disc" %in% names(bterms$dpars) || 
-    isTRUE(bterms$fdpars$disc$value != 1)
-  text_ordinal <- stan_ordinal(
-    family, prior = prior, cs = has_cs(bterms), disc = disc
-  )
-  text_families <- stan_families(family, bterms)
+  text_autocor <- stan_autocor(bterms, prior = prior)
+  text_mv <- stan_mv(bterms, prior = prior)
+  text_ordinal <- stan_ordinal(bterms, prior = prior)
+  text_families <- stan_families(bterms)
   text_mixture <- stan_mixture(bterms, prior = prior)
-  text_se <- stan_se(is.formula(bterms$adforms$se))
-  text_cens <- stan_cens(has_cens, family = family)
-  text_disp <- stan_disp(bterms, family = family)
+  text_Xme <- stan_Xme(bterms)
+  text_se <- stan_se(bterms)
+  text_cens <- stan_cens(bterms, data)
+  text_disp <- stan_disp(bterms)
   kron <- stan_needs_kronecker(ranef, names_cov_ranef = names(cov_ranef))
-  text_misc_funs <- stan_misc_functions(family, prior, kronecker = kron)
+  text_misc_funs <- stan_misc_functions(bterms, prior, kronecker = kron)
   text_pred_funs <- stan_pred_functions(text_effects)
     
   # get priors for all parameters in the model
   text_prior <- paste0(
     text_effects$prior,
     text_ranef$prior,
+    text_Xme$prior,
     text_ordinal$prior,
     text_autocor$prior,
     text_mv$prior,
@@ -138,6 +131,7 @@ make_stancode <- function(formula, data, family = gaussian(),
     },
     text_effects$data,
     text_ranef$data,
+    text_Xme$data,
     text_ordinal$data,
     text_families$data,
     text_mixture$data,
@@ -177,6 +171,7 @@ make_stancode <- function(formula, data, family = gaussian(),
   text_parameters <- paste0(
     text_effects$par,
     text_ranef$par,
+    text_Xme$par,
     text_ordinal$par,
     text_autocor$par,
     text_mv$par,

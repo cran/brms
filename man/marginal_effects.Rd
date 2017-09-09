@@ -16,7 +16,10 @@ marginal_effects(x, ...)
 
 \method{plot}{brmsMarginalEffects}(x, ncol = NULL, points = FALSE,
   rug = FALSE, mean = TRUE, jitter_width = 0, stype = c("contour",
-  "raster"), theme = NULL, ask = TRUE, plot = TRUE, ...)
+  "raster"), line_args = list(), cat_args = list(),
+  errorbar_args = list(), surface_args = list(), spaghetti_args = list(),
+  point_args = list(), rug_args = list(), theme = NULL, ask = TRUE,
+  plot = TRUE, ...)
 }
 \arguments{
 \item{x}{An \R object usually of class \code{brmsfit}.}
@@ -108,10 +111,10 @@ passed to \code{\link[brms:predict.brmsfit]{predict}} or
 
 \item{ncol}{Number of plots to display per column for each effect.
 If \code{NULL} (default), \code{ncol} is computed internally based
-on the number of rows of \code{data}.}
+on the number of rows of \code{conditions}.}
 
 \item{points}{Logical; indicating whether the original data points
-should be added via \code{\link[ggplot2:geom_point]{geom_point}}.
+should be added via \code{\link[ggplot2:geom_jitter]{geom_jitter}}.
 Default is \code{FALSE}. Note that only those data points will be added
 that match the specified conditions defined in \code{conditions}.
 For categorical predictors, the conditions have to match exactly. 
@@ -134,6 +137,36 @@ is no jittering.}
 
 \item{stype}{Indicates how surface plots should be displayed.
 Either \code{"contour"} or \code{"raster"}.}
+
+\item{line_args}{Only used in plots of continuous predictors:
+A named list of arguments passed to 
+\code{\link[ggplot2:geom_smooth]{geom_smooth}}.}
+
+\item{cat_args}{Only used in plots of categorical predictors:
+A named list of arguments passed to 
+\code{\link[ggplot2:geom_point]{geom_point}}.}
+
+\item{errorbar_args}{Only used in plots of categorical predictors:
+A named list of arguments passed to 
+\code{\link[ggplot2:geom_errorbar]{geom_errorbar}}.}
+
+\item{surface_args}{Only used in surface plots:
+A named list of arguments passed to 
+\code{\link[ggplot2:geom_contour]{geom_contour}} or
+\code{\link[ggplot2:geom_raster]{geom_raster}}
+(depending on argument \code{stype}).}
+
+\item{spaghetti_args}{Only used in spaghetti plots:
+A named list of arguments passed to 
+\code{\link[ggplot2:geom_smooth]{geom_smooth}}.}
+
+\item{point_args}{Only used if \code{points = TRUE}: 
+A named list of arguments passed to 
+\code{\link[ggplot2:geom_jitter]{geom_jitter}}.}
+
+\item{rug_args}{Only used if \code{rug = TRUE}: 
+A named list of arguments passed to 
+\code{\link[ggplot2:geom_rug]{geom_rug}}.}
 
 \item{theme}{A \code{\link[ggplot2:theme]{theme}} object 
 modifying the appearance of the plots. 
@@ -195,27 +228,27 @@ When creating \code{marginal_effects} for a particular predictor
 }
 \examples{
 \dontrun{
-fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient),
+fit <- brm(count ~ log_Age_c + log_Base4_c * Trt + (1 | patient),
            data = epilepsy, family = poisson()) 
            
 ## plot all marginal effects
 plot(marginal_effects(fit), ask = FALSE)
 
 ## change colours to grey scale
-me <- marginal_effects(fit, "log_Base4_c:Trt_c")
+me <- marginal_effects(fit, "log_Base4_c:Trt")
 plot(me, plot = FALSE)[[1]] + 
   scale_color_grey() +
   scale_fill_grey()
 
-## only plot the marginal interaction effect of 'log_Base4_c:Trt_c'
+## only plot the marginal interaction effect of 'log_Base4_c:Trt'
 ## for different values for 'log_Age_c'
 conditions <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
-plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
+plot(marginal_effects(fit, effects = "log_Base4_c:Trt", 
                       conditions = conditions))
                       
 ## also incorporate random effects variance over patients
 ## also add data points and a rug representation of predictor values
-plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
+plot(marginal_effects(fit, effects = "log_Base4_c:Trt", 
                       conditions = conditions, re_formula = NULL), 
      points = TRUE, rug = TRUE)
  
@@ -223,21 +256,21 @@ plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c",
 int_conditions <- list(
   log_Base4_c = setNames(c(-2, 1, 0), c("b", "c", "a"))
 )
-marginal_effects(fit, effects = "Trt_c:log_Base4_c",
+marginal_effects(fit, effects = "Trt:log_Base4_c",
                  int_conditions = int_conditions)
-marginal_effects(fit, effects = "Trt_c:log_Base4_c",
+marginal_effects(fit, effects = "Trt:log_Base4_c",
                  int_conditions = list(log_Base4_c = quantile))        
      
 ## fit a model to illustrate how to plot 3-way interactions
-fit3way <- brm(count ~ log_Age_c * log_Base4_c * Trt_c, data = epilepsy)
+fit3way <- brm(count ~ log_Age_c * log_Base4_c * Trt, data = epilepsy)
 conditions <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
 rownames(conditions) <- paste("log_Age_c =", conditions$log_Age_c)
 marginal_effects(
-  fit3way, "log_Base4_c:Trt_c", conditions = conditions
+  fit3way, "log_Base4_c:Trt", conditions = conditions
 )
 ## only include points close to the specified values of log_Age_c
 me <- marginal_effects(
- fit3way, "log_Base4_c:Trt_c", conditions = conditions, 
+ fit3way, "log_Base4_c:Trt", conditions = conditions, 
  select_points = 0.1
 )
 plot(me, points = TRUE)

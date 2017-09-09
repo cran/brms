@@ -1,14 +1,12 @@
-stan_autocor <- function(autocor, bterms, family, prior) {
+stan_autocor <- function(bterms, prior) {
   # Stan code related to autocorrelation structures
-  # Args:
-  #   autocor: object of class cor_brms
-  #   bterms: object of class brmsterms
-  #   family: the model family
-  #   prior: object of class brmsprior
-  stopifnot(is.family(family))
+  # Returns: 
+  #   list containing Stan code snippets
   stopifnot(is.brmsterms(bterms))
-  is_linear <- is_linear(family)
+  family <- bterms$family
+  autocor <- bterms$autocor
   resp <- bterms$response
+  is_linear <- is_linear(family)
   is_mv <- is_linear && length(resp) > 1L
   Kar <- get_ar(autocor)
   Kma <- get_ma(autocor)
@@ -334,17 +332,14 @@ stan_autocor <- function(autocor, bterms, family, prior) {
   out
 }
 
-stan_mv <- function(family, response, prior) {
+stan_mv <- function(bterms, prior) {
   # some Stan code for multivariate models
-  # Args:
-  #   family: model family
-  #   response: names of the response variables
-  #   prior: a data.frame containing user defined priors 
-  #          as returned by check_prior
   # Returns: 
-  #   list containing Stan code specific for multivariate models
-  stopifnot(is.family(family))
+  #   list containing Stan code snippets
+  stopifnot(is.brmsterms(bterms))
   out <- list()
+  family <- bterms$family
+  response <- bterms$response
   nresp <- length(response)
   if (nresp > 1L) {
     if (is_linear(family)) {
@@ -395,24 +390,23 @@ stan_mv <- function(family, response, prior) {
   out
 }
 
-stan_ordinal <- function(family, prior, cs, disc) {
-  # Ordinal effects in Stan
-  # Args:
-  #   family: the model family
-  #   prior: object of class brmsprior
-  #   cs: logical; are there category specific effects?
-  #   disc: logical; discrimination parameter used?
-  # Returns:
-  #   A vector of strings containing the ordinal effects in stan language
-  stopifnot(is.family(family))
+stan_ordinal <- function(bterms, prior) {
+  # Stan code for ordinal models
+  # Returns: 
+  #   list containing Stan code snippets
+  stopifnot(is.brmsterms(bterms))
   out <- list()
+  family <- bterms$family
+  has_cs <- has_cs(bterms)
+  has_disc <- "disc" %in% names(bterms$dpars) || 
+    isTRUE(bterms$fdpars$disc$value != 1)
   if (is_ordinal(family)) {
     # define Stan code similar for all ordinal models
     str_add(out$data) <- "  int ncat;  // number of categories \n"
     th <- function(k, fam = family) {
       # helper function generating stan code inside ilink(.)
       sign <- ifelse(fam %in% c("cumulative", "sratio"), " - ", " + ")
-      ptl <- ifelse(cs, paste0(sign, "mucs[k]"), "") 
+      ptl <- ifelse(has_cs, paste0(sign, "mucs[k]"), "") 
       if (sign == " - ") {
         out <- paste0("thres[", k, "]", ptl, " - mu")
       } else {
@@ -452,8 +446,8 @@ stan_ordinal <- function(family, prior, cs, disc) {
     }
     
     # generate Stan code specific for each ordinal model
-    if (!(family == "cumulative" && ilink == "inv_logit") || disc) {
-      cs_arg <- ifelse(!cs, "", "row_vector mucs, ")
+    if (!(family == "cumulative" && ilink == "inv_logit") || has_disc) {
+      cs_arg <- ifelse(!has_cs, "", "row_vector mucs, ")
       str_add(out$fun) <- paste0(
         "  /* ", family, " log-PDF for a single response \n",
         "   * Args: \n",
@@ -473,7 +467,6 @@ stan_ordinal <- function(family, prior, cs, disc) {
           "     vector[num_elements(thres)] q; \n",
         "     ncat = num_elements(thres) + 1; \n"
       )
-      
       # define actual function content
       if (family == "cumulative") {
         str_add(out$fun) <- paste0(
@@ -525,14 +518,12 @@ stan_ordinal <- function(family, prior, cs, disc) {
   out
 }
 
-stan_families <- function(family, bterms) {
+stan_families <- function(bterms) {
   # include .stan files of certain response distributions
-  # Args:
-  #   family: the model family
-  #   bterms: object of class brmsterms
   # Returns:
   #   a list of character strings
-  stopifnot(is.family(family), is.brmsterms(bterms))
+  stopifnot(is.brmsterms(bterms))
+  family <- bterms$family
   families <- family_names(family)
   out <- list()
   if (any(families %in% "categorical")) {
@@ -702,22 +693,49 @@ stan_mixture <- function(bterms, prior) {
   out
 }
 
-stan_se <- function(se) {
+stan_Xme <- function(bterms) {
+  # global Stan definitions for noise-free variables
+  stopifnot(is.brmsterms(bterms))
   out <- list()
-  if (se) {
+  uni_me <- get_uni_me(bterms)
+  if (length(uni_me)) {
+    K <- paste0("_", seq_along(uni_me))
+    str_add(out$data) <- paste0(
+      "  // noisy variables \n",
+      collapse("  vector[N] Xn", K, "; \n"),
+      "  // measurement noise \n",
+      collapse("  vector<lower=0>[N] noise", K, "; \n")
+    )
+    str_add(out$par) <- paste0(
+      "  // noise free variables \n",
+      collapse("  vector[N] Xme", K, "; \n")  
+    )
+    str_add(out$prior) <- collapse(
+      "  target += normal_lpdf(Xme", K, " | Xn", K, ", noise", K, ");\n"
+    )
+  }
+  out
+}
+
+stan_se <- function(bterms) {
+  stopifnot(is.brmsterms(bterms))
+  out <- list()
+  if (is.formula(bterms$adforms$se)) {
     str_add(out$data) <- "  vector<lower=0>[N] se;  // known sampling error \n"
     str_add(out$tdataD) <- "  vector<lower=0>[N] se2 = square(se); \n"
   }
   out
 }
 
-stan_cens <- function(cens, family) {
+stan_cens <- function(bterms, data) {
+  stopifnot(is.brmsterms(bterms))
   out <- list()
-  if (cens) {
-    stopifnot(is.family(family))
+  has_cens <- has_cens(bterms$adforms$cens, data = data)
+  if (has_cens) {
+    family <- bterms$family
     str_add(out$data) <- paste0(
       "  int<lower=-1,upper=2> cens[N];  // indicates censoring \n",
-      if (isTRUE(attr(cens, "interval"))) {
+      if (isTRUE(attr(has_cens, "interval"))) {
         paste0(
           ifelse(use_int(family), " int rcens[N];", "  vector[N] rcens;"),
           "  // right censor points for interval censoring \n"
@@ -728,14 +746,14 @@ stan_cens <- function(cens, family) {
   out
 }
 
-stan_disp <- function(bterms, family) {
+stan_disp <- function(bterms) {
   # stan code for models with addition argument 'disp'
   # Args:
   #   bterms: object of class brmsterms
   #   family: the model family
   stopifnot(is.brmsterms(bterms))
-  stopifnot(is.family(family))
   out <- list()
+  family <- bterms$family
   if (is.formula(bterms$adforms$disp)) {
     warning2("Addition argument 'disp' is deprecated. ",
              "See help(brmsformula) for more details.")
@@ -763,15 +781,14 @@ stan_pred_functions <- function(x) {
   out
 }
 
-stan_misc_functions <- function(family, prior, kronecker) {
+stan_misc_functions <- function(bterms, prior, kronecker) {
   # stan code for user defined functions
   # Args:
-  #   family: the model family
-  #   prior: object of class brmsprior
   #   kronecker: logical; is the kronecker product needed?
   # Returns:
   #   a string containing defined functions in stan code
-  stopifnot(is.family(family))
+  stopifnot(is.brmsterms(bterms))
+  family <- bterms$family
   out <- ""
   if (family$link == "cauchit") {
     str_add(out) <- "  #include 'fun_cauchit.stan' \n"
@@ -940,14 +957,16 @@ stan_base_prior <- function(prior) {
 }
 
 stan_target_prior <- function(prior, par, ncoef = 1, bound = "") {
-  prior_name <- get_matches("^[^\\(]+\\(", prior, simplify = FALSE)
+  prior <- gsub("[[:space:]]+\\(", "(", prior)
+  prior_name <- get_matches(
+    "^[^\\(]+(?=\\()", prior, perl = TRUE, simplify = FALSE
+  )
   for (i in seq_along(prior_name)) {
     if (length(prior_name[[i]]) != 1L) {
       stop2("The prior '", prior[i], "' is invalid.")
     }
   }
   prior_name <- unlist(prior_name)
-  prior_name <- substr(prior_name, 1, nchar(prior_name) - 1)
   prior_args <- rep(NA, length(prior))
   for (i in seq_along(prior)) {
     prior_args[i] <- sub(
@@ -1038,41 +1057,36 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
   if (identical(sample_prior, "yes")) {
     prior <- strsplit(gsub(" |\\n", "", prior), ";")[[1]]
     prior <- prior[nzchar(prior)]
-    pars <- get_matches("_lpdf\\([^|]+", prior, first = TRUE)
-    pars <- gsub("^_lpdf\\(|to_vector\\(|\\)$", "", pars)
-    regex <- "^(z|zs|zb|zgp|Xme|hs)_?|^increment_log_prob\\("
-    take <- !grepl(regex, pars)
-    pars <- rename(
-      pars[take], symbols = c("^L_", "^Lrescor"), 
-      subs = c("cor_", "rescor"), fixed = FALSE
-    )
-    dis <- get_matches("target\\+=[^\\(]+", prior, first = TRUE)
-    dis <- gsub("target\\+=|_lpdf", "", dis[take])
-    args <- get_matches("\\|[^$\\|]+\\)($|-)", prior, first = TRUE)
-    args <- gsub("\\||(;|-)$", "", args[take])
+    pars_regex <- "(?<=_lpdf\\()[^|]+" 
+    pars <- get_matches(pars_regex, prior, perl = TRUE, first = TRUE)
+    pars <- gsub("to_vector\\(|\\)$", "", pars)
+    excl_regex <- "^(z|zs|zb|zgp|Xme|hs)_?|^increment_log_prob\\("
+    take <- !grepl(excl_regex, pars)
+    prior <- prior[take]
+    pars <- sub("^L_", "cor_", pars[take])
+    pars <- sub("^Lrescor", "rescor", pars)
+    dis_regex <- "(?<=target\\+=)[^\\(]+(?=_lpdf\\()"
+    dis <- get_matches(dis_regex, prior, perl = TRUE, first = TRUE)
+    dis <- sub("corr_cholesky$", "corr", dis)
+    args_regex <- "(?<=\\|)[^$\\|]+(?=\\)($|-))"
+    args <- get_matches(args_regex, prior, perl = TRUE, first = TRUE)
+    args <- ifelse(grepl("^lkj_corr$", dis), paste0("2,", args), args)
     type <- rep("real", length(pars))
     
     # rename parameters containing indices
     has_ind <- grepl("\\[[[:digit:]]+\\]", pars)
     pars[has_ind] <- ulapply(pars[has_ind], function(par) {
-      ind <- regmatches(par, gregexpr("\\[[[:digit:]]+\\]", par))
-      ind <- as.numeric(substr(ind, 2, nchar(ind) - 1))
+      ind_regex <- "(?<=\\[)[[:digit:]]+(?=\\])"
+      ind <- get_matches(ind_regex, par, perl = TRUE)
       gsub("\\[[[:digit:]]+\\]", paste0("_", ind), par)
     })
-    
-    # special treatment of lkj_corr_cholesky priors
-    args <- ifelse(
-      grepl("corr_cholesky$", dis), 
-      paste0("2,", args, "[1, 2]"), args
-    )
-    dis <- sub("corr_cholesky$", "corr", dis)
     
     # extract information from the initial parameter definition
     par_declars <- unlist(strsplit(par_declars, "\n", fixed = TRUE))
     par_declars <- gsub("^[[:blank:]]*", "", par_declars)
     par_declars <- par_declars[!grepl("^//", par_declars)]
-    all_pars <- get_matches(" [^[:blank:]]+;", par_declars) 
-    all_pars <- substr(all_pars, 2, nchar(all_pars) - 1)
+    all_pars_regex <- "(?<= )[^[:blank:]]+(?=;)"
+    all_pars <- get_matches(all_pars_regex, par_declars, perl = TRUE) 
     all_bounds <- get_matches("<.+>", par_declars, simplify = FALSE)
     all_bounds <- ulapply(all_bounds, function(x) if (length(x)) x else "")
     all_types <- get_matches("^[^[:blank:]]+", par_declars)
@@ -1083,7 +1097,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
     for (i in seq_along(all_pars)) {
       k <- which(grepl(paste0("^", all_pars[i]), pars))
       bounds[k] <- all_bounds[i]
-      if (grepl("^simplex", all_pars[i])) {
+      if (grepl("^simo", all_pars[i])) {
         types[k] <- all_types[i]
       }
     }
@@ -1103,7 +1117,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
         "  // additionally draw samples from priors\n",
         collapse(
           "  target += ", dis[has_bounds], "_lpdf(",
-          "prior_", pars[has_bounds], " | ", args[has_bounds], "; \n"
+          "prior_", pars[has_bounds], " | ", args[has_bounds], "); \n"
         )
       )
     }
@@ -1122,12 +1136,14 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
         bpars <- grepl("^b(|mo|cs|me)(_|$)", pars)
         args[bpars] <- rename(args[bpars], spars, paste0("prior_", spars))
       }
+      lkj_index <- ifelse(grepl("^lkj_corr$", dis[no_bounds]), "[1, 2]", "")
       # unbounded parameters can be sampled in the generatated quantities block
       str_add(out$genD) <- paste0(
         "  // additionally draw samples from priors \n",
         collapse(
           "  ", types[no_bounds], " prior_", pars[no_bounds], 
-          " = ", dis[no_bounds], "_rng(", args[no_bounds], "; \n"
+          " = ", dis[no_bounds], "_rng(", args[no_bounds], ")",
+          lkj_index, "; \n"
         )
       )
     }

@@ -27,11 +27,11 @@ dat <- data.frame(income, ls)
 
 ## ---- results='hide'--------------------------------------------------------------------
 library(brms)
-fit1 <- brm(ls ~ monotonic(income), data = dat)
+fit1 <- brm(ls ~ mo(income), data = dat)
 
 ## ---------------------------------------------------------------------------------------
 summary(fit1)
-plot(fit1, pars = "simplex")
+plot(fit1, pars = "simo")
 plot(marginal_effects(fit1))
 
 ## ---- results='hide'--------------------------------------------------------------------
@@ -52,15 +52,25 @@ summary(fit3)
 LOO(fit1, fit2, fit3)
 
 ## ---- results='hide'--------------------------------------------------------------------
-prior4 <- prior(dirichlet(c(2, 1, 1)), class = "simplex", coef = "income")
-fit4 <- brm(ls ~ monotonic(income), data = dat,
+prior4 <- prior(dirichlet(c(2, 1, 1)), class = "simo", coef = "moincome1")
+fit4 <- brm(ls ~ mo(income), data = dat,
            prior = prior4, sample_prior = TRUE)
 
 ## ---------------------------------------------------------------------------------------
 summary(fit4)
 
 ## ---------------------------------------------------------------------------------------
-plot(fit4, pars = "prior_simplex", N = 3)
+plot(fit4, pars = "prior_simo", N = 3)
+
+## ---------------------------------------------------------------------------------------
+dat$age <- rnorm(100, mean = 40, sd = 10)
+
+## ---- results='hide'--------------------------------------------------------------------
+fit5 <- brm(ls ~ mo(income)*age, data = dat)
+
+## ---------------------------------------------------------------------------------------
+summary(fit5)
+marginal_effects(fit5, "income:age")
 
 ## ---------------------------------------------------------------------------------------
 dat$city <- rep(1:10, each = 10)
@@ -68,8 +78,8 @@ var_city <- rnorm(10, sd = 10)
 dat$ls <- dat$ls + var_city[dat$city]
 
 ## ---- results='hide'--------------------------------------------------------------------
-fit5 <- brm(ls ~ mo(income) + (1 | city) + (mo(income) | city), data = dat)
+fit6 <- brm(ls ~ mo(income)*age + (mo(income) | city), data = dat)
 
 ## ---------------------------------------------------------------------------------------
-summary(fit5)
+summary(fit6)
 

@@ -250,7 +250,8 @@ NULL
 #'   \code{as.data.frame.brmsfit}, \code{as.matrix.brmsfit}, and
 #'   \code{as.array.brmsfit} are basically aliases of 
 #'   \code{posterior_samples.brmsfit} and differ from
-#'   each other only in type of the returend object.
+#'   each other only in type of the returned object.
+#'   
 #' @return A data frame (matrix or array) containing the posterior samples, 
 #'   with one column per parameter. In case an array is returned,
 #'   it contains one additional dimension for the chains.
@@ -336,7 +337,7 @@ prior_samples <- function(x, pars = NA, ...) {
 #' @aliases par.names parnames.brmsfit par.names.brmsfit
 #' 
 #' @param x An \R object
-#' @param ... Further arguments passed to or from other methods
+#' @param ... Further arguments passed to or from other methods.
 #' 
 #' @details Currently there are methods for \code{brmsfit} objects.
 #' 
@@ -355,7 +356,7 @@ parnames <- function(x, ...) {
 #' stored in a fitted Bayesian model.
 #' 
 #' @param x An \R object
-#' @param ... Further arguments passed to or from other methods
+#' @param ... Further arguments passed to or from other methods.
 #' @param subset An optional integer vector defining a 
 #'   subset of samples to be considered.
 #' @param incl_warmup A flag indicating whether to also 
@@ -610,7 +611,7 @@ add_waic <- function(x, ...) {
 #' 
 #' @examples 
 #' \dontrun{
-#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1|patient),
+#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt + (1|patient),
 #'            data = epilepsy, family = poisson())
 #' # throws warning about some pareto k estimates being too high
 #' (loo1 <- loo(fit1))
@@ -654,7 +655,7 @@ reloo <- function(x, ...) {
 #'   
 #' @examples 
 #' \dontrun{
-#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + 
+#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt + 
 #'               (1|patient) + (1|obs),
 #'            data = epilepsy, family = poisson())
 #' # throws warning about some pareto k estimates being too high
@@ -747,7 +748,7 @@ standata <- function(object, ...) {
 #' 
 #' @examples
 #' \dontrun{
-#' model <- brm(count ~ log_Age_c + log_Base4_c * Trt_c 
+#' model <- brm(count ~ log_Age_c + log_Base4_c * Trt 
 #'              + (1|patient) + (1|visit),
 #'              data = epilepsy, family = "poisson")
 #'              
@@ -848,11 +849,15 @@ stanplot <- function(object, ...) {
 #'   the unit interval and then points more than \code{select_points} 
 #'   from the values in \code{conditions} are excluded. 
 #'   By default, all points are used.
+#' @param ... Further arguments such as \code{subset} or \code{nsamples}
+#'   passed to \code{\link[brms:predict.brmsfit]{predict}} or 
+#'   \code{\link[brms:fitted.brmsfit]{fitted}}.
+#' @inheritParams plot.brmsfit
 #' @param ncol Number of plots to display per column for each effect.
 #'   If \code{NULL} (default), \code{ncol} is computed internally based
-#'   on the number of rows of \code{data}.
+#'   on the number of rows of \code{conditions}.
 #' @param points Logical; indicating whether the original data points
-#'   should be added via \code{\link[ggplot2:geom_point]{geom_point}}.
+#'   should be added via \code{\link[ggplot2:geom_jitter]{geom_jitter}}.
 #'   Default is \code{FALSE}. Note that only those data points will be added
 #'   that match the specified conditions defined in \code{conditions}.
 #'   For categorical predictors, the conditions have to match exactly. 
@@ -871,10 +876,29 @@ stanplot <- function(object, ...) {
 #'   is no jittering.
 #' @param stype Indicates how surface plots should be displayed.
 #'   Either \code{"contour"} or \code{"raster"}.
-#' @inheritParams plot.brmsfit
-#' @param ... Further arguments such as \code{subset} or \code{nsamples}
-#'   passed to \code{\link[brms:predict.brmsfit]{predict}} or 
-#'   \code{\link[brms:fitted.brmsfit]{fitted}}.
+#' @param line_args Only used in plots of continuous predictors:
+#'   A named list of arguments passed to 
+#'   \code{\link[ggplot2:geom_smooth]{geom_smooth}}.
+#' @param cat_args Only used in plots of categorical predictors:
+#'   A named list of arguments passed to 
+#'   \code{\link[ggplot2:geom_point]{geom_point}}.
+#' @param errorbar_args Only used in plots of categorical predictors:
+#'   A named list of arguments passed to 
+#'   \code{\link[ggplot2:geom_errorbar]{geom_errorbar}}.
+#' @param surface_args Only used in surface plots:
+#'   A named list of arguments passed to 
+#'   \code{\link[ggplot2:geom_contour]{geom_contour}} or
+#'   \code{\link[ggplot2:geom_raster]{geom_raster}}
+#'   (depending on argument \code{stype}).
+#' @param spaghetti_args Only used in spaghetti plots:
+#'   A named list of arguments passed to 
+#'   \code{\link[ggplot2:geom_smooth]{geom_smooth}}.
+#' @param point_args Only used if \code{points = TRUE}: 
+#'   A named list of arguments passed to 
+#'   \code{\link[ggplot2:geom_jitter]{geom_jitter}}.
+#' @param rug_args Only used if \code{rug = TRUE}: 
+#'   A named list of arguments passed to 
+#'   \code{\link[ggplot2:geom_rug]{geom_rug}}.
 #' 
 #' @return An object of class \code{brmsMarginalEffects}, which is a named list
 #'   with one data.frame per effect containing all information required 
@@ -917,27 +941,27 @@ stanplot <- function(object, ...) {
 #' 
 #' @examples 
 #' \dontrun{
-#' fit <- brm(count ~ log_Age_c + log_Base4_c * Trt_c + (1 | patient),
+#' fit <- brm(count ~ log_Age_c + log_Base4_c * Trt + (1 | patient),
 #'            data = epilepsy, family = poisson()) 
 #'            
 #' ## plot all marginal effects
 #' plot(marginal_effects(fit), ask = FALSE)
 #' 
 #' ## change colours to grey scale
-#' me <- marginal_effects(fit, "log_Base4_c:Trt_c")
+#' me <- marginal_effects(fit, "log_Base4_c:Trt")
 #' plot(me, plot = FALSE)[[1]] + 
 #'   scale_color_grey() +
 #'   scale_fill_grey()
 #' 
-#' ## only plot the marginal interaction effect of 'log_Base4_c:Trt_c'
+#' ## only plot the marginal interaction effect of 'log_Base4_c:Trt'
 #' ## for different values for 'log_Age_c'
 #' conditions <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
-#' plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
+#' plot(marginal_effects(fit, effects = "log_Base4_c:Trt", 
 #'                       conditions = conditions))
 #'                       
 #' ## also incorporate random effects variance over patients
 #' ## also add data points and a rug representation of predictor values
-#' plot(marginal_effects(fit, effects = "log_Base4_c:Trt_c", 
+#' plot(marginal_effects(fit, effects = "log_Base4_c:Trt", 
 #'                       conditions = conditions, re_formula = NULL), 
 #'      points = TRUE, rug = TRUE)
 #'  
@@ -945,21 +969,21 @@ stanplot <- function(object, ...) {
 #' int_conditions <- list(
 #'   log_Base4_c = setNames(c(-2, 1, 0), c("b", "c", "a"))
 #' )
-#' marginal_effects(fit, effects = "Trt_c:log_Base4_c",
+#' marginal_effects(fit, effects = "Trt:log_Base4_c",
 #'                  int_conditions = int_conditions)
-#' marginal_effects(fit, effects = "Trt_c:log_Base4_c",
+#' marginal_effects(fit, effects = "Trt:log_Base4_c",
 #'                  int_conditions = list(log_Base4_c = quantile))        
 #'      
 #' ## fit a model to illustrate how to plot 3-way interactions
-#' fit3way <- brm(count ~ log_Age_c * log_Base4_c * Trt_c, data = epilepsy)
+#' fit3way <- brm(count ~ log_Age_c * log_Base4_c * Trt, data = epilepsy)
 #' conditions <- data.frame(log_Age_c = c(-0.3, 0, 0.3))
 #' rownames(conditions) <- paste("log_Age_c =", conditions$log_Age_c)
 #' marginal_effects(
-#'   fit3way, "log_Base4_c:Trt_c", conditions = conditions
+#'   fit3way, "log_Base4_c:Trt", conditions = conditions
 #' )
 #' ## only include points close to the specified values of log_Age_c
 #' me <- marginal_effects(
-#'  fit3way, "log_Base4_c:Trt_c", conditions = conditions, 
+#'  fit3way, "log_Base4_c:Trt", conditions = conditions, 
 #'  select_points = 0.1
 #' )
 #' plot(me, points = TRUE)
@@ -999,7 +1023,7 @@ marginal_effects <- function(x, ...) {
 #' @examples 
 #' \dontrun{
 #' set.seed(0) 
-#' dat <- mgcv::gamSim(1, n = 200,scale = 2)
+#' dat <- mgcv::gamSim(1, n = 200, scale = 2)
 #' fit <- brm(y ~ s(x0) + s(x1) + s(x2) + s(x3), data = dat)
 #' # show all smooth terms
 #' plot(marginal_smooths(fit), rug = TRUE, ask = FALSE)
@@ -1161,88 +1185,3 @@ bayes_factor <- function(x1, x2, ...) {
 #' head(neff_ratio(fit))
 #' }
 NULL
-
-
-# ----- internal generics -----
-get_re <- function(x, ...) {
-  # extract group-level terms
-  UseMethod("get_re")
-}
-
-get_effect <- function(x, ...) {
-  # extract various kind of effects
-  UseMethod("get_effect")
-}
-
-get_all_effects <- function(x, ...) {
-  # extract combinations of predictor variables
-  UseMethod("get_all_effects")
-}
-
-prior_effects <- function(x, ...) {
-  # generate priors various kind of effects 
-  UseMethod("prior_effects")
-}
-
-data_effects <- function(x, ...) {
-  # generate data for various kind of effects 
-  UseMethod("data_effects")
-}
-
-stan_effects <- function(x, ...) {
-  # generate stan code various kind of effects 
-  UseMethod("stan_effects")
-}
-
-change_effects <- function(x, ...) {
-  # helps in renaming parameters after model fitting
-  UseMethod("change_effects")
-}
-
-extract_draws <- function(x, ...) {
-  # extract data and posterior draws
-  UseMethod("extract_draws")
-}
-
-make_Jmo_list <- function(x, data, ...) {
-  # compute Jmo values based on the original data
-  # as the basis for doing predictions with new data
-  UseMethod("make_Jmo_list")
-}
-
-make_smooth_list <- function(x, data, ...) {
-  # compute smooth objects based on the original data
-  # as the basis for doing predictions with new data
-  UseMethod("make_smooth_list")
-}
-
-make_gp_list <- function(x, data, ...) {
-  # compute objects for GP terms based on the original data
-  # as the basis for doing predictions with new data
-  UseMethod("make_gp_list")
-}
-
-check_prior_special <- function(x, ...) {
-  # prepare special priors for use in Stan
-  UseMethod("check_prior_special")
-}
-
-dpar_family <- function(family, dpar, ...) {
-  # generate a family object of an auxiliary parameter
-  UseMethod("dpar_family")
-}
-
-family_names <- function(family, ...) {
-  # extract family names
-  UseMethod("family_names")
-}
-
-valid_dpars <- function(family, ...) {
-  # get valid auxiliary parameters for a family
-  UseMethod("valid_dpars")
-}
-
-stan_llh <- function(family, ...) {
-  # Stan code for the model likelihood 
-  UseMethod("stan_llh")
-}

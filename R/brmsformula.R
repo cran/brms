@@ -73,12 +73,14 @@
 #'   call them 'group-level' effects or (adopting frequentist 
 #'   vocabulary) 'random' effects, although the latter name is misleading
 #'   in a Bayesian context.
-#'   For more details type \code{vignette("brms_overview")}.
+#'   For more details type \code{vignette("brms_overview")} and
+#'   \code{vignette("brms_multilevel")}. 
 #'   
 #'   \bold{Group-level terms}
 #'   
 #'   Multiple grouping factors each with multiple group-level effects 
-#'   are possible. 
+#'   are possible (of course can also run models without any
+#'   group-level effects). 
 #'   Instead of \code{|} you may use \code{||} in grouping terms
 #'   to prevent correlations from being modeled. 
 #'   Alternatively, it is possible to model different group-level terms of 
@@ -98,13 +100,12 @@
 #'   
 #'   \bold{Special predictor terms}
 #'   
-#'   Smoothing terms can modeled using the \code{\link[mgcv:s]{s}}
-#'   and \code{\link[mgcv:t2]{t2}} functions of the \pkg{mgcv} package 
-#'   in the \code{pterms} part of the model formula.
-#'   This allows to fit generalized additive mixed models (GAMMs) with \pkg{brms}. 
-#'   The implementation is similar to that used in the \pkg{gamm4} package.
-#'   For more details on this model class see \code{\link[mgcv:gam]{gam}} 
-#'   and \code{\link[mgcv:gamm]{gamm}}.
+#'   Smoothing terms can modeled using the \code{\link[brms:s]{s}}
+#'   and \code{\link[brms:t2]{t2}} functions in the \code{pterms} part 
+#'   of the model formula. This allows to fit generalized additive mixed
+#'   models (GAMMs) with \pkg{brms}. The implementation is similar to that 
+#'   used in the \pkg{gamm4} package. For more details on this model class 
+#'   see \code{\link[mgcv:gam]{gam}} and \code{\link[mgcv:gamm]{gamm}}.
 #'   
 #'   Gaussian process terms can be fitted using the \code{\link[brms:gp]{gp}}
 #'   function in the \code{pterms} part of the model formula. Similar to
@@ -115,7 +116,7 @@
 #'   
 #'   The \code{pterms} and \code{gterms} parts may contain three non-standard
 #'   effect types namely monotonic, measurement error, and category specific effects,
-#'   which can be specified using terms of the form \code{mo(<predictors>)},
+#'   which can be specified using terms of the form \code{mo(predictor)},
 #'   \code{me(predictor, sd_predictor)}, and \code{cs(<predictors>)}, 
 #'   respectively. Category specific effects can only be estimated in
 #'   ordinal models and are explained in more detail in the package's 
@@ -366,6 +367,7 @@
 #'   Non-linear models may not be uniquely identified and / or show bad convergence.
 #'   For this reason it is mandatory to specify priors on the non-linear parameters.
 #'   For instructions on how to do that, see \code{\link[brms:set_prior]{set_prior}}.
+#'   For some examples of non-linear models, see \code{vignette("brms_nonlinear")}.
 #'   
 #'   \bold{Formula syntax for predicting distributional parameters}
 #'   
@@ -373,7 +375,8 @@
 #'   distribution such as the residual standard deviation \code{sigma} 
 #'   in gaussian models or the hurdle probability \code{hu} in hurdle models. 
 #'   The syntax closely resembles that of a non-linear 
-#'   parameter, for instance \code{sigma ~ x + s(z) + (1+x|g)}.
+#'   parameter, for instance \code{sigma ~ x + s(z) + (1+x|g)}. 
+#'   For some examples of distributional models, see \code{vignette("brms_distreg")}.
 #'   
 #'   Alternatively, one may fix distributional parameters to certain values.
 #'   However, this is mainly useful when models become too 
@@ -520,7 +523,7 @@
 #' 
 #' @export
 brmsformula <- function(formula, ..., flist = NULL, family = NULL,
-                        nl = NULL, nonlinear = NULL) {
+                        autocor = NULL, nl = NULL, nonlinear = NULL) {
   # ensure backwards compatibility
   if (is.brmsformula(formula) && is.formula(formula)) {
     # convert deprecated brmsformula objects back to formula
@@ -547,6 +550,7 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
     out <- formula
   } else {
     out <- list(formula = as.formula(formula))
+    class(out) <- "brmsformula"
   }
   out$pforms[names(old_forms)] <- old_forms
   
@@ -610,7 +614,10 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
     attr(out$formula, "nl") <- FALSE
   }
   if (!is.null(family)) {
-    out[["family"]] <- check_family(family)
+    out$family <- check_family(family)
+  }
+  if (!is.null(autocor)) {
+    out$autocor <- check_autocor(autocor)
   }
   if (!is.null(out[["family"]])) {
     # check for the presence of non-linear parameters
@@ -624,10 +631,10 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
         }
         dpar <- attr(out$pforms[[dp]], "dpar")
         if (!is.null(out$pforms[[dpar]])) {
-          nl_allowed <- isTRUE(attr(out$pforms[[dpar]], "nl"))
+          nl_allowed <- get_nl(out, dpar = dpar)
         } else {
           if (dpar_class(dpar) == "mu") {
-            nl_allowed <- isTRUE(attr(out$formula, "nl"))
+            nl_allowed <- get_nl(out)
           } else {
             nl_allowed <- FALSE
           }
@@ -645,7 +652,7 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
   # add default values for unspecified elements
   defs <- list(
     pforms = list(), pfix = list(), family = NULL, 
-    response = NULL, old_mv = FALSE
+    autocor = NULL, response = NULL, old_mv = FALSE
   )
   defs <- defs[setdiff(names(defs), names(rmNULL(out, FALSE)))]
   out[names(defs)] <- defs
@@ -655,10 +662,10 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
 
 #' @export
 bf <- function(formula, ..., flist = NULL, family = NULL, 
-               nl = NULL, nonlinear = NULL) {
+               autocor = NULL, nl = NULL, nonlinear = NULL) {
   # alias of brmsformula
   brmsformula(formula, ..., flist = flist, family = family,
-              nl = nl, nonlinear = nonlinear)
+              autocor = autocor, nl = nl, nonlinear = nonlinear)
 }
 
 #' Linear and Non-linear formulas in \pkg{brms}
@@ -754,6 +761,8 @@ set_nl <- function(nl = TRUE, dpar = NULL) {
   } 
   if (is.family(e2)) {
     e1 <- bf(e1, family = e2)
+  } else if (is.cor_brms(e2)) {
+    e1 <- bf(e1, autocor = e2)
   } else if (inherits(e2, "setnl")) {
     if (is.null(e2$dpar)) {
       e1 <- bf(e1, nl = e2$nl)
@@ -768,6 +777,32 @@ set_nl <- function(nl = TRUE, dpar = NULL) {
     e1 <- bf(e1, e2)
   }
   e1
+}
+
+get_nl <- function(x, dpar = NULL, aol = TRUE) {
+  # extract the 'nl' attribute from a (brms)formula object
+  # Args:
+  #   x: object to extract 'nl' from
+  #   dpar: optional name of a distributional parameter
+  #     for which 'nl' should be extracted
+  #   aol: (as one logical) apply isTRUE to the result?
+  .get_nl <- function(x) {
+    attr(x, "nl", TRUE)
+  }
+  if (is.brmsformula(x)) {
+    if (is.null(dpar)) {
+      nl <- .get_nl(x$formula)
+    } else {
+      stopifnot(length(dpar) == 1L)
+      nl <- .get_nl(x$pforms[[dpar]])
+    }
+  } else {
+    nl <- .get_nl(x)
+  }
+  if (aol) {
+    nl <- isTRUE(nl)
+  }
+  nl
 }
 
 prepare_auxformula <- function(formula, par = NULL, rsv_pars = NULL) {
@@ -851,6 +886,11 @@ links_dpars <- function(dp) {
   )
 }
 
+valid_dpars <- function(family, ...) {
+  # get valid auxiliary parameters for a family
+  UseMethod("valid_dpars")
+}
+
 #' @export
 valid_dpars.default <- function(family, bterms = NULL, ...) {
   # convenience function to find relevant distributional parameters
@@ -931,18 +971,22 @@ pfix <- function(x, ...) {
 }
 
 amend_formula <- function(formula, data = NULL, family = gaussian(),
+                          autocor = NULL, threshold = NULL,
                           nonlinear = NULL) {
   # incorporate additional arguments into formula
   # Args:
   #   formula: object of class 'formula' of 'brmsformula'
   #   data: optional data.frame
   #   family: optional object of class 'family'
-  #   nonlinear, partial: deprecated arguments of brm
+  #   nonlinear, threshold: deprecated arguments of brm
   # Returns:
   #   a brmsformula object compatible with the current version of brms
   out <- bf(formula, nonlinear = nonlinear)
   if (is.null(out$family)) {
     out <- bf(out, family = family)
+  }
+  if (is.null(out$autocor)) {
+    out <- bf(out, autocor = autocor)
   }
   # allow the '.' symbol in the formulas
   out$formula <- expand_dot_formula(out$formula)
@@ -950,6 +994,9 @@ amend_formula <- function(formula, data = NULL, family = gaussian(),
     out$pforms[[i]] <- expand_dot_formula(out$pforms[[i]])
   }
   if (is_ordinal(out$family)) {
+    if (!is.null(threshold)) {
+      out$family <- check_family(out$family, threshold = threshold)
+    }
     # fix discrimination to 1 by default
     if (!"disc" %in% c(names(pforms(out)), names(pfix(out)))) {
       out <- bf(out, disc = 1)
@@ -1000,9 +1047,13 @@ update.brmsformula <- function(object, formula.,
   if (is.null(up_family)) {
     up_family <- object[["family"]]
   }
-  up_nl <- formula.[["nl"]]
+  up_autocor <- formula.[["autocor"]]
+  if (is.null(up_autocor)) {
+    up_autocor <- object[["autocor"]]
+  }
+  up_nl <- get_nl(formula, aol = FALSE)
   if (is.null(up_nl)) {
-    up_nl <- object[["nl"]]
+    up_nl <- get_nl(object)
   }
   # already use up_nl here to avoid ordinary parsing of NL formulas
   formula. <- bf(formula., nl = up_nl)
@@ -1015,14 +1066,9 @@ update.brmsformula <- function(object, formula.,
   } else if (mode == "keep") {
     new_form <- old_form
   }
-  pforms <- pforms(object)
-  up_pforms <- pforms(formula.)
-  pforms[names(up_pforms)] <- up_pforms
-  pfix <- pfix(object)
-  up_pfix <- pfix(formula.)
-  pfix[names(up_pfix)] <- up_pfix
-  bf(new_form, flist = c(pforms, pfix),
-     family = up_family, nl = up_nl)
+  flist <- c(object$pforms, object$pfix, formula.$pforms, formula.$pfix)
+  bf(new_form, flist = flist, family = up_family, 
+     autocor = up_autocor, nl = up_nl)
 }
 
 #' @export
@@ -1056,5 +1102,5 @@ is.brmsformula <- function(x) {
 
 is_nonlinear <- function(x) {
   stopifnot(is.brmsfit(x))
-  isTRUE(attr(bf(x$formula)$formula, "nl", TRUE))
+  get_nl(bf(x$formula))
 }
