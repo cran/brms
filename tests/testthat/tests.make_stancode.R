@@ -425,13 +425,25 @@ test_that("invalid combinations of modeling options are detected", {
 
 test_that("Stan code for multivariate models is correct", {
   dat <- data.frame(y1 = rnorm(10), y2 = rnorm(10), x = 1:10)
-  scode <- make_stancode(cbind(y1, y2) ~ x, dat)
+  scode <- make_stancode(cbind(y1, y2) ~ x, dat,
+                         prior = prior(horseshoe(2)))
   expect_match2(scode, "target += multi_normal_cholesky_lpdf(Y | Mu, LSigma);")
   expect_match2(scode, "LSigma = diag_pre_multiply(sigma, Lrescor);")
+  expect_match2(scode, "target += normal_lpdf(hs_local_y1[1] | 0, 1)")
+  expect_match2(scode, 
+    "target += inv_gamma_lpdf(hs_local_y2[2] | 0.5 * hs_df_y2, 0.5 * hs_df_y2)"
+  )
   
-  scode <- make_stancode(cbind(y1, y2) ~ x, dat, student())
+  scode <- make_stancode(cbind(y1, y2) ~ x, dat, student(),
+                         prior = prior(lasso(2, 10)))
   expect_match2(scode, "target += multi_student_t_lpdf(Y | nu, Mu, Sigma);")
   expect_match2(scode, "cov_matrix[nresp] Sigma = multiply_lower_")
+  expect_match2(scode, 
+    "target += chi_square_lpdf(lasso_inv_lambda_y1 | lasso_df_y1)"
+  )
+  expect_match2(scode, 
+    "target += chi_square_lpdf(lasso_inv_lambda_y2 | lasso_df_y2)"
+  )
   
   expect_match2(make_stancode(cbind(y1, y2) | weights(x) ~ 1, dat),
                 "lp_pre[n] = multi_normal_cholesky_lpdf(Y[n] | Mu[n], LSigma);"
@@ -923,14 +935,17 @@ test_that("noise-free terms appear in the Stan code", {
   )
   scode <- make_stancode(
     y ~ me(x, xsd)*me(z, zsd)*x, data = dat,
-    prior = prior(normal(0,5))
+    prior = prior(normal(0,5)) + prior(normal(0, 10), "Xme") +
+      prior(normal(0, 20), "Xme", coef = "mezzsd")
   )
   expect_match2(scode,
     "(bme[1]) * Xme_1[n] + (bme[2]) * Xme_2[n] + (bme[3]) * Xme_1[n] * Xme_2[n]")
   expect_match2(scode, 
     "(bme[6]) * Xme_1[n] * Xme_2[n] * Cme_3[n]")
-  expect_match2(scode, "target += normal_lpdf(Xme_2 | Xn_2, noise_2)")
+  expect_match2(scode, "target += normal_lpdf(Xn_2 | Xme_2, noise_2)")
   expect_match2(scode, "target += normal_lpdf(bme | 0, 5)")
+  expect_match2(scode, "target += normal_lpdf(Xme_1 | 0, 10)")
+  expect_match2(scode, "target += normal_lpdf(Xme_2 | 0, 20)")
   
   scode <- make_stancode(
     y ~ me(x, xsd)*z + (me(x, xsd)*z|ID), data = dat
@@ -1256,9 +1271,9 @@ test_that("Stan code for skew_normal models is correct", {
   expect_match2(scode, "omega[n] = sigma[n] / sqrt(1 - sqrt_2_div_pi^2 * delta^2);")
   expect_match2(scode, "mu[n] = mu[n] - omega[n] * delta * sqrt_2_div_pi;")
   
-  scode <- make_stancode(bf(y ~ x, alpha ~ x), dat, skew_normal())
+  scode <- make_stancode(bf(y | se(x) ~ x, alpha ~ x), dat, skew_normal())
   expect_match2(scode, "delta[n] = alpha[n] / sqrt(1 + alpha[n]^2);")
-  expect_match2(scode, "omega[n] = sigma / sqrt(1 - sqrt_2_div_pi^2 * delta[n]^2);")
+  expect_match2(scode, "omega[n] = se[n] / sqrt(1 - sqrt_2_div_pi^2 * delta[n]^2);")
   expect_match2(scode, "mu[n] = mu[n] - omega[n] * delta[n] * sqrt_2_div_pi;")
   
   scode <- make_stancode(y ~ x, dat, mixture(skew_normal, nmix = 2))

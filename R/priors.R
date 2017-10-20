@@ -553,6 +553,8 @@ get_prior <- function(formula, data, family = gaussian(),
     internal = internal
   )
   prior <- prior + prior_re
+  # priors for noise-free variables
+  prior <- prior + prior_Xme(bterms)
   # prior for the delta parameter for equidistant thresholds
   if (is_ordinal(family) && is_equal(family$threshold, "equidistant")) {
     bound <- ifelse(family$family == "cumulative", "<lower=0>", "")
@@ -723,6 +725,19 @@ prior_me <- function(bterms, data) {
   prior
 }
 
+prior_Xme <- function(bterms) {
+  # default priors of noise-free variables
+  # Returns:
+  #   an object of class brmsprior
+  prior <- empty_brmsprior()
+  uni_me <- get_uni_me(bterms)
+  if (length(uni_me)) {
+    prior <- prior + 
+      brmsprior(class = "Xme", coef = c("", rename(uni_me)))
+  }
+  prior
+}
+
 prior_gp <- function(bterms, data, def_scale_prior) {
   # default priors of gaussian processes
   # Returns:
@@ -851,6 +866,8 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
   all_priors <- get_prior(formula = formula, data = data, internal = TRUE)
   if (is.null(prior)) {
     prior <- all_priors  
+  } else if (!is.brmsprior(prior)) {
+    stop2("Argument 'prior' must be a 'brmsprior' object.")
   }
   # temporarily exclude priors that should not be checked
   no_checks <- !nzchar(prior$class)
@@ -917,8 +934,6 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
       }
     }
   }
-  # prepare special priors for use in Stan
-  prior <- check_prior_special(bterms, prior)
   # merge user-specified priors with default priors
   prior <- prior + all_priors
   prior <- prior[!duplicated(prior[, 2:7]), ]
@@ -991,6 +1006,7 @@ check_prior <- function(prior, formula, data = NULL, family = NULL,
   if (length(rows2remove)) {   
     prior <- prior[-rows2remove, ]
   }
+  prior <- check_prior_special(bterms, prior)
   prior <- prior[with(prior, order(resp, dpar, nlpar, class, group, coef)), ]
   prior <- prior + prior_no_checks
   rownames(prior) <- NULL
@@ -1119,6 +1135,16 @@ check_prior_special.brmsterms <- function(x, prior = NULL, ...) {
   if (is.null(prior)) {
     prior <- empty_brmsprior()
   }
+  if (length(x$response) > 1L) {
+    # special treatment of multivariate models
+    for (r in x$response) {
+      x$dpars$mu$resp <- r
+      prior <- check_prior_special(
+        x$dpars$mu, prior, allow_autoscale = FALSE, ...
+      )
+    }
+    x$dpars$mu <- NULL
+  }
   simple_sigma <- has_sigma(x$family, x) && is.null(x$dpars$sigma)
   for (dp in names(x$dpars)) {
     allow_autoscale <- simple_sigma && identical(dp, "mu") 
@@ -1181,7 +1207,7 @@ check_prior_special.btl <- function(x, prior, allow_autoscale = TRUE, ...) {
           "scale_slab", "par_ratio", "autoscale"
         )
         hs_att <- attributes(hs)[hs_obj_names]
-        names(hs_att) <- paste0("hs_", names(hs_att))
+        names(hs_att) <- paste0("hs_", hs_obj_names)
         prior_special <- c(prior_special, hs_att)
         prior_special$hs_autoscale <- 
           isTRUE(prior_special$hs_autoscale) && allow_autoscale

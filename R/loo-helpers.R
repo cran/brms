@@ -30,6 +30,7 @@ compute_ics <- function(models, model_names,
       ic_obj <- models[[i]][[ic]]
       if (use_stored_ic[i] && is.ic(ic_obj)) {
         out[[i]] <- ic_obj
+        out[[i]]$model_name <- model_names[i]
       } else {
         args$x <- models[[i]]
         args$model_name <- model_names[i]
@@ -46,6 +47,7 @@ compute_ics <- function(models, model_names,
     stopifnot(length(use_stored_ic) == 1L)
     if (use_stored_ic && is.ic(ic_obj)) {
       out <- ic_obj
+      out$model_name <- model_names
     } else {
       args$x <- models[[1]]
       args$model_name <- model_names
@@ -178,6 +180,11 @@ compare_ic <- function(..., x = NULL, ic = c("loo", "waic")) {
     Ks <- sapply(x, "[[", "K")
     if (!all(Ks %in% Ks[1])) {
       stop2("'K' differs across kfold objects.")
+    }
+    subs <- lengths(lapply(x, "[[", "Ksub"))
+    subs <- ifelse(subs %in% 0, Ks, subs)
+    if (!all(subs %in% subs[1])) {
+      stop2("The number of subsets differs across kfold objects.")
     }
   }
   names(x) <- ulapply(x, "[[", "model_name")
@@ -414,8 +421,13 @@ reloo.loo <- function(x, fit, k_threshold = 0.7, check = TRUE, ...) {
   x
 }
 
-kfold_internal <- function(x, K = 10, newdata = NULL, save_fits = FALSE, ...) {
+kfold_internal <- function(x, K = 10, Ksub = NULL, exact_loo = FALSE, 
+                           group = NULL, newdata = NULL, 
+                           save_fits = FALSE, ...) {
   # most of the code is taken from rstanarm::kfold
+  # Args:
+  #   group: character string of length one naming 
+  #     a variable to group excluded chunks
   stopifnot(is.brmsfit(x))
   if (is.null(newdata)) {
     mf <- model.frame(x) 
@@ -423,39 +435,81 @@ kfold_internal <- function(x, K = 10, newdata = NULL, save_fits = FALSE, ...) {
     mf <- as.data.frame(newdata)
   }
   N <- nrow(mf)
-  if (K < 1 || K > N) {
-    stop2("'K' must be greater than one and smaller or ", 
-          "equal to the number of observations in the model.")
+  if (exact_loo) {
+    K <- N
+    message("Setting 'K' to the number of observations (", K, ")")
   }
-  perm <- sample.int(N)
-  idx <- ceiling(seq(from = 1, to = N, length.out = K + 1))
-  bin <- .bincode(perm, breaks = idx, right = FALSE, include.lowest = TRUE)
-  
-  lppds <- list()
+  if (is.null(group)) {
+    if (K < 1 || K > N) {
+      stop2("'K' must be greater than one and smaller or ", 
+            "equal to the number of observations in the model.")
+    }
+    perm <- sample.int(N)
+    idx <- ceiling(seq(from = 1, to = N, length.out = K + 1))
+    bin <- .bincode(perm, breaks = idx, right = FALSE, include.lowest = TRUE)
+  } else {
+    # validate argument 'group'
+    valid_groups <- get_valid_groups(x)
+    if (length(group) != 1L || !group %in% valid_groups) {
+      stop2("Group '", group, "' is not a valid grouping factor. ",
+            "Valid groups are: \n", collapse_comma(valid_groups))
+    }
+    gvar <- factor(get(group, mf))
+    bin <- as.numeric(gvar)
+    if (!exact_loo) {
+      # K was already set to N if exact_loo is TRUE
+      K <- length(levels(gvar))
+      message("Setting 'K' to the number of levels of '", group, "' (", K, ")") 
+    }
+  }
+  if (is.null(Ksub)) {
+    Ksub <- seq_len(K)
+  } else {
+    Ksub <- as.integer(Ksub)
+    if (any(Ksub <= 0 | Ksub > K)) {
+      stop2("'Ksub' must contain positive integers not larger than 'K'.")
+    }
+    if (length(Ksub) == 1L) {
+      Ksub <- sort(sample(seq_len(K), Ksub))
+    } else {
+      Ksub <- unique(Ksub)
+    }
+  }
+  lppds <- vector("list", length(Ksub))
   if (save_fits) {
-    fits <- array(list(), c(K, 2), list(NULL, c("fit", "omitted")))    
+    fits <- array(
+      list(), dim = c(length(Ksub), 2), 
+      dimnames = list(NULL, c("fit", "omitted"))
+    )    
   }
-  for (k in seq_len(K)) {
+  for (k in Ksub) {
     message("Fitting model ", k, " out of ", K)
-    omitted <- which(bin == k)
+    if (exact_loo && !is.null(group)) {
+      omitted <- which(bin == bin[k])
+      predicted <- k
+    } else {
+      omitted <- predicted <- which(bin == k)
+    }
     mf_omitted <- mf[-omitted, , drop = FALSE]
     fit_k <- SW(update(x, newdata = mf_omitted, refresh = 0, ...))
-    lppds[[k]] <- log_lik(
-      fit_k, newdata = mf[omitted, , drop = FALSE], 
+    ks <- match(k, Ksub)
+    lppds[[ks]] <- log_lik(
+      fit_k, newdata = mf[predicted, , drop = FALSE], 
       allow_new_levels = TRUE
     )
     if (save_fits) {
-      fits[k, ] <- list(fit = fit_k, omitted = omitted) 
+      fits[ks, ] <- list(fit = fit_k, omitted = omitted) 
     }
   }
   elpds <- ulapply(lppds, function(x) apply(x, 2, log_mean_exp))
   elpd_kfold <- sum(elpds)
-  se_elpd_kfold <- sqrt(N * var(elpds))
+  se_elpd_kfold <- sqrt(length(elpds) * var(elpds))
   out <- nlist(
     elpd_kfold, p_kfold = NA, kfoldic = - 2 * elpd_kfold,
     se_elpd_kfold, se_p_kfold = NA, se_kfoldic = 2 * se_elpd_kfold,
     pointwise = cbind(elpd_kfold = elpds),
-    K = K, model_name = deparse(substitute(x))
+    model_name = deparse(substitute(x)),
+    K, Ksub, exact_loo, group 
   )
   if (save_fits) {
     out$fits <- fits 
@@ -500,7 +554,9 @@ print.ic <- function(x, digits = 2, ...) {
   )
   print(round(mat, digits = digits))
   if (is_equal(ic, "kfoldic")) {
-    cat(paste0("\nBased on ", x$K, "-fold cross-validation\n"))
+    sub <- length(x$Ksub)
+    sub <- ifelse(sub > 0 & sub < x$K, paste0(sub, " subsets of "), "")
+    cat(paste0("\nBased on ", sub, x$K, "-fold cross-validation\n"))
   }
   invisible(x)
 }
@@ -531,7 +587,9 @@ print.iclist <- function(x, digits = 2, ...) {
   }
   print(round(mat, digits = digits), na.print = "")
   if (is_equal(ic, "kfoldic")) {
-    cat(paste0("\nBased on ", x[[1]]$K, "-fold cross-validation\n"))
+    sub <- length(x[[1]]$Ksub)
+    sub <- ifelse(sub > 0 & sub < x[[1]]$K, paste0(sub, " subsets of "), "")
+    cat(paste0("\nBased on ", sub, x[[1]]$K, "-fold cross-validation\n"))
   }
   invisible(x)
 }

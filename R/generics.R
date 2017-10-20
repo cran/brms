@@ -629,12 +629,32 @@ reloo <- function(x, ...) {
 #' times each leaving out one-\eqn{K}th of the original data.
 #' 
 #' @inheritParams LOO
-#' @param K For \code{kfold}, the number of subsets of equal (if possible) size
+#' @param K The number of subsets of equal (if possible) size
 #'   into which the data will be randomly partitioned for performing
 #'   \eqn{K}-fold cross-validation. The model is refit \code{K} times, each time
 #'   leaving out one of the \code{K} subsets. If \code{K} is equal to the total
 #'   number of observations in the data then \eqn{K}-fold cross-validation is
 #'   equivalent to exact leave-one-out cross-validation.
+#' @param Ksub Optional number of subsets (of those subsets defined by \code{K}) 
+#'   to be evaluated. If \code{NULL} (the default), \eqn{K}-fold cross-validation 
+#'   will be performed on all subsets. If \code{Ksub} is a single integer, 
+#'   \code{Ksub} subsets (out of all \code{K}) subsets will be randomly chosen.
+#'   If \code{Ksub} consists of multiple integers, the corresponding subsets 
+#'   will be used. This argument is primarily useful, if evaluation of all 
+#'   subsets is infeasible for some reason.
+#' @param exact_loo Logical; If \code{TRUE}, exact leave-one-out cross-validation
+#'   will be performed and \code{K} will be ignored. This argument alters
+#'   the way argument \code{group} is handled as described below. 
+#'   Defaults to \code{FALSE}.
+#' @param group Optional name of a grouping variable or factor in the model.
+#'   How this variable is handled depends on argument \code{exact_loo}.
+#'   If \code{exact_loo} is \code{FALSE}, the data is split 
+#'   up into subsets, each time omitting all observations of one of the 
+#'   factor levels, while ignoriing argument \code{K}. 
+#'   If \code{exact_loo} is \code{TRUE}, all observations corresponding 
+#'   to the factor level of the currently predicted single value are omitted. 
+#'   Thus, in this case, the predicted values are only a subset of the 
+#'   omitted ones.
 #' @param save_fits If \code{TRUE}, a component \code{fits} is added to 
 #'   the returned object to store the cross-validated \code{brmsfit} 
 #'   objects and the indices of the omitted observations for each fold. 

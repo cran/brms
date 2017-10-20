@@ -67,7 +67,7 @@ get_all_effects.btnl <- function(x, ...) {
   covars_comb <- as.list(covars)
   if (length(covars) > 1L) {
     covars_comb <- c(covars_comb, 
-                     utils::combn(covars, 2, simplify = FALSE)
+      utils::combn(covars, 2, simplify = FALSE)
     )
   }
   nl_effects <- lapply(x$nlpars, get_all_effects)
@@ -89,6 +89,16 @@ prepare_conditions <- function(x, conditions = NULL, effects = NULL,
   mf <- model.frame(x)
   new_formula <- update_re_terms(formula(x), re_formula = re_formula)
   bterms <- parse_bf(new_formula)
+  if (any(grepl_expr("^(as\\.)?factor(.+)$", bterms$allvars))) {
+    # conditions are chosen based the variables stored in the data
+    # this approach cannot take into account possible transformations
+    # to factors happening inside the model formula
+    warning2(
+      "Using 'factor' or 'as.factor' in the model formula ",
+      "might lead to problems in 'marginal_effects'.",
+      "Please convert your variables to factors beforehand."
+    )
+  }
   re <- get_re(bterms)
   req_vars <- c(
     lapply(get_effect(bterms, "fe"), rhs), 

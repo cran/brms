@@ -2,6 +2,37 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 1.10.2}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Allow setting priors on noise-free
+      variables specified via function \code{me}.
+      \item Add arguments \code{Ksub}, \code{exact_loo} 
+      and \code{group} to method \code{kfold} for 
+      defining omitted subsets according to a
+      grouping variable or factor.
+      \item Allow addition argument \code{se}
+      in \code{skew_normal} models.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Ensure correct behavior of horseshoe
+      and lasso priors in multivariate models
+      thanks to Donald Williams.
+      \item Allow using \code{identity} links on
+      all parameters of the \code{wiener} family
+      thanks to Henrik Singmann. (#276)
+      \item Use reasonable dimnames in the output
+      of \code{fitted} when returning linear predictors
+      of ordinal models thanks to the GitHub user atrolle. (#274)
+      \item Fix problems in \code{marginal_smooths}
+      occuring for multi-membership models thanks to
+      Hans Tierens.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.10.0}{
   \subsection{NEW FEATURES}{
     \itemize{

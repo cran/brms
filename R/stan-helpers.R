@@ -512,7 +512,7 @@ stan_ordinal <- function(bterms, prior) {
           )
         }
       }
-      str_add(out$fun) <- "    return categorical_lpmf(y | p); \n   } \n"
+      str_add(out$fun) <- "     return categorical_lpmf(y | p); \n   } \n"
     }
   }
   out
@@ -570,6 +570,14 @@ stan_families <- function(bterms) {
     for (i in which(families %in% "skew_normal")) {
       id <- ifelse(length(families) == 1L, "", i)
       ns <- ifelse(paste0("sigma", id) %in% ap_names, "[n]", "")
+      has_sigma <- has_sigma(family, bterms)
+      sigma <- ifelse(has_sigma, paste0("sigma", id, ns), "")
+      if (is.formula(bterms$adforms$se)) {
+        sigma <- ifelse(nzchar(sigma), 
+          paste0("sqrt(", sigma, "^2 + se2[n])"), "se[n]"
+        )
+      }
+      ns <- ifelse(grepl("\\[n\\]", sigma), "[n]", "")
       na <- ifelse(paste0("alpha", id) %in% ap_names, "[n]", "")
       type_delta <- ifelse(nzchar(na), "vector[N]", "real")
       no <- ifelse(any(nzchar(c(ns, na))), "[n]", "")
@@ -583,7 +591,7 @@ stan_families <- function(bterms) {
         " / sqrt(1 + alpha", id, na, "^2); \n"
       )
       comp_omega <- paste0(
-        "  omega", id, no, " = sigma", id, ns, 
+        "  omega", id, no, " = ", sigma,
         " / sqrt(1 - sqrt_2_div_pi^2 * delta", id, na, "^2); \n"
       )
       str_add(out$modelC) <- paste0(
@@ -693,11 +701,11 @@ stan_mixture <- function(bterms, prior) {
   out
 }
 
-stan_Xme <- function(bterms) {
+stan_Xme <- function(bterms, prior) {
   # global Stan definitions for noise-free variables
   stopifnot(is.brmsterms(bterms))
   out <- list()
-  uni_me <- get_uni_me(bterms)
+  uni_me <- rename(get_uni_me(bterms))
   if (length(uni_me)) {
     K <- paste0("_", seq_along(uni_me))
     str_add(out$data) <- paste0(
@@ -710,8 +718,14 @@ stan_Xme <- function(bterms) {
       "  // noise free variables \n",
       collapse("  vector[N] Xme", K, "; \n")  
     )
+    for (k in seq_along(uni_me)) {
+      str_add(out$prior) <- stan_prior(
+        prior, class = "Xme", coef = uni_me[k],
+        suffix = paste0("_", k)
+      )
+    }
     str_add(out$prior) <- collapse(
-      "  target += normal_lpdf(Xme", K, " | Xn", K, ", noise", K, ");\n"
+      "  target += normal_lpdf(Xn", K, " | Xme", K, ", noise", K, ");\n"
     )
   }
   out

@@ -57,8 +57,6 @@ fixef.brmsfit <-  function(object, summary = TRUE, robust = FALSE,
   if (old) {
     out <- old_fixef_brmsfit(object, estimate, probs = probs, ...)
   } else {
-    cl_old <- match.call()[["old"]]
-    message_new_method("fixef", version = "1.7.0", old = cl_old)
     if (!is_equal(estimate, "mean")) {
       warning2("Argument 'estimate' is unused unless 'old' is set to TRUE.")
     }
@@ -164,8 +162,6 @@ ranef.brmsfit <- function(object, summary = TRUE, robust = FALSE,
   if (old) {
     out <- old_ranef_brmsfit(object, estimate, var = var, ...)
   } else {
-    cl_old <- match.call()[["old"]]
-    message_new_method("ranef", version = "1.7.0", old = cl_old)
     estimate <- match.arg(estimate)
     if (!is_equal(estimate, "mean")) {
       warning2("Argument 'estimate' is unused unless 'old' is set to TRUE.")
@@ -238,10 +234,8 @@ coef.brmsfit <- function(object, summary = TRUE, robust = FALSE,
   if (old) {
     coef <- old_coef_brmsfit(object, estimate, ...)
   } else {
-    cl_old <- match.call()[["old"]]
-    message_new_method("coef", version = "1.7.0", old = cl_old)
-    fixef <- suppressMessages(fixef(object, summary = FALSE, ...))
-    coef <- suppressMessages(ranef(object, summary = FALSE, ...))
+    fixef <- fixef(object, summary = FALSE, ...)
+    coef <- ranef(object, summary = FALSE, ...)
     # add missing coefficients to fixef
     all_ranef_names <- unique(ulapply(coef, function(x) dimnames(x)[[3]]))
     fixef_names <- colnames(fixef)
@@ -345,8 +339,6 @@ VarCorr.brmsfit <- function(x, sigma = 1, summary = TRUE, robust = FALSE,
   if (old) {
     out <- old_VarCorr_brmsfit(x, estimate, probs = probs, ...)
   } else {
-    cl_old <- match.call()[["old"]]
-    message_new_method("VarCorr", version = "1.7.0", old = cl_old)
     if (!is_equal(estimate, "mean")) {
       warning2("Argument 'estimate' is unused unless 'old' is set to TRUE.")
     }
@@ -1233,13 +1225,7 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
   ppc_fun <- get(paste0("ppc_", type), pos = asNamespace("bayesplot"))
   # validate argument 'group'
   object <- restructure(object)
-  not_num <- !sapply(model.frame(object), is.numeric)
-  valid_groups <- c(
-    names(model.frame(object))[not_num],
-    parse_time(object$autocor$formula)$group,
-    object$ranef$group
-  )
-  valid_groups <- unique(valid_groups[nzchar(valid_groups)])
+  valid_groups <- get_valid_groups(object)
   if (!is.null(group) && !group %in% valid_groups) {
     stop2("Group '", group, "' is not a valid grouping factor. ",
           "Valid groups are: \n", collapse_comma(valid_groups))
@@ -2027,6 +2013,11 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   if (summary) {
     draws$mu <- get_summary(draws$mu, probs = probs, robust = robust)
     rownames(draws$mu) <- seq_len(nrow(draws$mu))
+    is_catordinal <- is_categorical(draws$f) || is_ordinal(draws$f)
+    if (is_catordinal && scale == "linear") {
+      # fixes issue #274
+      dimnames(draws$mu)[[3]] <- paste0("eta", seq_len(dim(draws$mu)[[3]]))
+    }
   }
   draws$mu
 }
@@ -2546,8 +2537,8 @@ loo.brmsfit <-  function(x, ..., compare = TRUE, reloo = FALSE,
 #' @export
 #' @describeIn kfold \code{kfold} method for \code{brmsfit} objects
 kfold.brmsfit <- function(x, ..., compare = TRUE,
-                          K = 10, newdata = NULL, 
-                          save_fits = FALSE,
+                          K = 10, Ksub = NULL, exact_loo = FALSE, 
+                          group = NULL, newdata = NULL, save_fits = FALSE,
                           update_args = list()) {
   models <- list(x, ...)
   model_names <- c(
@@ -2559,7 +2550,8 @@ kfold.brmsfit <- function(x, ..., compare = TRUE,
   )
   args <- nlist(
     models, model_names, ic = "kfold", K, save_fits, 
-    use_stored_ic, compare, update_args, newdata
+    use_stored_ic, compare, update_args, newdata, 
+    Ksub, exact_loo, group
   )
   do.call(compute_ics, args)
 }

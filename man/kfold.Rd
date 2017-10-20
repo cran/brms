@@ -5,8 +5,9 @@
 \alias{kfold}
 \title{K-Fold Cross-Validation}
 \usage{
-\method{kfold}{brmsfit}(x, ..., compare = TRUE, K = 10, newdata = NULL,
-  save_fits = FALSE, update_args = list())
+\method{kfold}{brmsfit}(x, ..., compare = TRUE, K = 10, Ksub = NULL,
+  exact_loo = FALSE, group = NULL, newdata = NULL, save_fits = FALSE,
+  update_args = list())
 
 kfold(x, ...)
 }
@@ -19,12 +20,35 @@ kfold(x, ...)
 of the models should be compared to each other
 via \code{\link[brms:compare_ic]{compare_ic}}.}
 
-\item{K}{For \code{kfold}, the number of subsets of equal (if possible) size
+\item{K}{The number of subsets of equal (if possible) size
 into which the data will be randomly partitioned for performing
 \eqn{K}-fold cross-validation. The model is refit \code{K} times, each time
 leaving out one of the \code{K} subsets. If \code{K} is equal to the total
 number of observations in the data then \eqn{K}-fold cross-validation is
 equivalent to exact leave-one-out cross-validation.}
+
+\item{Ksub}{Optional number of subsets (of those subsets defined by \code{K}) 
+to be evaluated. If \code{NULL} (the default), \eqn{K}-fold cross-validation 
+will be performed on all subsets. If \code{Ksub} is a single integer, 
+\code{Ksub} subsets (out of all \code{K}) subsets will be randomly chosen.
+If \code{Ksub} consists of multiple integers, the corresponding subsets 
+will be used. This argument is primarily useful, if evaluation of all 
+subsets is infeasible for some reason.}
+
+\item{exact_loo}{Logical; If \code{TRUE}, exact leave-one-out cross-validation
+will be performed and \code{K} will be ignored. This argument alters
+the way argument \code{group} is handled as described below. 
+Defaults to \code{FALSE}.}
+
+\item{group}{Optional name of a grouping variable or factor in the model.
+How this variable is handled depends on argument \code{exact_loo}.
+If \code{exact_loo} is \code{FALSE}, the data is split 
+up into subsets, each time omitting all observations of one of the 
+factor levels, while ignoriing argument \code{K}. 
+If \code{exact_loo} is \code{TRUE}, all observations corresponding 
+to the factor level of the currently predicted single value are omitted. 
+Thus, in this case, the predicted values are only a subset of the 
+omitted ones.}
 
 \item{newdata}{An optional data.frame for which to evaluate predictions.
 If \code{NULL} (default), the orginal data of the model is used.}
