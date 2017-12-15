@@ -2,8 +2,8 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using Stan
-Version: 1.10.2
-Date: 2017-10-20
+Version: 2.0.0
+Date: 2017-12-15
 Authors@R: person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
 Depends: R (>= 3.2.0), Rcpp (>= 0.12.0), ggplot2 (>= 2.0.0), methods
@@ -13,7 +13,7 @@ Imports: rstan (>= 2.14.2), loo (>= 1.1.0), Matrix (>= 1.1.1), mgcv (>=
         stats, utils, parallel, grDevices,
 Suggests: testthat (>= 0.9.1), RWiener, future, arm, spdep, mnormt,
         MCMCglmm, ape, R.rsp, knitr, rmarkdown
-Description: Fit Bayesian generalized (non-)linear multilevel models 
+Description: Fit Bayesian generalized (non-)linear multivariate multilevel models
     using Stan for full Bayesian inference. A wide range of distributions 
     and link functions are supported, allowing users to fit -- among others -- 
     linear, robust linear, count data, survival, response times, ordinal, 
@@ -34,8 +34,8 @@ URL: https://github.com/paul-buerkner/brms,
 BugReports: https://github.com/paul-buerkner/brms/issues
 VignetteBuilder: knitr, R.rsp
 RoxygenNote: 6.0.1
-Packaged: 2017-10-20 16:33:49 UTC; paulb
+Packaged: 2017-12-15 12:13:34 UTC; paulb
 Author: Paul-Christian Bürkner [aut, cre]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2017-10-20 20:52:30 UTC
+Date/Publication: 2017-12-15 12:57:54 UTC

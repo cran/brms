@@ -8,14 +8,14 @@
 \method{bayes_R2}{brmsfit}(object, newdata = NULL, re_formula = NULL,
   allow_new_levels = FALSE, sample_new_levels = "uncertainty",
   new_objects = list(), incl_autocor = TRUE, subset = NULL,
-  nsamples = NULL, nug = NULL, summary = TRUE, robust = FALSE,
-  probs = c(0.025, 0.975), ...)
+  nsamples = NULL, resp = NULL, nug = NULL, summary = TRUE,
+  robust = FALSE, probs = c(0.025, 0.975), ...)
 }
 \arguments{
 \item{object}{An object of class \code{brmsfit}}
 
 \item{newdata}{An optional data.frame for which to evaluate predictions.
-If \code{NULL} (default), the orginal data of the model is used.}
+If \code{NULL} (default), the original data of the model is used.}
 
 \item{re_formula}{formula containing group-level effects 
 to be considered in the prediction. 
@@ -61,6 +61,9 @@ posterior samples should be used.
 If \code{NULL} (the default) all samples are used.
 Ignored if \code{subset} is not \code{NULL}.}
 
+\item{resp}{Optional names of response variables.
+If specified, fitted values of these response variables are returned.}
+
 \item{nug}{Small positive number for Gaussian process terms only. 
 For numerical reasons, the covariance matrix of a Gaussian 
 process might not be positive definite. Adding a very small 
@@ -74,7 +77,7 @@ instead of the raw values? Default is \code{TRUE}.}
 \item{robust}{If \code{FALSE} (the default) the mean is used as 
 the measure of central tendency and the standard deviation as 
 the measure of variability. If \code{TRUE}, the median and the 
-median absolute deivation (MAD) are applied instead.
+median absolute deviation (MAD) are applied instead.
 Only used if \code{summary} is \code{TRUE}.}
 
 \item{probs}{The percentiles to be computed by the \code{quantile} 

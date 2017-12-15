@@ -64,7 +64,7 @@ Define priors for specific parameters or classes of parameters
 \code{set_prior} is used to define prior distributions for parameters 
   in \pkg{brms} models. The functions \code{prior}, \code{prior_}, and
   \code{prior_string} are aliases of \code{set_prior} each allowing
-  for a differnt kind of argument specification. 
+  for a different kind of argument specification. 
   \code{prior} allows specifying arguments as expression without
   quotation marks using non-standard evaluation. 
   \code{prior_} allows specifying arguments as one-sided formulas
@@ -77,17 +77,17 @@ Define priors for specific parameters or classes of parameters
   A complete overview on possible prior distributions is given 
   in the Stan Reference Manual available at \url{http://mc-stan.org/}.
   
-  To combine multiple priors, use \code{c(...)}, 
-  e.g., \code{c(set_prior(...), set_prior(...))}.
-  \pkg{brms} does not check if the priors are written in correct \pkg{Stan} language. 
-  Instead, \pkg{Stan} will check their syntactical correctness when the model 
-  is parsed to \code{C++} and returns an error if they are not. 
+  To combine multiple priors, use \code{c(...)} or the \code{+} operator 
+  (see 'Examples'). \pkg{brms} does not check if the priors are written 
+  in correct \pkg{Stan} language. Instead, \pkg{Stan} will check their 
+  syntactical correctness when the model is parsed to \code{C++} and 
+  returns an error if they are not. 
   This, however, does not imply that priors are always meaningful if they are 
   accepted by \pkg{Stan}. Although \pkg{brms} trys to find common problems 
   (e.g., setting bounded priors on unbounded parameters), there is no guarantee 
   that the defined priors are reasonable for the model.
-  Currently, there are seven types of parameters in \pkg{brms} models, 
-  for which the user can specify prior distributions. \cr
+  Below, we list the types of parameters in \pkg{brms} models, 
+  for which the user can specify prior distributions.
   
   1. Population-level ('fixed') effects
   
@@ -126,7 +126,7 @@ Define priors for specific parameters or classes of parameters
   specified via \code{set_prior("<prior>", class = "Intercept")}.
   Setting a prior on the intercept will not break vectorization
   of the other population-level effects.
-  Note that technially, this prior is set on an intercept that
+  Note that technically, this prior is set on an intercept that
   results when internally centering all population-level predictors 
   around zero to improve sampling efficiency. On this centered 
   intercept, specifying a prior is actually much easier and 
@@ -157,7 +157,7 @@ Define priors for specific parameters or classes of parameters
   that are not defined everywhere on the real line, such as uniform
   or gamma priors. When defining a \code{uniform(2,4)} prior, 
   you should write \code{set_prior("uniform(2,4)", lb = 2, ub = 4)}. 
-  When using a prior that is defined on the postive reals only 
+  When using a prior that is defined on the positive reals only 
   (such as a gamma prior) set \code{lb = 0}. 
   In most situations, it is not useful to restrict population-level
   parameters through bounded priors 
@@ -173,7 +173,7 @@ Define priors for specific parameters or classes of parameters
   nested in the grouping factor \code{g}. 
   The corresponding standard deviation parameters are named as 
   \code{sd_g_Intercept} and \code{sd_g_x1} respectively. 
-  These parameters are restriced to be non-negative and, by default, 
+  These parameters are restricted to be non-negative and, by default, 
   have a half student-t prior with 3 degrees of freedom and a 
   scale parameter that depends on the standard deviation of the response 
   after applying the link function. Minimally, the scale parameter is 10. 
@@ -268,18 +268,18 @@ Define priors for specific parameters or classes of parameters
   7. Parameters for specific families 
   
   Some families need additional parameters to be estimated. 
-  Families \code{gaussian}, \code{student}, and \code{cauchy} 
-  need the parameter \code{sigma} 
-  to account for the residual standard deviation.
+  Families \code{gaussian}, \code{student}, \code{skew_normal},
+  \code{lognormal}, and \code{gen_extreme_value} need the parameter 
+  \code{sigma} to account for the residual standard deviation.
   By default, \code{sigma} has a half student-t prior that scales 
   in the same way as the group-level standard deviations.
-  Furthermore, family \code{student} needs the parameter 
+  Further, family \code{student} needs the parameter 
   \code{nu} representing the degrees of freedom of students-t distribution. 
-  By default, \code{nu} has prior \code{"gamma(2,0.1)"}
-  and a fixed lower bound of \code{0}.
+  By default, \code{nu} has prior \code{"gamma(2, 0.1)"}
+  and a fixed lower bound of \code{1}.
   Families \code{gamma}, \code{weibull}, \code{inverse.gaussian}, and
   \code{negbinomial} need a \code{shape} parameter that has a 
-  \code{"gamma(0.01,0.01)"} prior by default. 
+  \code{"gamma(0.01, 0.01)"} prior by default. 
   For families \code{cumulative}, \code{cratio}, \code{sratio}, 
   and \code{acat}, and only if \code{threshold = "equidistant"}, 
   the parameter \code{delta} is used to model the distance between 

@@ -5,11 +5,9 @@ print.brmssummary <- function(x, digits = 2, ...) {
     x[["waic"]] <- x[["WAIC"]]
   }
   cat(" Family: ")
-  if (is.family(x$family)) {
-    cat(summary(x$family), "\n")
-  } else {
-    cat(paste0(x$family, " (", x$link, ") \n"))  
-  }
+  cat(summarise_families(x$formula), "\n")
+  cat("  Links: ")
+  cat(summarise_links(x$formula, wsp = 9), "\n")
   cat("Formula: ")
   print(x$formula, wsp = 9)
   cat(paste0(
@@ -19,11 +17,6 @@ print.brmssummary <- function(x, digits = 2, ...) {
   if (!isTRUE(nzchar(x$sampler))) {
     cat("\nThe model does not contain posterior samples.\n")
   } else {
-    if (!is.null(x$n.iter)) {
-      # deprecated names are used
-      args <- c("iter", "warmup", "thin", "chains")
-      x[args] <- x[paste0("n.", args)]
-    }
     final_samples <- ceiling((x$iter - x$warmup) / x$thin * x$chains)
     valid_ics <- c("loo", "waic", "R2")
     for (ic in valid_ics) {
@@ -53,6 +46,12 @@ print.brmssummary <- function(x, digits = 2, ...) {
       print_format(x$gp, digits)
       cat("\n")
     }
+    if (nrow(x$cor_pars)) {
+      cat("Correlation Structures:\n")
+      # TODO: better printing for correlation structures?
+      print_format(x$cor_pars, digits)
+      cat("\n")
+    }
     if (length(x$random)) {
       cat("Group-Level Effects: \n")
       for (i in seq_along(x$random)) {
@@ -61,13 +60,6 @@ print.brmssummary <- function(x, digits = 2, ...) {
         print_format(x$random[[g]], digits)
         cat("\n")
       }
-    }
-    if (nrow(x$cor_pars)) {
-      cat("Correlation Structure: ")
-      print(x$autocor)
-      cat("\n")
-      print_format(x$cor_pars, digits)
-      cat("\n")
     }
     if (nrow(x$fixed)) {
       cat("Population-Level Effects: \n")

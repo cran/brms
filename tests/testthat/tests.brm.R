@@ -13,7 +13,7 @@ test_that("brm produces expected errors", {
   expect_error(brm(bf(y ~ 0 + a), dat, family = cumulative()),
                "Cannot remove the intercept in an ordinal model")
   expect_error(brm(bf(y | se(sei) ~ x, sigma ~ x), dat),
-               "Parameter 'sigma' is not part of the model")
+               "Cannot predict or fix 'sigma' in this model")
   expect_error(brm(y | se(sei) ~ x, dat, family = weibull()),
                "Argument 'se' is not supported for family")
   expect_error(brm(y | se(sei) + se(sei2) ~ x, dat, family = gaussian()),
@@ -21,18 +21,14 @@ test_that("brm produces expected errors", {
   expect_error(brm(y | abc(sei) ~ x, family = gaussian()),
                "The following addition terms are invalid:\n'abc(sei)'",
                fixed = TRUE)
-  expect_error(brm(y | se(sei) + disp(sei) ~ x, dat, family = gaussian()),
-               "Addition arguments 'se' and 'disp' cannot be used")
-  expect_error(brm(cbind(y, x) | se(z) ~ x, dat, family = gaussian()),
-               "allow only addition argument 'weights'")
+  expect_error(brm(y | disp(sei) ~ x, dat, family = gaussian()),
+               "The following addition terms are invalid:")
   expect_error(brm(bf(y ~ x, shape ~ x), family = gaussian()),
                "The parameter 'shape' is not a valid distributional")
   expect_error(brm(y ~ x + (1|abc|g/x), dat), 
                "Can only combine group-level terms")
   expect_error(brm(y ~ x + (1|g) + (x|g), dat), 
                "Duplicated group-level effects are not allowed")
-  expect_error(brm(bf(cbind(y, x) ~ a, a ~ x, nl = TRUE), dat),
-               "Multivariate non-linear models are not yet implemented")
   expect_error(brm(y~mo(g)*me(x, g), dat),
                "Cannot use multiple special terms within one term")
   
@@ -62,11 +58,4 @@ test_that("brm produces expected errors", {
                "'probit' is not a supported link for family 'categorical'")
   expect_error(brm(y ~ x, dat, family = "ordinal"),
               "ordinal is not a supported family")
-})
-
-test_that("check_brm_input returns correct warnings", {
-  x <- list(family = inverse.gaussian(), algorithm = "sampling")
-  expect_warning(check_brm_input(x))
-  x$family <- poisson("sqrt")
-  expect_warning(check_brm_input(x))
 })

@@ -1,6 +1,6 @@
-#' Fit Bayesian Generalized (Non-)Linear Multilevel Models
+#' Fit Bayesian Generalized (Non-)Linear Multivariate Multilevel Models
 #' 
-#' Fit Bayesian generalized (non-)linear multilevel models 
+#' Fit Bayesian generalized (non-)linear multivariate multilevel models 
 #' using Stan for full Bayesian inference. A wide range of distributions 
 #' and link functions are supported, allowing users to fit -- among others -- 
 #' linear, robust linear, count data, survival, response times, ordinal, 
@@ -8,19 +8,19 @@
 #' multilevel context. Further modeling options include non-linear and 
 #' smooth terms, auto-correlation structures, censored data, meta-analytic 
 #' standard errors, and quite a few more. In addition, all parameters of the 
-#' response distribution can be predicted in order to perform distributional 
+#' response distributions can be predicted in order to perform distributional 
 #' regression. Prior specifications are flexible and explicitly encourage 
 #' users to apply prior distributions that actually reflect their beliefs.
 #' In addition, model fit can easily be assessed and compared with
 #' posterior predictive checks and leave-one-out cross-validation.
 #' 
 #' @param formula An object of class 
-#'   \code{\link[stats:formula]{formula}} or
-#'   \code{\link[brms:brmsformula]{brmsformula}}
+#'   \code{\link[stats:formula]{formula}},
+#'   \code{\link{brmsformula}}, or \code{\link{mvbrmsformula}}
 #'   (or one that can be coerced to that classes): 
 #'   A symbolic description of the model to be fitted. 
 #'   The details of model specification are explained in 
-#'   \code{\link[brms:brmsformula]{brmsformula}}.
+#'   \code{\link{brmsformula}}.
 #' @param data An object of class \code{data.frame} 
 #'   (or one that can be coerced to that class) 
 #'   containing data of all variables used in the model.
@@ -31,40 +31,23 @@
 #'   the link function to be applied on the response variable.
 #'   If not specified, default links are used.
 #'   For details of supported families see 
-#'   \code{\link[brms:brmsfamily]{brmsfamily}}.
+#'   \code{\link{brmsfamily}}.
 #'   By default, a linear \code{gaussian} model is applied.
+#'   In multivariate models, \code{family} might also be a list of families.
 #' @param prior One or more \code{brmsprior} objects created by
-#'   \code{\link[brms:set_prior]{set_prior}} or related functions 
-#'   and combined using the \code{c} method. A single \code{brmsprior} 
-#'   object may be passed without \code{c()} surrounding it. 
-#'   See also  \code{\link[brms:get_prior]{get_prior}} for more help.
+#'   \code{\link{set_prior}} or related functions 
+#'   and combined using the \code{c} method or the \code{+} operator.
+#'   See also  \code{\link{get_prior}} for more help.
 #' @param autocor An optional \code{\link{cor_brms}} object describing 
 #'   the correlation structure within the response variable 
 #'   (i.e., the 'autocorrelation'). 
 #'   See the documentation of \code{\link{cor_brms}} for a description 
 #'   of the available correlation structures. Defaults to \code{NULL}, 
 #'   corresponding to no correlations.
-#' @param nonlinear (Deprecated) An optional list of formulas, specifying 
-#'   linear models for non-linear parameters. If \code{NULL} (the default)
-#'   \code{formula} is treated as an ordinary formula. 
-#'   If not \code{NULL}, \code{formula} is treated as a non-linear model
-#'   and \code{nonlinear} should contain a formula for each non-linear 
-#'   parameter, which has the parameter on the left hand side and its
-#'   linear predictor on the right hand side.
-#'   Alternatively, it can be a single formula with all non-linear
-#'   parameters on the left hand side (separated by a \code{+}) and a
-#'   common linear predictor on the right hand side.
-#'   As of \pkg{brms} 1.4.0, we recommend specifying non-linear
-#'   parameters directly within \code{formula}.
-#' @param threshold (Deprecated) A character string indicating the type 
-#'   of thresholds (i.e. intercepts) used in an ordinal model. 
-#'   \code{"flexible"} provides the standard unstructured thresholds and 
-#'   \code{"equidistant"} restricts the distance between 
-#'   consecutive thresholds to the same value.
-#'   As of \pkg{brms} 1.8.0, we recommend specifying threshold
-#'   directly within the ordinal family functions.
+#'   In multivariate models, \code{autocor} might also be a list 
+#'   of autocorrelation structures.
 #' @param sparse Logical; indicates whether the population-level 
-#'   design matrix should be treated as sparse (defaults to \code{FALSE}). 
+#'   design matrices should be treated as sparse (defaults to \code{FALSE}). 
 #'   For design matrices with many zeros, this can considerably 
 #'   reduce required memory. Sampling speed is currently not 
 #'   improved or even slightly decreased.
@@ -77,11 +60,9 @@
 #'   among others to model pedigrees and phylogenetic effects.
 #'   See \code{vignette("brms_phylogenetics")} for more details.
 #' @param save_ranef A flag to indicate if group-level effects 
-#'   for each level of the grouping factor(s) 
-#'   should be saved (default is \code{TRUE}). 
-#'   Set to \code{FALSE} to save memory. 
+#'   for each level of the grouping factor(s) should be saved 
+#'   (default is \code{TRUE}). Set to \code{FALSE} to save memory. 
 #'   The argument has no impact on the model fitting itself.
-#'   A deprecated alias is \code{ranef}.
 #' @param save_mevars A flag to indicate if samples
 #'   of noise-free variables obtained by using \code{me} terms
 #'   should be saved (default is \code{FALSE}).
@@ -120,8 +101,8 @@
 #' @param inits Either \code{"random"} or \code{"0"}. 
 #'   If inits is \code{"random"} (the default), 
 #'   Stan will randomly generate initial values for parameters. 
-#'   If it is \code{"0"}, all parameters are initiliazed to zero. 
-#'   This option is recommended for \code{exponential} and \code{weibull} models, 
+#'   If it is \code{"0"}, all parameters are initialized to zero. 
+#'   This option is sometimes useful for certain families, 
 #'   as it happens that default (\code{"random"}) inits cause samples 
 #'   to be essentially constant. 
 #'   Generally, setting \code{inits = "0"} is worth a try, if chains do not behave well.
@@ -136,11 +117,11 @@
 #'   be larger than \code{iter} and the default is \code{iter/2}.
 #' @param thin Thinning rate. Must be a positive integer. 
 #'   Set \code{thin > 1} to save memory and computation time if \code{iter} is large. 
-#' @param cores	Number of cores to use when executing the chains in parallel, 
+#' @param cores Number of cores to use when executing the chains in parallel, 
 #'   which defaults to 1 but we recommend setting the \code{mc.cores} option 
 #'   to be as many processors as the hardware and RAM allow (up to the number of chains).
 #'   For non-Windows OS in non-interactive \R sessions, forking is used
-#'   instead of PSOCK clusters. A deprecated alias is \code{cluster}.
+#'   instead of PSOCK clusters.
 #' @param algorithm Character string indicating the estimation approach to use. 
 #'   Can be \code{"sampling"} for MCMC (the default), \code{"meanfield"} for
 #'   variational inference with independent normal distributions, or
@@ -159,13 +140,9 @@
 #'   informational messages of compiler and sampler are suppressed.
 #'   The actual sampling progress is still printed. 
 #'   Set \code{refresh = 0} to turn this off as well.
-#' @param seed Used by \code{set.seed} to make results reproducable.
-#'   Be aware that \code{brm} resets the seed to the value specified
-#'   in \code{seed} (default: \code{12345}) every time it is run.
-#'   If you want to use different seeds per run, use, for instance,
-#'   \code{seed = sample(1e+7, size = 1)}. Be aware that generally, 
-#'   the seed also affects subsequently called functions (such as 
-#'   \code{predict}), which make use of the random number generator of \R.
+#' @param seed The seed for random number generation to make results
+#'   reproducible. If \code{NA} (the default), \pkg{Stan} will set
+#'   the seed randomly.
 #' @param save_model Either \code{NULL} or a character string. 
 #'   In the latter case, the model code is
 #'   saved in a file named after the string supplied in \code{save_model}, 
@@ -184,7 +161,7 @@
 #'  
 #' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
 #' 
-#' @details Fit a generalized (non-)linear multilevel model
+#' @details Fit a generalized (non-)linear multivariate multilevel model
 #'   via full Bayesian inference using Stan. A general overview is provided 
 #'   in the vignettes \code{vignette("brms_overview")} and 
 #'   \code{vignette("brms_multilevel")}. For a full list of available 
@@ -209,8 +186,8 @@
 #'   which parameters or parameter classes priors can be defined, 
 #'   use \code{\link[brms:get_prior]{get_prior}}.
 #'   Default priors are chosen to be non or very weakly informative 
-#'   so that their influence on the results will be negligable and
-#'   you don't have to worry about them.
+#'   so that their influence on the results will be negligible and
+#'   you usually don't have to worry about them.
 #'   However, after getting more familiar with Bayesian statistics, 
 #'   I recommend you to start thinking about reasonable informative
 #'   priors for your model parameters: Nearly always, there is at least some
@@ -250,10 +227,10 @@
 #'   doi:10.18637/jss.v080.i01
 #'   
 #' @seealso
-#'   \code{\link[brms:brms]{brms}}, 
-#'   \code{\link[brms:brmsformula]{brmsformula}}, 
-#'   \code{\link[brms:brmsfamily]{brmsfamily}},
-#'   \code{\link[brms:brmsfit-class]{brmsfit}}
+#'   \code{\link{brms}}, 
+#'   \code{\link{brmsformula}}, 
+#'   \code{\link{brmsfamily}},
+#'   \code{\link{brmsfit}}
 #'   
 #' @examples
 #' \dontrun{ 
@@ -350,9 +327,8 @@
 #' @import stats   
 #' @export 
 brm <- function(formula, data, family = gaussian(), prior = NULL, 
-                autocor = NULL, nonlinear = NULL, 
-                threshold = c("flexible", "equidistant"), 
-                cov_ranef = NULL, sample_prior = c("no", "yes", "only"), 
+                autocor = NULL, cov_ranef = NULL, 
+                sample_prior = c("no", "yes", "only"), 
                 sparse = FALSE, knots = NULL, stan_funs = NULL, 
                 fit = NA, save_ranef = TRUE, save_mevars = FALSE, 
                 save_all_pars = FALSE, inits = "random", chains = 4, 
@@ -360,24 +336,9 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
                 cores = getOption("mc.cores", 1L), control = NULL,
                 algorithm = c("sampling", "meanfield", "fullrank"),
                 future = getOption("future", FALSE), silent = TRUE, 
-                seed = 12345, save_model = NULL, save_dso = TRUE, ...) {
+                seed = NA, save_model = NULL, save_dso = TRUE, ...) {
   
-  dots <- list(...) 
-  # use deprecated arguments if specified
-  iter <- use_alias(iter, dots[["n.iter"]])
-  warmup <- use_alias(warmup, dots[["n.warmup"]])
-  thin <- use_alias(thin, dots[["n.thin"]])
-  chains <- use_alias(chains, dots[["n.chains"]])
-  cores <- use_alias(cores, dots[["cluster"]])
-  cov_ranef <- use_alias(cov_ranef, dots[["cov.ranef"]])
-  save_ranef <- use_alias(save_ranef, dots[["ranef"]])
-  sample_prior <- use_alias(sample_prior, dots[["sample.prior"]])
-  save_model <- use_alias(save_model, dots[["save.model"]])
-  if (!is.null(dots[["cluster_type"]])) {
-    warning2("Argument 'cluster_type' is deprecated and unused.\n",
-             "Forking is now automatically applied when appropriate.")
-  }
-  dots[deprecated_brm_args()] <- NULL
+  dots <- list(...)
   autocor <- check_autocor(autocor)
   algorithm <- match.arg(algorithm)
   
@@ -386,22 +347,23 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   if (is(fit, "brmsfit")) {
     # re-use existing model
     x <- fit
-    # compute data to be passed to Stan
-    sdata <- standata(x, is_newdata = dots$is_newdata)
-    dots$is_newdata <- NULL
+    sdata <- standata(x, new = dots$new)
+    dots$new <- NULL
     # extract the compiled model
     x$fit <- rstan::get_stanmodel(x$fit)
   } else {  
     # build new model
-    formula <- amend_formula(
-      formula, data = data, family = family, 
-      autocor = autocor, threshold = threshold, 
-      nonlinear = nonlinear
+    formula <- validate_formula(
+      formula, data = data, family = family, autocor = autocor
     )
-    family <- formula$family
-    autocor <- formula$autocor
+    if (is.mvbrmsformula(formula)) {
+      family <- lapply(formula$forms, "[[", "family")
+      autocor <- lapply(formula$forms, "[[", "autocor")
+    } else {
+      family <- formula$family
+      autocor <- formula$autocor
+    }
     bterms <- parse_bf(formula)
-    check_brm_input(nlist(family))
     if (is.null(dots$data.name)) {
       data.name <- substr(Reduce(paste, deparse(substitute(data))), 1, 50)
     } else {
@@ -418,7 +380,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       formula = formula, family = family, data = data, 
       data.name = data.name, prior = prior, 
       autocor = autocor, cov_ranef = cov_ranef, 
-      algorithm = algorithm
+      stan_funs = stan_funs, algorithm = algorithm
     )
     x$ranef <- tidy_ranef(bterms, data = x$data)  
     x$exclude <- exclude_pars(
@@ -449,11 +411,10 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   }
   args <- nlist(
     object = x$fit, data = sdata, pars = x$exclude, 
-    include = FALSE, algorithm, iter
+    include = FALSE, algorithm, iter, seed
   )
   args[names(dots)] <- dots
   
-  set.seed(seed)
   message("Start sampling")
   if (args$algorithm == "sampling") {
     args$algorithm <- NULL
@@ -493,110 +454,4 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     x <- rename_pars(x)
   }
   x
-}
-
-check_brm_input <- function(x) {
-  # misc checks on brm arguments 
-  # Args:
-  #   x: A named list
-  family <- check_family(x$family) 
-  if (family$family == "inverse.gaussian") {
-    warning2("Inverse gaussian models require carefully chosen ", 
-             "prior distributions to ensure convergence of the chains.")
-  }
-  if (family$family == "geometric") {
-    warning2("Family 'geometric' is deprecated. Use 'negbinomial' ", 
-             "instead and fix the 'shape' parameter to 1.")
-  }
-  if (family$link == "sqrt") {
-    warning2(family$family, " model with sqrt link may not be ", 
-             "uniquely identified")
-  }
-  invisible(NULL)
-}
-
-deprecated_brm_args <- function() {
-  # list all deprecated arguments of the brm function
-  c("n.iter", "n.warmup", "n.thin", "n.chains", "cluster", "cov.ranef",
-    "ranef", "sample.prior", "save.model", "cluster_type")
-}
-
-exclude_pars <- function(bterms, data = NULL, ranef = empty_ranef(),
-                         save_ranef = TRUE, save_mevars = FALSE,
-                         save_all_pars = FALSE) {
-  # list parameters NOT to be saved by Stan
-  # Args:
-  #   bterms: object of class brmsterms
-  #   data: data passed by the user
-  #   ranef: output of tidy_ranef
-  #   save_ranef: should group-level effects be saved?
-  #   save_mevars: should samples of noise-free variables be saved?
-  # Returns:
-  #   a vector of parameters to be excluded
-  .exclude_pars <- function(bt) {
-    stopifnot(is.btl(bt))
-    p <- usc(combine_prefix(bt))
-    out <- c(
-      paste0("temp", p, "_Intercept"),
-      paste0(c("hs_local", "hs_global", "zb"), p)
-    )
-    sms <- get_sm_labels(bt, data)
-    if (length(sms) && !is.null(data)) {
-      for (i in seq_along(sms)) {
-        nb <- seq_len(attr(sms, "nbases")[[i]])
-        out <- c(out, paste0("zs", p, "_", i, "_", nb))
-      } 
-    }
-    return(out)
-  }
-  
-  stopifnot(is.brmsterms(bterms))
-  save_ranef <- as_one_logical(save_ranef)
-  save_mevars <- as_one_logical(save_mevars)
-  save_all_pars <- as_one_logical(save_all_pars)
-  out <- c(
-    "Rescor", "Sigma", "res_cov_matrix",
-    intersect(dpars(), names(bterms$dpars))
-  )
-  if (!save_all_pars) {
-    out <- c(out,
-             "temp_Intercept1", "ordered_Intercept", 
-             "Lrescor", "LSigma", "theta", "zcar"
-    )
-    if (!save_mevars) {
-      # exclude noise-free variables
-      uni_me <- get_uni_me(bterms)
-      out <- c(out, paste0("Xme_", seq_along(uni_me)))
-    }
-    if (length(bterms$response) > 1L) {
-      for (r in bterms$response) {
-        bterms$dpars$mu$resp <- r
-        out <- c(out, .exclude_pars(bterms$dpars$mu))
-      }
-      bterms$dpars$mu <- NULL
-    }
-    for (dp in names(bterms$dpars)) {
-      bt <- bterms$dpars[[dp]]
-      if (length(bt$nlpars)) {
-        for (nlp in names(bt$nlpars)) {
-          out <- c(out, .exclude_pars(bt$nlpars[[nlp]]))
-        }
-      } else {
-        out <- c(out, .exclude_pars(bt))
-      }
-    }
-  }
-  # exclude group-level helper parameters
-  if (nrow(ranef)) {
-    rm_re_pars <- c(if (!save_all_pars) c("z", "L"), "Cor", "r")
-    for (id in unique(ranef$id)) {
-      out <- c(out, paste0(rm_re_pars, "_", id))
-    }
-    if (!save_ranef) {
-      p <- usc(combine_prefix(ranef))
-      out <- c(out, paste0("r_", ranef$id, p, "_", ranef$cn))
-    }
-  }
-  att <- nlist(save_ranef, save_mevars, save_all_pars)
-  do.call(structure, c(list(out), att))
 }

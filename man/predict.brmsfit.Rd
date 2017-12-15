@@ -9,22 +9,22 @@
 \method{predict}{brmsfit}(object, newdata = NULL, re_formula = NULL,
   transform = NULL, allow_new_levels = FALSE,
   sample_new_levels = "uncertainty", new_objects = list(),
-  incl_autocor = TRUE, negative_rt = FALSE, subset = NULL,
+  incl_autocor = TRUE, resp = NULL, negative_rt = FALSE, subset = NULL,
   nsamples = NULL, sort = FALSE, nug = NULL, ntrys = 5,
   summary = TRUE, robust = FALSE, probs = c(0.025, 0.975), ...)
 
 \method{posterior_predict}{brmsfit}(object, newdata = NULL,
-  re_formula = NULL, transform = NULL, allow_new_levels = FALSE,
-  sample_new_levels = "uncertainty", new_objects = list(),
-  incl_autocor = TRUE, negative_rt = FALSE, subset = NULL,
-  nsamples = NULL, sort = FALSE, nug = NULL, ntrys = 5,
-  robust = FALSE, probs = c(0.025, 0.975), ...)
+  re_formula = NULL, re.form = NULL, transform = NULL,
+  allow_new_levels = FALSE, sample_new_levels = "uncertainty",
+  new_objects = list(), incl_autocor = TRUE, resp = NULL,
+  negative_rt = FALSE, subset = NULL, nsamples = NULL, sort = FALSE,
+  nug = NULL, ntrys = 5, robust = FALSE, probs = c(0.025, 0.975), ...)
 }
 \arguments{
 \item{object}{An object of class \code{brmsfit}}
 
 \item{newdata}{An optional data.frame for which to evaluate predictions.
-If \code{NULL} (default), the orginal data of the model is used.}
+If \code{NULL} (default), the original data of the model is used.}
 
 \item{re_formula}{formula containing group-level effects 
 to be considered in the prediction. 
@@ -65,10 +65,13 @@ parameters should be included in the predictions. Defaults to
 correlation structures such as \code{\link[brms:cor_bsts]{cor_bsts}},
 or \code{\link[brms:cor_fixed]{cor_fixed}}.}
 
+\item{resp}{Optional names of response variables.
+If specified, fitted values of these response variables are returned.}
+
 \item{negative_rt}{Only relevant for Wiener diffusion models. 
 A flag indicating whether response times of responses
 on the lower boundary should be returned as negative values.
-This allows to distinquish responses on the upper and
+This allows to distinguish responses on the upper and
 lower boundary. Defaults to \code{FALSE}.}
 
 \item{subset}{A numeric vector specifying
@@ -102,24 +105,28 @@ instead of the raw values? Default is \code{TRUE}.}
 \item{robust}{If \code{FALSE} (the default) the mean is used as 
 the measure of central tendency and the standard deviation as 
 the measure of variability. If \code{TRUE}, the median and the 
-median absolute deivation (MAD) are applied instead.
+median absolute deviation (MAD) are applied instead.
 Only used if \code{summary} is \code{TRUE}.}
 
 \item{probs}{The percentiles to be computed by the \code{quantile} 
 function. Only used if \code{summary} is \code{TRUE}.}
 
 \item{...}{Currently ignored.}
+
+\item{re.form}{Alias of \code{re_formula}.}
 }
 \value{
 Predicted values of the response variable. 
   If \code{summary = TRUE} the output depends on the family:
-  For catagorical and ordinal families, it is a N x C matrix, 
+  For categorical and ordinal families, it is a N x C matrix, 
   where N is the number of observations and
   C is the number of categories. 
   For all other families, it is a N x E matrix where E is equal 
   to \code{length(probs) + 2}.
   If \code{summary = FALSE}, the output is as a S x N matrix, 
   where S is the number of samples.
+  In multivariate models, the output is an array of 3 dimensions, 
+  where the third dimension indicates the response variables.
 }
 \description{
 Predict responses based on the fitted model.
@@ -151,7 +158,7 @@ The estimated means of both methods should, however, be very similar.
   by sampling each value \code{ntrys} times and then select a valid value. 
   If all values are invalid, the closest boundary is used, instead. 
   If there are more than a few of these pathological cases, 
-  a warning will occure suggesting to increase argument \code{ntrys}.
+  a warning will occur suggesting to increase argument \code{ntrys}.
 }
 \examples{
 \dontrun{

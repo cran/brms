@@ -6,7 +6,7 @@
 \title{Set up a model formula for use in \pkg{brms}}
 \usage{
 brmsformula(formula, ..., flist = NULL, family = NULL, autocor = NULL,
-  nl = NULL, nonlinear = NULL)
+  nl = NULL)
 }
 \arguments{
 \item{formula}{An object of class \code{formula} 
@@ -21,16 +21,16 @@ names on their left-hand side.
 The following are distributional parameters of specific families
 (all other parameters are treated as non-linear parameters):
 \code{sigma} (residual standard deviation or scale of
-the \code{gaussian}, \code{student}, \code{lognormal} 
-\code{exgaussian}, and \code{asym_laplace} families);
+the \code{gaussian}, \code{student}, \code{skew_normal}, 
+\code{lognormal} \code{exgaussian}, and \code{asym_laplace} families);
 \code{shape} (shape parameter of the \code{Gamma},
 \code{weibull}, \code{negbinomial}, and related
-zero-inflated / hurdle families); \code{nu}
-(degrees of freedom parameter of the \code{student} family);
+zero-inflated / hurdle families); \code{nu} (degrees of freedom 
+parameter of the \code{student} and \code{frechet} families);
 \code{phi} (precision parameter of the \code{beta} 
 and \code{zero_inflated_beta} families);
 \code{kappa} (precision parameter of the \code{von_mises} family);
-\code{beta} (mean parameter of the exponential componenent
+\code{beta} (mean parameter of the exponential component
 of the \code{exgaussian} family);
 \code{quantile} (quantile parameter of the \code{asym_laplace} family);
 \code{zi} (zero-inflation probability); 
@@ -41,41 +41,25 @@ of the \code{exgaussian} family);
 \code{bs}, \code{ndt}, and \code{bias} (boundary separation,
 non-decision time, and initial bias of the \code{wiener}
 diffusion model).
-All distributional parameters are modeled 
-on the log or logit scale to ensure correct definition
-intervals after transformation.
+By default, distributional parameters are modeled 
+on the log scale if they can be positive only or on the 
+logit scale if the can only be within the unit interval.
 See 'Details' for more explanation.}
 
 \item{flist}{Optional list of formulas, which are treated in the 
 same way as formulas passed via the \code{...} argument.}
 
-\item{family}{Same argument as in \code{\link[brms:brm]{brm}}.
-If \code{family} is specified \code{brmsformula}, it will overwrite
-the value specified in \code{\link[brms:brm]{brm}}.}
+\item{family}{Same argument as in \code{\link{brm}}.
+If \code{family} is specified in \code{brmsformula}, it will 
+overwrite the value specified in \code{\link{brm}}.}
 
-\item{autocor}{An optional \code{\link{cor_brms}} object describing 
-the correlation structure within the response variable 
-(i.e., the 'autocorrelation'). 
-See the documentation of \code{\link{cor_brms}} for a description 
-of the available correlation structures. Defaults to \code{NULL}, 
-corresponding to no correlations.}
+\item{autocor}{Same argument as in \code{\link{brm}}.
+If \code{autocor} is specified in \code{brmsformula}, it will 
+overwrite the value specified in \code{\link{brm}}.}
 
 \item{nl}{Logical; Indicates whether \code{formula} should be
 treated as specifying a non-linear model. By default, \code{formula} 
 is treated as an ordinary linear model formula.}
-
-\item{nonlinear}{(Deprecated) An optional list of formulas, specifying 
-linear models for non-linear parameters. If \code{NULL} (the default)
-\code{formula} is treated as an ordinary formula. 
-If not \code{NULL}, \code{formula} is treated as a non-linear model
-and \code{nonlinear} should contain a formula for each non-linear 
-parameter, which has the parameter on the left hand side and its
-linear predictor on the right hand side.
-Alternatively, it can be a single formula with all non-linear
-parameters on the left hand side (separated by a \code{+}) and a
-common linear predictor on the right hand side.
-As of \pkg{brms} 1.4.0, we recommend specifying non-linear
-parameters directly within \code{formula}.}
 }
 \value{
 An object of class \code{brmsformula}, which
@@ -90,34 +74,33 @@ models for all parameters of the assumed response distribution.
 \details{
 \bold{General formula structure}
   
-  The \code{formula} argument accepts formulae of the following syntax:
+  The \code{formula} argument accepts formulas of the following syntax:
   
   \code{response | aterms ~ pterms + (gterms | group)} 
   
   The \code{pterms} part contains effects that are assumed to be the 
-  same across obervations. We call them 'population-level' effects
+  same across observations. We call them 'population-level' effects
   or (adopting frequentist vocabulary) 'fixed' effects. The optional
   \code{gterms} part may contain effects that are assumed to vary
-  accross grouping variables specified in \code{group}. We
+  across grouping variables specified in \code{group}. We
   call them 'group-level' effects or (adopting frequentist 
   vocabulary) 'random' effects, although the latter name is misleading
-  in a Bayesian context.
-  For more details type \code{vignette("brms_overview")} and
-  \code{vignette("brms_multilevel")}. 
+  in a Bayesian context. For more details type 
+  \code{vignette("brms_overview")} and \code{vignette("brms_multilevel")}. 
   
   \bold{Group-level terms}
   
   Multiple grouping factors each with multiple group-level effects 
-  are possible (of course can also run models without any
-  group-level effects). 
+  are possible. (Of course we can also run models without any
+  group-level effects.) 
   Instead of \code{|} you may use \code{||} in grouping terms
   to prevent correlations from being modeled. 
   Alternatively, it is possible to model different group-level terms of 
-  the same grouping factor as correlated (even across different formulae,
+  the same grouping factor as correlated (even across different formulas,
   e.g., in non-linear models) by using \code{|<ID>|} instead of \code{|}.
   All group-level terms sharing the same ID will be modeled as correlated.
   If, for instance, one specifies the terms \code{(1+x|2|g)} and 
-  \code{(1+z|2|g)} somewhere in the formulae passed to \code{brmsformula},
+  \code{(1+z|2|g)} somewhere in the formulas passed to \code{brmsformula},
   correlations between the corresponding group-level effects 
   will be estimated. 
   
@@ -129,8 +112,8 @@ models for all parameters of the assumed response distribution.
   
   \bold{Special predictor terms}
   
-  Smoothing terms can modeled using the \code{\link[brms:s]{s}}
-  and \code{\link[brms:t2]{t2}} functions in the \code{pterms} part 
+  Smoothing terms can modeled using the \code{\link{s}}
+  and \code{\link{t2}} functions in the \code{pterms} part 
   of the model formula. This allows to fit generalized additive mixed
   models (GAMMs) with \pkg{brms}. The implementation is similar to that 
   used in the \pkg{gamm4} package. For more details on this model class 
@@ -139,7 +122,7 @@ models for all parameters of the assumed response distribution.
   Gaussian process terms can be fitted using the \code{\link[brms:gp]{gp}}
   function in the \code{pterms} part of the model formula. Similar to
   smooth terms, Gaussian processes can be used to model complex non-linear
-  relationsships, for instance temporal or spatial autocorrelation. 
+  relationships, for instance temporal or spatial autocorrelation. 
   However, they are computationally demanding and are thus not recommended 
   for very large datasets.
   
@@ -154,7 +137,7 @@ models for all parameters of the assumed response distribution.
   
   A monotonic predictor must either be integer valued or an ordered factor, 
   which is the first difference to an ordinary continuous predictor. 
-  More importantly, predictor categories (or integers) are not assumend to be 
+  More importantly, predictor categories (or integers) are not assumed to be 
   equidistant with respect to their effect on the response variable. 
   Instead, the distance between adjacent predictor categories (or integers) 
   is estimated from the data and may vary across categories. 
@@ -168,10 +151,10 @@ models for all parameters of the assumed response distribution.
   see \code{vignette("brms_monotonic")}.
   
   Quite often, predictors are measured and as such naturally contain 
-  measurement error. Although most reseachers are well aware of this problem,
+  measurement error. Although most researchers are well aware of this problem,
   measurement error in predictors is ignored in most
   regression analyses, possibly because only few packages allow
-  for modelling it. Notably, measurement error can be handled in 
+  for modeling it. Notably, measurement error can be handled in 
   structural equation models, but many more general regression models
   (such as those featured by \pkg{brms}) cannot be transferred 
   to the SEM framework. In \pkg{brms}, effects of noise-free predictors 
@@ -180,7 +163,7 @@ models for all parameters of the assumed response distribution.
   \code{x} is a measured predictor with known measurement error
   \code{sdx}, we can simply include it on the right-hand side of the
   model formula via \code{y ~ me(x, sdx)}. 
-  This can easily be extended to more general formulae. 
+  This can easily be extended to more general formulas. 
   If \code{x2} is another measured predictor with corresponding error
   \code{sdx2} and \code{z} is a predictor without error
   (e.g., an experimental setting), we can model all main effects 
@@ -191,28 +174,27 @@ models for all parameters of the assumed response distribution.
   
   \bold{Additional response information}
   
-  Another speciality of the \pkg{brms} formula syntax is the optional 
-  \code{aterms} part, which may contain 
-  multiple terms of the form \code{fun(<variable>)} seperated by \code{+} each 
-  providing special information on the response variable. \code{fun} can be 
-  replaced with either \code{se}, \code{weights}, \code{disp}, \code{trials},
-  \code{cat}, \code{cens}, \code{trunc}, or \code{dec}.
-  Their meanings are explained below 
-  (see also \code{\link[brms:addition-terms]{addition-terms}}). 
+  Another special of the \pkg{brms} formula syntax is the optional 
+  \code{aterms} part, which may contain multiple terms of the form 
+  \code{fun(<variable>)} separated by \code{+} each providing special 
+  information on the response variable. \code{fun} can be replaced with 
+  either \code{se}, \code{weights}, \code{cens}, \code{trunc}, 
+  \code{trials}, \code{cat}, or \code{dec}. Their meanings are explained below.
+  (see also \code{\link{addition-terms}}). 
   
-  For families \code{gaussian} and \code{student}, it is 
-  possible to specify standard errors of the observation, thus allowing 
+  For families \code{gaussian}, \code{student} and \code{skew_normal}, it is 
+  possible to specify standard errors of the observations, thus allowing 
   to perform meta-analysis. Suppose that the variable \code{yi} contains 
   the effect sizes from the studies and \code{sei} the corresponding 
   standard errors. Then, fixed and random effects meta-analyses can 
-  be conducted using the formulae \code{yi | se(sei) ~ 1} and 
+  be conducted using the formulas \code{yi | se(sei) ~ 1} and 
   \code{yi | se(sei) ~ 1 + (1|study)}, respectively, where 
   \code{study} is a variable uniquely identifying every study.
   If desired, meta-regression can be performed via 
   \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1|study)} 
   or \cr \code{yi | se(sei) ~ 1 + mod1 + mod2 + (1 + mod1 + mod2|study)}, 
   where \code{mod1} and \code{mod2} represent moderator variables. 
-  By default, the standard errors replace the paramter \code{sigma}.
+  By default, the standard errors replace the parameter \code{sigma}.
   To model \code{sigma} in addition to the known standard errors,
   set argument \code{sigma} in function \code{se} to \code{TRUE}, 
   for instance, \code{yi | se(sei, sigma = TRUE) ~ 1}.
@@ -226,24 +208,28 @@ models for all parameters of the assumed response distribution.
   Then, formula \code{yi | weights(wei) ~ predictors} 
   implements a weighted regression. 
   
-  (DEPRECATED) The addition argument \code{disp} (short for dispersion) 
-  serves a similar purpose than \code{weight}. However, it has a different 
-  implementation and is less general as it is only usable for the
-  families \code{gaussian}, \code{student}, \code{lognormal},
-  \code{exgaussian}, \code{asym_laplace}, \code{Gamma}, 
-  \code{weibull}, and \code{negbinomial}.
-  For the former three families, the residual standard deviation 
-  \code{sigma} is multiplied by the values given in 
-  \code{disp}, so that higher values lead to lower weights.
-  Contrariwise, for the latter three families, the parameter \code{shape}
-  is multiplied by the values given in \code{disp}. As \code{shape}
-  can be understood as a precision parameter (inverse of the variance),
-  higher values will lead to higher weights in this case.
-  Instead of using addition argument \code{disp}, you may 
-  equivalently use the distributional regression approach
-  by specifying \code{sigma ~ 1 + offset(log(xdisp))} or
-  \code{shape ~ 1 + offset(log(xdisp))}, where \code{xdisp} is
-  the variable being passed to \code{disp}.
+  With the exception of categorical, ordinal, and mixture families, 
+  left, right, and interval censoring can be modeled through 
+  \code{y | cens(censored) ~ predictors}. The censoring variable 
+  (named \code{censored} in this example) should contain the values 
+  \code{'left'}, \code{'none'}, \code{'right'}, and \code{'interval'} 
+  (or equivalently \code{-1}, \code{0}, \code{1}, and \code{2}) to indicate that 
+  the corresponding observation is left censored, not censored, right censored,
+  or interval censored. For interval censored data, a second variable
+  (let's call it \code{y2}) has to be passed to \code{cens}. In this case, 
+  the formula has the structure \code{y | cens(censored, y2) ~ predictors}. 
+  While the lower bounds are given in \code{y}, the upper bounds are given 
+  in \code{y2} for interval censored data. Intervals are assumed to be open 
+  on the left and closed on the right: \code{(y, y2]}.
+  
+  With the exception of categorical, ordinal, and mixture families, 
+  the response distribution can be truncated using the \code{trunc} 
+  function in the addition part. If the response variable is truncated 
+  between, say, 0 and 100, we can specify this via
+  \code{yi | trunc(lb = 0, ub = 100) ~ predictors}. 
+  Instead of numbers, variables in the data set can also be passed allowing 
+  for varying truncation points across observations. Defining only one of 
+  the two arguments in \code{trunc} leads to one-sided truncation.
   
   For families \code{binomial} and \code{zero_inflated_binomial}, 
   addition should contain a variable indicating the number of trials 
@@ -257,30 +243,6 @@ models for all parameters of the assumed response distribution.
   \code{cat(number)} to specify the number categories (e.g, \code{cat(7)}). 
   If not given, the number of categories is calculated from the data.
   
-  With the expection of \code{categorical} and ordinal families, 
-  left, right, and interval censoring can be modeled through 
-  \code{y | cens(censored) ~ predictors}. The censoring variable 
-  (named \code{censored} in this example) should contain the values 
-  \code{'left'}, \code{'none'}, \code{'right'}, and \code{'interval'} 
-  (or equivalenty \code{-1}, \code{0}, \code{1}, and \code{2}) to indicate that 
-  the corresponding observation is left censored, not censored, right censored,
-  or interval censored. For interval censored data, a second variable
-  (let's call it \code{y2}) has to be passed to \code{cens}. In this case, 
-  the formula has the structure \code{y | cens(censored, y2) ~ predictors}. 
-  While the lower bounds are given in \code{y}, 
-  the upper bounds are given in \code{y2} for interval
-  censored data. Intervals are assumed to be open on the left and closed 
-  on the right: \code{(y, y2]}.
-  
-  With the expection of \code{categorical} and ordinal families, the response 
-  distribution can be truncated using the \code{trunc} function in the addition part.
-  If the response variable is truncated between, say, 0 and 100, we can specify this via
-  \code{yi | trunc(lb = 0, ub = 100) ~ predictors}. 
-  Instead of numbers, variables in the data set can also be passed allowing 
-  for varying truncation points across observations. 
-  Defining only one of the two arguments in \code{trunc} 
-  leads to one-sided truncation.
-  
   In Wiener diffusion models (family \code{wiener}) the addition term
   \code{dec} is mandatory to specify the (vector of) binary decisions 
   corresponding to the reaction times. Non-zero values will be treated
@@ -289,54 +251,17 @@ models for all parameters of the assumed response distribution.
   the variable passed to \code{dec} might also be a character vector 
   consisting of \code{'lower'} and \code{'upper'}.
 
-  Mutiple addition terms may be specified at the same time using 
+  Multiple addition terms may be specified at the same time using 
   the \code{+} operator, for instance \cr
   \code{formula = yi | se(sei) + cens(censored) ~ 1} 
   for a censored meta-analytic model. 
   
-  \bold{Formula syntax for multivariate and categorical models}
-  
-  For families \code{gaussian} and \code{student},
-  multivariate models may be specified using \code{cbind} notation. 
-  In \pkg{brms} 1.0.0, the multvariate 'trait' syntax was removed 
-  from the package as it repeatedly confused users, required much 
-  special case coding, and was hard to maintain. Below the new 
-  syntax is described. 
-  Suppose that \code{y1} and \code{y2} are response variables 
-  and \code{x} is a predictor. 
-  Then \code{cbind(y1,y2) ~ x} specifies a multivariate model,
-  The effects of all terms specified at the RHS of the formula 
-  are assumed to vary across response variables (this was not the
-  case by default in \pkg{brms} < 1.0.0). For instance, two parameters will
-  be estimated for \code{x}, one for the effect
-  on \code{y1} and another for the effect on \code{y2}.
-  This is also true for group-level effects. When writing, for instance,
-  \code{cbind(y1,y2) ~ x + (1+x|g)}, group-level effects will be
-  estimated separately for each response. To model these effects
-  as correlated across responses, use the ID syntax (see above).
-  For the present example, this would look as follows:
-  \code{cbind(y1,y2) ~ x + (1+x|2|g)}. Of course, you could also use
-  any value other than \code{2} as ID. It is not yet possible
-  to model terms as only affecting certain responses (and not others),
-  but this will be implemented in the future.
-   
-  Categorical models use the same syntax as multivariate
-  models. As in most other implementations of categorical models,
-  values of one category (the first in \pkg{brms}) are fixed 
-  to identify the model. Thus, all terms on the RHS of 
-  the formula correspond to \code{K - 1} effects 
-  (\code{K} = number of categories), one for each non-fixed category.
-  Group-level effects may be specified as correlated across
-  categories using the ID syntax.
-  
-  As of \pkg{brms} 1.0.0, zero-inflated and hurdle models are specfied 
-  in the same way as as their non-inflated counterparts. 
-  However, they have additional distributional parameters 
-  (named \code{zi} and \code{hu} respectively)
-  modeling the zero-inflation / hurdle probability depending on which 
-  model you choose. These parameters can also be affected by predictors
-  in the same way the response variable itself. See the end of the
-  Details section for information on how to accomplish that.
+  The addition argument \code{disp} (short for dispersion) 
+  has been removed in version 2.0. You may instead use the 
+  distributional regression approach by specifying
+  \code{sigma ~ 1 + offset(log(xdisp))} or
+  \code{shape ~ 1 + offset(log(xdisp))}, where \code{xdisp} is
+  the variable being previously passed to \code{disp}.
   
   \bold{Parameterization of the population-level intercept}
   
@@ -352,7 +277,7 @@ models for all parameters of the assumed response distribution.
   that you are effectively defining a prior on the intercept 
   of the centered design matrix not on the real intercept.
   For more details on setting priors on population-level intercepts,
-  see \code{\link[brms:set_prior]{set_prior}}.
+  see \code{\link{set_prior}}.
   
   This behavior can be avoided by using the reserved 
   (and internally generated) variable \code{intercept}. 
@@ -378,7 +303,7 @@ models for all parameters of the assumed response distribution.
   can be added in the same way as for ordinary formulas).
   To tell \code{brms} that this is a non-linear model, 
   we set argument \code{nl} to \code{TRUE}.
-  Now we have to specfiy a model for each of the non-linear parameters. 
+  Now we have to specify a model for each of the non-linear parameters. 
   Let's say we just want to estimate those three parameters
   with no further covariates or random effects. Then we can pass
   \code{alpha + beta + lambda ~ 1} or equivalently
@@ -395,7 +320,7 @@ models for all parameters of the assumed response distribution.
   
   Non-linear models may not be uniquely identified and / or show bad convergence.
   For this reason it is mandatory to specify priors on the non-linear parameters.
-  For instructions on how to do that, see \code{\link[brms:set_prior]{set_prior}}.
+  For instructions on how to do that, see \code{\link{set_prior}}.
   For some examples of non-linear models, see \code{vignette("brms_nonlinear")}.
   
   \bold{Formula syntax for predicting distributional parameters}
@@ -418,8 +343,8 @@ models for all parameters of the assumed response distribution.
   Furthermore, the \code{bias} parameter in drift-diffusion models, 
   is assumed to be \code{0.5} (i.e. no bias) in many applications. 
   To achieve this, simply write \code{bias = 0.5}. 
-  Other possible applications are the Cauchy 
-  distribution as a special case of the Student-t distribution with 
+  Other possible applications are the Cauchy distribution as a 
+  special case of the Student-t distribution with 
   \code{nu = 1}, or the geometric distribution as a special case of
   the negative binomial distribution with \code{shape = 1}.
   Furthermore, the parameter \code{disc} ('discrimination') in ordinal 
@@ -428,23 +353,29 @@ models for all parameters of the assumed response distribution.
   (see examples). For reasons of identification, \code{'disc'}
   can only be positive, which is achieved by applying the log-link.
   
-  All distributional parameters currently supported by \code{brmsformula}
-  have to positive (a negative standard deviation or precision parameter 
-  doesn't make any sense) or are bounded between 0 and 1 (for zero-inflated / 
-  hurdle proabilities, quantiles, or the intial bias parameter of 
+  In categorical models, distributional parameters do not have
+  fixed names. Instead, they are named after the response categories 
+  (excluding the first one, which serves as the reference category),
+  with the prefix \code{'mu'}. If, for instance, categories are named 
+  \code{cat1}, \code{cat2}, and \code{cat3}, the distributional parameters
+  will be named \code{mucat2} and \code{mucat3}.
+  
+  Some distributional parameters currently supported by \code{brmsformula}
+  have to be positive (a negative standard deviation or precision parameter 
+  does not make any sense) or are bounded between 0 and 1 (for zero-inflated / 
+  hurdle probabilities, quantiles, or the initial bias parameter of 
   drift-diffusion models). 
   However, linear predictors can be positive or negative, and thus the log link 
   (for positive parameters) or logit link (for probability parameters) are used 
   by default to ensure that distributional parameters are within their valid intervals.
-  This implies that, by default, effects for distributional parameters are estimated 
-  on the log / logit scale and one has to apply the inverse link function to get 
-  to the effects on the original scale.
+  This implies that, by default, effects for such distributional parameters are 
+  estimated on the log / logit scale and one has to apply the inverse link 
+  function to get to the effects on the original scale.
   Alternatively, it is possible to use the identity link to predict parameters
   on their original scale, directly. However, this is much more likely to lead 
-  to problems in the model fitting.
+  to problems in the model fitting, if the parameter actually has a restricted range.
   
-  See also \code{\link[brms:brmsfamily]{brmsfamily}} for an overview of 
-  valid link functions.
+  See also \code{\link{brmsfamily}} for an overview of valid link functions.
   
   \bold{Formula syntax for mixture models}
   
@@ -481,7 +412,32 @@ models for all parameters of the assumed response distribution.
   probability vector.
   
   For more information on mixture models, see
-  the documentation of \code{\link[brms:mixture]{mixture}}.
+  the documentation of \code{\link{mixture}}.
+  
+  \bold{Formula syntax for multivariate models}
+  
+  Multivariate models may be specified using \code{cbind} notation
+  or with help of the \code{\link{mvbf}} function.
+  Suppose that \code{y1} and \code{y2} are response variables 
+  and \code{x} is a predictor. Then \code{cbind(y1, y2) ~ x} 
+  specifies a multivariate model,
+  The effects of all terms specified at the RHS of the formula 
+  are assumed to vary across response variables. 
+  For instance, two parameters will be estimated for \code{x}, 
+  one for the effect on \code{y1} and another for the effect on \code{y2}.
+  This is also true for group-level effects. When writing, for instance,
+  \code{cbind(y1, y2) ~ x + (1+x|g)}, group-level effects will be
+  estimated separately for each response. To model these effects
+  as correlated across responses, use the ID syntax (see above).
+  For the present example, this would look as follows:
+  \code{cbind(y1, y2) ~ x + (1+x|2|g)}. Of course, you could also use
+  any value other than \code{2} as ID.
+  
+  It is also possible to specify different formulas for different responses.
+  If, for instance, \code{y1} should be predicted by \code{x} and \code{y2}
+  should be predicted by \code{z}, we could write \code{mvbf(y1 ~ x, y2 ~ z)}.
+  Alternatively, multiple \code{brmsformula} objects can be added to
+  specify a joint multivariate model (see 'Examples').
 }
 \examples{
 # multilevel model with smoothing terms
@@ -549,8 +505,13 @@ bf(y ~ 1) +
   nlf(sigma ~ a * exp(b * x), a ~ x) + 
   lf(b ~ z + (1|g), dpar = "sigma") +
   gaussian()
+  
+# specify a multivariate model using the '+' operator
+bf(y1 ~ x + (1|g)) + 
+  gaussian() + cor_ar(~1|g) +
+  bf(y2 ~ z) + poisson()
 
 }
 \seealso{
-\code{\link[brms:brmsformula-helpers]{brmsformula-helpers}}
+\code{\link{mvbrmsformula}}, \code{\link{brmsformula-helpers}}
 }

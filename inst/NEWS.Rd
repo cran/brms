@@ -2,6 +2,84 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 2.0.0}{
+  This is the second major release of \code{brms}. The main
+  new feature are generalized multivariate models, which now
+  support everything already possible in univariate models, 
+  but with multiple response variables. Further, the internal
+  structure of the package has been improved considerably to be 
+  easier to maintain and extend in the future.
+  In addition, most deprecated functionality and arguments have 
+  been removed to provide a clean new start for the package.
+  Models fitted with \pkg{brms} 1.0 or higher should remain
+  fully compatible with \pkg{brms} 2.0.
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Add support for generalized multivariate models,
+      where each of the univariate models may have a different 
+      family and autocorrelation structure. 
+      Residual correlations can be estimated for multivariate
+      \code{gaussian} and \code{student} models. All features
+      supported in univariate models are now also available in
+      multivariate models. (#3)
+      \item Specify different formulas for different
+      categories in \code{categorical} models.
+      \item Add weakly informative default priors for the 
+      parameter class \code{Intercept} to improve convergence 
+      of more complex distributional models.
+      \item Optionally display the MC standard error in the
+      \code{summary} output. (#280)
+      \item Add argument \code{re.form} as an alias of 
+      \code{re_formula} to the methods \code{posterior_predict},
+      \code{posterior_linpred}, and \code{predictive_error}
+      for consistency with other packages making use of
+      these methods. (#283)
+    }
+  }
+  \subsection{OTHER CHANGES}{
+    \itemize{
+      \item Refactor many parts of the package to make
+      it more consistent and easier to extend.
+      \item Show the link functions of all
+      distributional parameters in the \code{summary}
+      output. (#277)
+      \item Reduce working memory requirements when
+      extracting posterior samples for use in \code{predict}
+      and related methods thanks to Fanyi Zhang. (#224)
+      \item Remove deprecated aliases of functions
+      and arguments from the package. (#278)
+      \item No longer support certain prior specifications,
+      which were previously labeled as deprecated.
+      \item Remove the depreacted addition term 
+      \code{disp} from the package.
+      \item Remove old versions of methods \code{fixef},
+      \code{ranef}, \code{coef}, and \code{VarCorr}.
+      \item No longer support models fitted with \pkg{brms} < 1.0, 
+      which used the multivariate \code{'trait'} syntax
+      orginally deprecated in \pkg{brms} 1.0.
+      \item Make posterior sample extraction in the 
+      \code{summary} method cleaner and less error prone.
+      \item No longer fix the seed for random number generation 
+      in \code{brm} to avoid unexpected behavior in simulation studies.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Store \code{stan_funs} in \code{brmsfit} objects
+      to allow using \code{update} on models with user-defined
+      Stan functions thanks to Tom Wallis. (#288)
+      \item Fix problems in various post-processing methods 
+      when applied to models with the reserved variable 
+      \code{intercept} in group-level terms thanks to
+      the GitHub user ASKurz. (#279)
+      \item Fix an unexpected error in \code{predict} and related 
+      methods when setting \code{sample_new_levels = "gaussian"}
+      in models with only one group-level effect.
+      Thanks to Timothy Mastny. (#286)
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 1.10.2}{
   \subsection{NEW FEATURES}{
     \itemize{

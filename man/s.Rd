@@ -3,7 +3,7 @@
 \name{s}
 \alias{s}
 \alias{t2}
-\title{Defining smooths in \pkg{brms} formulae}
+\title{Defining smooths in \pkg{brms} formulas}
 \usage{
 s(...)
 
@@ -14,7 +14,7 @@ t2(...)
 \code{\link[mgcv:t2]{mgcv::t2}}.}
 }
 \description{
-Functions used in definition of smooth terms within a model formulae. 
+Functions used in definition of smooth terms within a model formulas. 
 The function does not evaluate a (spline) smooth - it exists purely 
 to help set up a model using spline based smooths.
 }
@@ -42,6 +42,6 @@ plot(marginal_smooths(fit2), ask = FALSE)
 
 }
 \seealso{
-\code{\link[brms:brmsformula]{brmsformula}},
+\code{\link{brmsformula}},
   \code{\link[mgcv:s]{mgcv::s}}, \code{\link[mgcv:t2]{mgcv::t2}}
 }

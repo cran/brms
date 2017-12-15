@@ -9,7 +9,7 @@
 mo(x)
 }
 \arguments{
-\item{x}{An integer variable or an orderd factor
+\item{x}{An integer variable or an ordered factor
 to be modeled as monotonic.}
 }
 \description{
@@ -52,5 +52,5 @@ plot(marginal_effects(fit2), points = TRUE)
  
 }
 \seealso{
-\code{\link[brms:brmsformula]{brmsformula}}
+\code{\link{brmsformula}}
 }

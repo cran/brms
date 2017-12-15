@@ -8,13 +8,12 @@
 #' 
 #' @param x A vector; usually a variable defined in the
 #'  data. Allowed values depend on the function:
-#'  \code{resp_se}, \code{resp_weights}, and \code{resp_disp} 
-#'  require positive numeric values;
-#'  \code{resp_trials} and \code{resp_cat} require positive integers;
+#'  \code{resp_se} and \code{resp_weights} require positive numeric values.
+#'  \code{resp_trials} and \code{resp_cat} require positive integers.
 #'  \code{resp_dec} requires \code{0} and \code{1}, or alternatively
 #'  \code{'lower'} and \code{'upper'}; 
 #'  \code{resp_cens} requires \code{'left'}, \code{'none'}, \code{'right'},
-#'  and \code{'interval'} (or equivalenty \code{-1}, \code{0}, \code{1},
+#'  and \code{'interval'} (or equivalently \code{-1}, \code{0}, \code{1},
 #'  and \code{2}) to indicate left, no, right, or interval censoring.
 #' @param sigma Logical; Indicates whether the residual standard deviation
 #'  parameter \code{sigma} should be included in addition to the known
@@ -34,11 +33,11 @@
 #'   called in formulas passed to the \pkg{brms} package.
 #'   Within formulas, the \code{resp_} prefix may be omitted.
 #'   More information is given in the 'Details' section
-#'   of \code{\link[brms:brmsformula]{brmsformula}}.
+#'   of \code{\link{brmsformula}}.
 #'   
 #' @seealso 
-#'   \code{\link[brms:brm]{brm}}, 
-#'   \code{\link[brms:brmsformula]{brmsformula}}   
+#'   \code{\link{brm}}, 
+#'   \code{\link{brmsformula}}   
 #'  
 #' @examples 
 #' \dontrun{
@@ -105,19 +104,6 @@ resp_weights <- function(x) {
     stop2("Weights must be non-negative.")
   }
   x
-}
-
-#' @rdname addition-terms
-#' @export
-resp_disp <- function(x) {
-  # dispersion factors
-  if (!is.numeric(x)) {
-    stop2("Dispersion factors must be numeric.")
-  }
-  if (min(x) < 0) {
-    stop2("Dispersion factors must be non-negative.")
-  }
-  x  
 }
 
 #' @rdname addition-terms
@@ -213,9 +199,9 @@ resp_trunc <- function(lb = -Inf, ub = Inf) {
   nlist(lb, ub)
 }
 
-#' Defining smooths in \pkg{brms} formulae
+#' Defining smooths in \pkg{brms} formulas
 #' 
-#' Functions used in definition of smooth terms within a model formulae. 
+#' Functions used in definition of smooth terms within a model formulas. 
 #' The function does not evaluate a (spline) smooth - it exists purely 
 #' to help set up a model using spline based smooths.
 #' 
@@ -225,7 +211,7 @@ resp_trunc <- function(lb = -Inf, ub = Inf) {
 #' @details The function defined here are just simple wrappers
 #'  of the respective functions of the \pkg{mgcv} package.
 #'  
-#' @seealso \code{\link[brms:brmsformula]{brmsformula}},
+#' @seealso \code{\link{brmsformula}},
 #'   \code{\link[mgcv:s]{mgcv::s}}, \code{\link[mgcv:t2]{mgcv::t2}}
 #'  
 #' @examples
@@ -268,7 +254,7 @@ t2 <- function(...) {
 #' This function is almost solely useful when
 #' called in formulas passed to the \pkg{brms} package.
 #' 
-#' @seealso \code{\link[brms:brmsformula]{brmsformula}}
+#' @seealso \code{\link{brmsformula}}
 #'   
 #' @examples 
 #' \dontrun{
@@ -316,7 +302,7 @@ me <- function(x, sdx = NULL) {
 #' This function is almost solely useful when
 #' called in formulas passed to the \pkg{brms} package.
 #' 
-#' @seealso \code{\link[brms:brmsformula]{brmsformula}}
+#' @seealso \code{\link{brmsformula}}
 #'   
 #' @examples   
 #' \dontrun{
@@ -342,7 +328,7 @@ cse <- function(expr) {
 #' 
 #' @aliases mono monotonic
 #' 
-#' @param x An integer variable or an orderd factor
+#' @param x An integer variable or an ordered factor
 #'   to be modeled as monotonic.
 #'  
 #' @details For detailed documentation see \code{help(brmsformula)}
@@ -351,7 +337,7 @@ cse <- function(expr) {
 #' This function is almost solely useful when
 #' called in formulas passed to the \pkg{brms} package.
 #' 
-#' @seealso \code{\link[brms:brmsformula]{brmsformula}}
+#' @seealso \code{\link{brmsformula}}
 #'   
 #' @examples   
 #' \dontrun{
@@ -436,7 +422,7 @@ monotonic <- function(x) {
 #'   predictors, it is recommended to manually specify priors
 #'   on \code{lscale}, if \code{scale} is set to \code{FALSE}.
 #'   
-#' @details A Gaussian process is a stochastic process, whichs
+#' @details A Gaussian process is a stochastic process, which
 #'  describes the relation between one or more predictors 
 #'  \eqn{x = (x_1, ..., x_d)} and a response \eqn{f(x)}, where 
 #'  \eqn{d} is the number of predictors. A Gaussian process is the
@@ -506,7 +492,7 @@ monotonic <- function(x) {
 #' plot(marginal_effects(fit4), points = TRUE)
 #' }
 #' 
-#' @seealso \code{\link[brms:brmsformula]{brmsformula}}
+#' @seealso \code{\link{brmsformula}}
 #' @export
 gp <- function(..., by = NA, cov = "exp_quad", scale = TRUE) {
   cov <- match.arg(cov, choices = c("exp_quad"))
@@ -523,12 +509,12 @@ gp <- function(..., by = NA, cov = "exp_quad", scale = TRUE) {
 #' Function used to set up a basic grouping term in \pkg{brms}.
 #' The function does not evaluate its arguments --
 #' it exists purely to help set up a model with grouping terms.
-#' \code{gr} is called implicitely inside the package
+#' \code{gr} is called implicitly inside the package
 #' and there is usually no need to call it directly.
 #' 
 #' @param ... One or more terms containing grouping factors.
 #' 
-#' @seealso \code{\link[brms:brmsformula]{brmsformula}}
+#' @seealso \code{\link{brmsformula}}
 #' 
 #' @examples 
 #' \dontrun{
@@ -571,7 +557,7 @@ gr <- function(...) {
 #'  If negative weights are specified, \code{scale} needs
 #'  to be set to \code{FALSE}.
 #'  
-#' @seealso \code{\link[brms:brmsformula]{brmsformula}}
+#' @seealso \code{\link{brmsformula}}
 #'  
 #' @examples 
 #' \dontrun{

@@ -13,7 +13,7 @@ gr(...)
 Function used to set up a basic grouping term in \pkg{brms}.
 The function does not evaluate its arguments --
 it exists purely to help set up a model with grouping terms.
-\code{gr} is called implicitely inside the package
+\code{gr} is called implicitly inside the package
 and there is usually no need to call it directly.
 }
 \examples{
@@ -29,5 +29,5 @@ WAIC(fit1, fit2)
 
 }
 \seealso{
-\code{\link[brms:brmsformula]{brmsformula}}
+\code{\link{brmsformula}}
 }

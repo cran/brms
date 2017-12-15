@@ -4,7 +4,6 @@
 \alias{addition-terms}
 \alias{resp_se}
 \alias{resp_weights}
-\alias{resp_disp}
 \alias{resp_trials}
 \alias{resp_cat}
 \alias{resp_dec}
@@ -15,8 +14,6 @@
 resp_se(x, sigma = FALSE)
 
 resp_weights(x)
-
-resp_disp(x)
 
 resp_trials(x)
 
@@ -31,13 +28,12 @@ resp_trunc(lb = -Inf, ub = Inf)
 \arguments{
 \item{x}{A vector; usually a variable defined in the
 data. Allowed values depend on the function:
-\code{resp_se}, \code{resp_weights}, and \code{resp_disp} 
-require positive numeric values;
-\code{resp_trials} and \code{resp_cat} require positive integers;
+\code{resp_se} and \code{resp_weights} require positive numeric values.
+\code{resp_trials} and \code{resp_cat} require positive integers.
 \code{resp_dec} requires \code{0} and \code{1}, or alternatively
 \code{'lower'} and \code{'upper'}; 
 \code{resp_cens} requires \code{'left'}, \code{'none'}, \code{'right'},
-and \code{'interval'} (or equivalenty \code{-1}, \code{0}, \code{1},
+and \code{'interval'} (or equivalently \code{-1}, \code{0}, \code{1},
 and \code{2}) to indicate left, no, right, or interval censoring.}
 
 \item{sigma}{Logical; Indicates whether the residual standard deviation
@@ -67,7 +63,7 @@ These functions are almost solely useful when
   called in formulas passed to the \pkg{brms} package.
   Within formulas, the \code{resp_} prefix may be omitted.
   More information is given in the 'Details' section
-  of \code{\link[brms:brmsformula]{brmsformula}}.
+  of \code{\link{brmsformula}}.
 }
 \examples{
 \dontrun{
@@ -104,6 +100,6 @@ summary(fit4)
   
 }
 \seealso{
-\code{\link[brms:brm]{brm}}, 
-  \code{\link[brms:brmsformula]{brmsformula}}
+\code{\link{brm}}, 
+  \code{\link{brmsformula}}
 }
