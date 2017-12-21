@@ -12,7 +12,7 @@
 
 <meta name="author" content="Paul Bürkner" />
 
-<meta name="date" content="2017-12-15" />
+<meta name="date" content="2017-12-21" />
 
 <title>Estimating Monotonic Effects with brms</title>
 
@@ -70,7 +70,7 @@ code > span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Inf
 
 <h1 class="title toc-ignore">Estimating Monotonic Effects with brms</h1>
 <h4 class="author"><em>Paul Bürkner</em></h4>
-<h4 class="date"><em>2017-12-15</em></h4>
+<h4 class="date"><em>2017-12-21</em></h4>
 
 
 <div id="TOC">
@@ -300,29 +300,29 @@ Samples: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;
 Group-Level Effects: 
 ~city (Number of levels: 10) 
                         Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-sd(moincome)                2.29      1.86     0.08     7.08       2493 1.00
-sd(Intercept)              11.96      3.37     7.12    19.99       1169 1.00
-cor(moincome,Intercept)    -0.30      0.53    -0.98     0.86        393 1.01
+sd(moincome)                2.30      1.88     0.08     6.91       2240 1.00
+sd(Intercept)              12.15      3.39     7.21    20.66       1256 1.00
+cor(moincome,Intercept)    -0.32      0.52    -0.98     0.86        380 1.01
 
 Population-Level Effects: 
              Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-Intercept       30.57      6.47    17.95    43.31       1482 1.01
-age              0.08      0.13    -0.17     0.33       1569 1.01
-moincome        52.53      8.55    36.18    69.09       1434 1.01
-moincome:age    -0.24      0.22    -0.68     0.17       1422 1.01
+Intercept       30.78      6.50    18.22    43.48       2134 1.00
+age              0.08      0.13    -0.16     0.35       1965 1.00
+moincome        52.59      8.35    36.41    68.68       1678 1.00
+moincome:age    -0.25      0.21    -0.67     0.16       1624 1.00
 
 Simplex Parameters: 
                  Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-moincome1[1]         0.60      0.07     0.46     0.73       2274 1.00
-moincome1[2]         0.23      0.06     0.12     0.34       3441 1.00
-moincome1[3]         0.18      0.07     0.06     0.34       2388 1.00
-moincome:age1[1]     0.38      0.24     0.02     0.85       2953 1.00
-moincome:age1[2]     0.25      0.21     0.01     0.77       2659 1.00
-moincome:age1[3]     0.36      0.23     0.01     0.83       2675 1.00
+moincome1[1]         0.60      0.07     0.47     0.73       2647 1.00
+moincome1[2]         0.23      0.06     0.12     0.35       4000 1.00
+moincome1[3]         0.18      0.07     0.06     0.34       2505 1.00
+moincome:age1[1]     0.39      0.23     0.02     0.85       3211 1.00
+moincome:age1[2]     0.24      0.21     0.01     0.75       3239 1.00
+moincome:age1[3]     0.37      0.23     0.02     0.84       3264 1.00
 
 Family Specific Parameters: 
       Estimate Est.Error l-95% CI u-95% CI Eff.Sample Rhat
-sigma     6.49      0.52     5.56     7.62       4000 1.00
+sigma     6.47      0.52     5.50     7.56       4000 1.00
 
 Samples were drawn using sampling(NUTS). For each parameter, Eff.Sample 
 is a crude measure of effective sample size, and Rhat is the potential 

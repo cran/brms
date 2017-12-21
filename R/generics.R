@@ -436,7 +436,7 @@ WAIC <- function(x, ...) {
 #' @param ... Optionally more fitted model objects.
 #' @param compare A flag indicating if the information criteria
 #'  of the models should be compared to each other
-#'  via \code{\link[brms:compare_ic]{compare_ic}}.
+#'  via \code{\link{compare_ic}}.
 #' @param pointwise A flag indicating whether to compute the full
 #'  log-likelihood matrix at once or separately for each observation. 
 #'  The latter approach is usually considerably slower but 
@@ -445,7 +445,7 @@ WAIC <- function(x, ...) {
 #'  By default, \code{pointwise} is automatically chosen based on 
 #'  the size of the model.
 #' @param reloo Logical; Indicate whether 
-#'  \code{\link[brms:reloo]{reloo}} should be applied
+#'  \code{\link{reloo}} should be applied
 #'  on problematic observations. Defaults to \code{FALSE}.
 #' @param k_threshold The threshold at which pareto \eqn{k} 
 #'   estimates are treated as problematic. Defaults to \code{0.7}. 
@@ -453,7 +453,7 @@ WAIC <- function(x, ...) {
 #'   See \code{\link[loo:pareto_k_ids]{pareto_k_ids}}
 #'   for more details.
 #' @param update_args A \code{list} of further arguments passed to 
-#'   \code{\link[brms:update.brmsfit]{update.brmsfit}} such
+#'   \code{\link{update.brmsfit}} such
 #'   as \code{iter}, \code{chains}, or \code{cores}.
 #' @param cores The number of cores to use for parallelization. 
 #'  Default is \code{1}.
@@ -465,7 +465,7 @@ WAIC <- function(x, ...) {
 #' @details When comparing models fitted to the same data, 
 #'  the smaller the LOO, the better the fit.
 #'  For \code{brmsfit} objects, \code{loo} is an alias of \code{LOO}.
-#'  Use method \code{\link[brms:add_ic]{add_ic}} to store
+#'  Use method \code{\link{add_ic}} to store
 #'  information criteria in the fitted model object for later usage.
 #'  
 #' @return If just one object is provided, an object of class \code{ic}. 
@@ -1139,11 +1139,33 @@ control_params <- function(x, ...) {
   UseMethod("control_params")
 }
 
-#' @rdname bayes_factor.brmsfit
+#' Summarize Posterior Samples
+#' 
+#' Summarizes posterior samples based on point estimates (mean or median),
+#' estimation errors (SD or MAD) and quantiles.
+#' 
+#' @param x An \R object.
+#' @param probs The percentiles to be computed by the 
+#'   \code{quantile} function.
+#' @param robust If \code{FALSE} (the default) the mean is used as 
+#'  the measure of central tendency and the standard deviation as 
+#'  the measure of variability. If \code{TRUE}, the median and the 
+#'  median absolute deviation (MAD) are applied instead.
+#' @param ... More arguments passed to or from other methods.
+#' @inheritParams posterior_samples
+#' 
+#' @return A matrix where rows indicate parameters 
+#'  and columns indicate the summary estimates.
+#'  
+#' @examples 
+#' \dontrun{
+#' fit <- brm(time ~ age * sex, data = kidney)
+#' posterior_summary(fit)
+#' }
+#' 
 #' @export
-bayes_factor <- function(x1, x2, ...) {
-  # replace as soon as bridgesampling has this generic
-  UseMethod("bayes_factor")
+posterior_summary <- function(x, ...) {
+  UseMethod("posterior_summary")
 }
 
 #' Extract Diagnostic Quantities of \pkg{brms} Models

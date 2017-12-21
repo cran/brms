@@ -2,6 +2,30 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 2.0.1}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Export the helper functions \code{posterior_summary} 
+      and \code{posterior_table} both being used to
+      summarize posterior samples and predictions.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Fix incorrect computation of intercepts
+      in \code{acat} and \code{cratio} models
+      thanks to Peter Phalen. (#302)
+      \item Fix \code{pointwise} computation of \code{LOO}
+      and \code{WAIC} in multivariate models with estimated 
+      residual correlation structure.
+      \item Fix problems in various S3 methods sometimes
+      requiring unused variables to be specified in 
+      \code{newdata}.
+      \item Fix naming of Stan models thanks to Hao Ran Lai.
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 2.0.0}{
   This is the second major release of \code{brms}. The main
   new feature are generalized multivariate models, which now

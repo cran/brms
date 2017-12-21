@@ -208,22 +208,26 @@ update_re_terms.brmsformula <- function(formula, re_formula) {
 
 #' @export
 update_re_terms.formula <- function(formula, re_formula = NULL) {
-  if (get_nl(formula)) {
-    # non-linear formulas contain no group-level effects
+  if (is.null(re_formula) || get_nl(formula)) {
     return(formula)
   }
   re_formula <- check_re_formula(re_formula, formula)
   new_formula <- formula2str(formula)
-  old_re_terms <- get_re_terms(formula)
+  old_re_terms <- get_re_terms(formula, brackets = FALSE)
   if (length(old_re_terms)) {
-    # make sure that + before group-level terms are also removed
-    rm_terms <- c(paste0("+", old_re_terms), old_re_terms)
+    # remove old group-level terms
+    rm_terms <- c(
+      paste0("+(", old_re_terms, ")"),
+      paste0("(", old_re_terms, ")"),
+      old_re_terms
+    )
     new_formula <- rename(new_formula, rm_terms, "")
     if (grepl("~$", new_formula)) {
       # lhs only formulas are not allowed
       new_formula <- paste(new_formula, "1")
     }
   }
+  # add new group-level terms
   new_re_terms <- get_re_terms(re_formula)
   new_formula <- paste(c(new_formula, new_re_terms), collapse = "+")
   new_formula <- formula(new_formula)
@@ -242,13 +246,10 @@ get_re.brmsterms <- function(x, all = TRUE, ...) {
   # Args:
   #   bterms: object of class brmsterms
   #   all: logical; include ranefs of nl and aux parameters?
-  old_mv <- isTRUE(attr(x$formula, "old_mv"))
   if (all) {
     re <- named_list(names(x$dpars))
     for (dp in names(re)) {
-      re[[dp]] <- get_re(
-        x$dpars[[dp]], response = x$response, old_mv = old_mv
-      )
+      re[[dp]] <- get_re(x$dpars[[dp]])
     }
     re <- do.call(rbind, re)
   } else {
@@ -264,20 +265,11 @@ get_re.mvbrmsterms <- function(x, ...) {
 }
 
 #' @export
-get_re.btl <- function(x, response = "", old_mv = FALSE, ...) {
+get_re.btl <- function(x, ...) {
   stopifnot(is.data.frame(x$re))
   px <- check_prefix(x)
   re <- x$re
-  nresp <- length(response)
-  if (!old_mv && nresp > 1L && nrow(re)) {
-    re <- replicate(nresp, re, simplify = FALSE)
-    for (i in seq_len(nresp)) {
-      re[[i]]$resp <- rep(response[i], nrow(re[[i]]))
-    }
-    re <- do.call(rbind, re)
-  } else {
-    re$resp <- rep(px$resp, nrow(re)) 
-  }
+  re$resp <- rep(px$resp, nrow(re)) 
   re$dpar <- rep(px$dpar, nrow(re))
   re$nlpar <- rep(px$nlpar, nrow(re)) 
   re

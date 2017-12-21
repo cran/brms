@@ -582,13 +582,7 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
   if (!is.null(out$family)) {
     # check for the presence of non-linear parameters
     dpars <- names(out$pforms)
-    if (is_categorical(out$family)) {
-      if (any(get_nl(out), ulapply(dpars, get_nl, x = out))) {
-        stop2("Non-linear formulas are not supported in categorical models.")
-      }
-    } else {
-      dpars <- names(out$pforms)[is_dpar_name(dpars, out$family)]
-    }
+    dpars <- dpars[is_dpar_name(dpars, out$family)]
     for (dp in names(out$pforms)) {
       if (!dp %in% dpars) {
         # indicate the correspondence to distributional parameter 
@@ -756,8 +750,15 @@ set_nl <- function(nl = TRUE, dpar = NULL, resp = NULL) {
 #' @return An object of class \code{mvbrmsformula}, which
 #'   is essentially a \code{list} containing all model formulas 
 #'   as well as some additional information for multivariate models.
+#'  
+#' @details See \code{vignette("brms_multivariate")} for a case study.
 #'   
 #' @seealso \code{\link{brmsformula}}, \code{\link{brmsformula-helpers}}
+#' 
+#' @examples 
+#' bf1 <- bf(y1 ~ x + (1|g))
+#' bf2 <- bf(y2 ~ s(z))
+#' mvbf(bf1, bf2)
 #' 
 #' @export
 mvbrmsformula <- function(..., flist = NULL, rescor = NULL) {
@@ -1123,11 +1124,11 @@ validate_formula.brmsformula <- function(
   # Returns:
   #   a brmsformula object compatible with the current version of brms
   out <- bf(formula)
-  if (is.null(out$family)) {
-    out <- bf(out, family = family)
+  if (is.null(out$family) && !is.null(family)) {
+    out$family <- check_family(family)
   }
-  if (is.null(out$autocor)) {
-    out <- bf(out, autocor = autocor)
+  if (is.null(out$autocor) && !is.null(autocor)) {
+    out$autocor <- check_autocor(autocor)
   }
   # allow the '.' symbol in the formulas
   out$formula <- expand_dot_formula(out$formula, data)
@@ -1163,7 +1164,7 @@ validate_formula.brmsformula <- function(
             "using any special characters in the names.")
     }
   }
-  out
+  bf(out)
 }
 
 #' @export

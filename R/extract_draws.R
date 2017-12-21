@@ -21,7 +21,9 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   if (!incl_autocor) {
     x <- remove_autocor(x) 
   }
-  sdata <- validate_newdata(newdata, fit = x, re_formula = re_formula, ...)
+  sdata <- validate_newdata(
+    newdata, x, re_formula = re_formula, resp = resp, ...
+  )
   subset <- subset_samples(x, subset, nsamples)
   samples <- as.matrix(x, subset = subset)
   new_formula <- update_re_terms(x$formula, re_formula)
@@ -118,7 +120,7 @@ extract_draws.brmsterms <- function(x, samples, sdata, ...) {
   if (use_cov(x$autocor) || is.cor_sar(x$autocor)) {
     # only include autocor samples on the top-level of draws 
     # when using the covariance formulation of ARMA / SAR structures
-    draws$ac <- extract_draws(x, samples = samples, sdata = sdata, ...)
+    draws$ac <- extract_draws_autocor(x, samples, sdata, ...)
   }
   draws$data <- extract_draws_data(x, sdata = sdata, ...)
   structure(draws, class = "brmsdraws")

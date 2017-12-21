@@ -45,12 +45,12 @@ test_that("check_re_formula returns correct REs", {
 
 test_that("update_re_terms works correctly", {
   expect_equivalent(update_re_terms(y ~ x, ~ (1|visit)), y ~ x)
-  expect_equivalent(update_re_terms(y ~ x + (1+Trt_c|patient), ~ (1|patient)), 
-                    y ~ x + (1|gr(patient)))
-  expect_equivalent(update_re_terms(y ~ x + (1|patient), ~ 1), 
-                    y ~ x)
-  expect_equivalent(update_re_terms(y ~ x + (1+visit|patient), NA), 
-                    y ~ x)
+  expect_equivalent(update_re_terms(y ~ x*z + (1+Trt_c|patient), ~ (1|patient)),
+                    y ~ x*z + (1|gr(patient)))
+  expect_equivalent(update_re_terms(y ~ x + (1|patient), ~ 1), y ~ x)
+  expect_equivalent(update_re_terms(y ~ 1|patient, ~ 1), y ~ 1)
+  expect_equivalent(update_re_terms(y ~ -1 + x + (1+visit|patient), NA), 
+                    y ~ -1 + x)
   expect_equivalent(update_re_terms(y ~ x + (1+visit|patient), NULL), 
                     y ~ x + (1+visit|patient))
   expect_equivalent(update_re_terms(y ~ (1|patient), NA), y ~ 1)

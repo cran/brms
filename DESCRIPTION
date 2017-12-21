@@ -2,15 +2,15 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using Stan
-Version: 2.0.0
-Date: 2017-12-15
+Version: 2.0.1
+Date: 2017-12-20
 Authors@R: person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
 Depends: R (>= 3.2.0), Rcpp (>= 0.12.0), ggplot2 (>= 2.0.0), methods
 Imports: rstan (>= 2.14.2), loo (>= 1.1.0), Matrix (>= 1.1.1), mgcv (>=
         1.8-13), rstantools (>= 1.3.0), bayesplot (>= 1.3.0), shinystan
-        (>= 2.4.0), matrixStats, bridgesampling, nlme, coda, abind,
-        stats, utils, parallel, grDevices,
+        (>= 2.4.0), bridgesampling (>= 0.3-0), matrixStats, nlme, coda,
+        abind, stats, utils, parallel, grDevices,
 Suggests: testthat (>= 0.9.1), RWiener, future, arm, spdep, mnormt,
         MCMCglmm, ape, R.rsp, knitr, rmarkdown
 Description: Fit Bayesian generalized (non-)linear multivariate multilevel models
@@ -34,8 +34,8 @@ URL: https://github.com/paul-buerkner/brms,
 BugReports: https://github.com/paul-buerkner/brms/issues
 VignetteBuilder: knitr, R.rsp
 RoxygenNote: 6.0.1
-Packaged: 2017-12-15 12:13:34 UTC; paulb
+Packaged: 2017-12-21 18:32:49 UTC; paulb
 Author: Paul-Christian Bürkner [aut, cre]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2017-12-15 12:57:54 UTC
+Date/Publication: 2017-12-21 21:24:14 UTC

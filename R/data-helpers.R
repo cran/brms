@@ -19,44 +19,45 @@ update_data <- function(data, bterms, na.action = na.omit,
   if (missing(data)) {
     stop2("Argument 'data' is missing.")
   }
+  if (isTRUE(attr(data, "brmsframe"))) {
+    return(data)
+  }
   if (is.null(knots)) {
     knots <- attr(data, "knots", TRUE)
   }
-  if (!isTRUE(attr(data, "brmsframe"))) {
-    data <- try(as.data.frame(data, silent = TRUE))
-    if (is(data, "try-error")) {
-      stop2("Argument 'data' must be coercible to a data.frame.")
-    }
-    if (!isTRUE(nrow(data) > 0L)) {
-      stop2("Argument 'data' does not contain observations.")
-    }
-    bterms$allvars <- terms(bterms$allvars)
-    attributes(bterms$allvars)[names(terms_attr)] <- terms_attr
-    data <- data_rsv_intercept(data, bterms = bterms)
-    missing_vars <- setdiff(all.vars(bterms$allvars), names(data))
-    if (length(missing_vars)) {
-      stop2("The following variables are missing in 'data':\n",
-            collapse_comma(missing_vars))
-    }
-    data <- model.frame(
-      bterms$allvars, data, na.action = na.pass,
-      drop.unused.levels = drop.unused.levels
-    )
-    nrow_with_NA <- nrow(data)
-    data <- na.action(data)
-    if (nrow(data) != nrow_with_NA) {
-      warning2("Rows containing NAs were excluded from the model")
-    }
-    if (any(grepl("__|_$", colnames(data)))) {
-      stop2("Variable names may not contain double underscores ",
-            "or underscores at the end.")
-    }
-    groups <- get_groups(bterms)
-    data <- combine_groups(data, groups)
-    data <- fix_factor_contrasts(data, ignore = groups)
-    attr(data, "knots") <- knots
-    attr(data, "brmsframe") <- TRUE
+  data <- try(as.data.frame(data), silent = TRUE)
+  if (is(data, "try-error")) {
+    stop2("Argument 'data' must be coercible to a data.frame.")
   }
+  if (!isTRUE(nrow(data) > 0L)) {
+    stop2("Argument 'data' does not contain observations.")
+  }
+  bterms$allvars <- terms(bterms$allvars)
+  attributes(bterms$allvars)[names(terms_attr)] <- terms_attr
+  data <- data_rsv_intercept(data, bterms = bterms)
+  missing_vars <- setdiff(all.vars(bterms$allvars), names(data))
+  if (length(missing_vars)) {
+    stop2("The following variables are missing in 'data':\n",
+          collapse_comma(missing_vars))
+  }
+  data <- model.frame(
+    bterms$allvars, data, na.action = na.pass,
+    drop.unused.levels = drop.unused.levels
+  )
+  nrow_with_NA <- nrow(data)
+  data <- na.action(data)
+  if (nrow(data) != nrow_with_NA) {
+    warning2("Rows containing NAs were excluded from the model")
+  }
+  if (any(grepl("__|_$", colnames(data)))) {
+    stop2("Variable names may not contain double underscores ",
+          "or underscores at the end.")
+  }
+  groups <- get_groups(bterms)
+  data <- combine_groups(data, groups)
+  data <- fix_factor_contrasts(data, ignore = groups)
+  attr(data, "knots") <- knots
+  attr(data, "brmsframe") <- TRUE
   data
 }
 
@@ -65,10 +66,9 @@ data_rsv_intercept <- function(data, bterms) {
   # Args:
   #   data: data.frame or list
   #   bterms: object of class brmsterms
-  rsv_int <- ulapply(bterms$dpars, 
-    function(x) attr(x$fe, "rsv_intercept")
-  )
-  if (any(rsv_int)) {
+  fe_forms <- get_effect(bterms, "fe")
+  rsv_int <- any(ulapply(fe_forms, attr, "rsv_intercept"))
+  if (rsv_int) {
     if (any(data[["intercept"]] != 1)) {
       stop2("Variable name 'intercept' is resevered in models ",
             "without a population-level intercept.")
@@ -157,7 +157,7 @@ order_data <- function(data, bterms) {
 
 validate_newdata <- function(
   newdata, fit, re_formula = NULL, allow_new_levels = FALSE,
-  check_response = FALSE, only_response = FALSE,
+  resp = NULL, check_response = FALSE, only_response = FALSE,
   incl_autocor = TRUE, return_standata = TRUE,
   all_group_vars = NULL, new_objects = list()
 ) {
@@ -167,6 +167,8 @@ validate_newdata <- function(
   #   fit: an object of class brmsfit
   #   re_formula: a group-level formula
   #   allow_new_levels: Are new group-levels allowed?
+  #   resp: optional name of response variables whose 
+  #     variables should be checked
   #   check_response: Should response variables be checked
   #     for existence and validity?
   #   only_response: compute only response related stuff
@@ -196,31 +198,44 @@ validate_newdata <- function(
     }
     return(newdata)
   }
-  newdata <- try(as.data.frame(newdata, silent = TRUE))
+  newdata <- try(as.data.frame(newdata), silent = TRUE)
   if (is(newdata, "try-error")) {
     stop2("Argument 'newdata' must be coercible to a data.frame.")
   }
   new_formula <- update_re_terms(formula(fit), re_formula = re_formula)
   bterms <- parse_bf(new_formula, resp_rhs_all = FALSE)
+  if (is.mvbrmsterms(bterms) && !is.null(resp)) {
+    # variables not used in the included model parts
+    # do not need to be specified in newdata
+    resp <- validate_resp(resp, bterms$responses)
+    reqvars <- allvars_formula(lapply(bterms$terms[resp], "[[", "allvars"))
+    not_reqvars <- setdiff(all.vars(bterms$allvars), all.vars(reqvars))
+    not_reqvars <- setdiff(not_reqvars, names(newdata))
+    if (length(not_reqvars)) {
+      # use NaN rather then NA as the latter will cause model.matrix 
+      # to return <x>TRUE instead of <x> as column names
+      newdata[, not_reqvars] <- NaN
+    }
+  }
   only_resp <- all.vars(bterms$respform)
   only_resp <- setdiff(only_resp, all.vars(rhs(bterms$allvars)))
-  # always include 'dec' variables in 'only_resp'
-  only_resp <- c(only_resp, all.vars(bterms$adforms$dec))
-  missing_resp <- setdiff(only_resp, names(newdata))
+  # always require 'dec' variables to be specified
+  dec_vars <- get_advars(bterms, "dec")
+  missing_resp <- setdiff(c(only_resp, dec_vars), names(newdata))
   if (length(missing_resp)) {
     if (check_response) {
       stop2("Response variables must be specified in 'newdata'.\n",
             "Missing variables: ", collapse_comma(missing_resp))
     } else {
-      newdata[, missing_resp] <- NA
+      newdata[, missing_resp] <- NaN
     }
   }
   # censoring and weighting vars are unused in post-processing methods
-  cens_vars <- all.vars(bterms$adforms$cens)
+  cens_vars <- get_advars(bterms, "cens")
   for (v in setdiff(cens_vars, names(newdata))) {
     newdata[[v]] <- 0
   }
-  weights_vars <- all.vars(bterms$adforms$weights)
+  weights_vars <- get_advars(bterms, "weights")
   for (v in setdiff(weights_vars, names(newdata))) {
     newdata[[v]] <- 1
   }

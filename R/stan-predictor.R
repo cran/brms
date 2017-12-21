@@ -412,12 +412,10 @@ stan_fe <- function(bterms, data, prior, center_X = TRUE,
         "    Xc", p, "[, i - 1] = X", p, "[, i] - means_X", p, "[i - 1]; \n",
         "  } \n"
       )
-      # cumulative and sratio models are parameterized as thres - eta
-      use_plus <- family$family %in% c("cumulative", "sratio")
-      sub_X_means <- paste0(
-        ifelse(use_plus, " + ", " - "), 
-        "dot_product(means_X", p, ", b", p, ")"
-      )
+      # ordinal families either use thres - mu or mu - thres
+      # both implies adding <mean_X, b> to the temporary intercept
+      sign <- if (is_ordinal(family)) " + " else " - "
+      sub_X_means <- paste0(sign, "dot_product(means_X", p, ", b", p, ")")
     } else {
       sub_X_means <- ""
     }
@@ -1191,7 +1189,7 @@ stan_dpar_transform <- function(bterms) {
     )
     dpars <- names(bterms$dpars)
     mu_vector <- stan_vector(c("0", paste0(dpars, p, "[n]")))
-    str_add(out$modelC3) <- paste0(
+    str_add(out$modelC4) <- paste0(
       "    mu", p, "[n] = ", mu_vector, ";\n"
     )
   }
