@@ -392,7 +392,7 @@ test_that("invalid combinations of modeling options are detected", {
   )
   expect_error(
     make_stancode(cbind(y1, y2) ~ 1, data = data, autocor = cor_ar(cov = TRUE)),
-    "ARMA covariance matrices are yet implemented when 'rescor' is estimated."
+    "ARMA covariance matrices are not implemented when 'rescor' is estimated."
   )
   expect_error(
     make_stancode(y1 | resp_se(wi) ~ y2, data = data, autocor = cor_ma()),
@@ -445,6 +445,12 @@ test_that("Stan code for multivariate models is correct", {
   expect_match2(scode, "ps[1] = log(theta1_x) + poisson_log_lpmf(Y_x[n] | mu1_x[n])")
   expect_match2(scode, "target += normal_lpdf(b_y1 | 0, 5)")
   expect_match2(scode, "target += normal_lpdf(b_y2 | 0, 10)")
+  
+  # multivariate binomial models
+  bform <- bf(x ~ 1) + bf(g ~ 1) + binomial()
+  scode <- make_stancode(bform, dat)
+  expect_match2(scode, "binomial_logit_lpmf(Y_x | trials_x, mu_x)")
+  expect_match2(scode, "binomial_logit_lpmf(Y_g | trials_g, mu_g)")
 })
 
 test_that("Stan code for categorical models is correct", {
@@ -658,10 +664,10 @@ test_that("known standard errors appear in the Stan code", {
   scode <- make_stancode(time | se(age) + weights(age) ~ sex, data = kidney)
   expect_match2(scode, "target += weights[n] * normal_lpdf(Y[n] | mu[n], se[n])")
   scode <- make_stancode(time | se(age, sigma = TRUE) ~ sex, data = kidney)
-  expect_match2(scode, "target += normal_lpdf(Y[n] | mu[n], sqrt(sigma^2 + se2[n]))")
-  scode <- make_stancode(bf(time | se(age, sigma = TRUE) ~ sex, sigma ~ sex),
+  expect_match2(scode, "target += normal_lpdf(Y | mu, sqrt(square(sigma) + se2))")
+  scode <- make_stancode(bf(time | se(age, sigma = TRUE) ~ sex, sigma ~ sex), 
                          data = kidney)
-  expect_match2(scode, "target += normal_lpdf(Y[n] | mu[n], sqrt(sigma[n]^2 + se2[n]))")
+  expect_match2(scode, "target += normal_lpdf(Y | mu, sqrt(square(sigma) + se2))")
 })
 
 test_that("functions defined in 'stan_funs' appear in the functions block", {
@@ -737,7 +743,7 @@ test_that("Stan code of exgaussian models is correct", {
                       data = dat, family = exgaussian("log"),
                       prior = prior(gamma(1,1), class = beta))
   expect_match2(scode,
-    "target += exp_mod_normal_lpdf(Y[n] | mu[n], sigma, inv(beta))"
+    "target += exp_mod_normal_lpdf(Y | mu, sigma, inv(beta))"
   )
   expect_match2(scode, "mu[n] = exp(mu[n])")
   expect_match2(scode, "target += gamma_lpdf(beta | 1, 1)")
@@ -746,7 +752,7 @@ test_that("Stan code of exgaussian models is correct", {
                          sigma ~ Trt_c, beta ~ Trt_c),
                       data = dat, family = exgaussian())
   expect_match2(scode, 
-    "target += exp_mod_normal_lpdf(Y[n] | mu[n], sigma[n], inv(beta[n]))"
+    "target += exp_mod_normal_lpdf(Y | mu, sigma, inv(beta))"
   )
   expect_match2(scode, "beta[n] = exp(beta[n])")
   
@@ -890,10 +896,11 @@ test_that("noise-free terms appear in the Stan code", {
     xsd = abs(rnorm(N, 1)), zsd = abs(rnorm(N, 1)),
     ID = rep(1:5, each = N / 5)
   )
+  me_prior <- prior(normal(0,5)) + 
+    prior(normal(0, 10), "meanme") +
+    prior(cauchy(0, 5), "sdme", coef = "mezzsd")
   scode <- make_stancode(
-    y ~ me(x, xsd)*me(z, zsd)*x, data = dat,
-    prior = prior(normal(0,5)) + prior(normal(0, 10), "Xme") +
-      prior(normal(0, 20), "Xme", coef = "mezzsd")
+    y ~ me(x, xsd)*me(z, zsd)*x, data = dat, prior = me_prior
   )
   expect_match2(scode,
     "(bme[1]) * Xme_1[n] + (bme[2]) * Xme_2[n] + (bme[3]) * Xme_1[n] * Xme_2[n]")
@@ -901,8 +908,10 @@ test_that("noise-free terms appear in the Stan code", {
     "(bme[6]) * Xme_1[n] * Xme_2[n] * Cme_3[n]")
   expect_match2(scode, "target += normal_lpdf(Xn_2 | Xme_2, noise_2)")
   expect_match2(scode, "target += normal_lpdf(bme | 0, 5)")
-  expect_match2(scode, "target += normal_lpdf(Xme_1 | 0, 10)")
-  expect_match2(scode, "target += normal_lpdf(Xme_2 | 0, 20)")
+  expect_match2(scode, "target += normal_lpdf(zme_1 | 0, 1)")
+  expect_match2(scode, "target += normal_lpdf(meanme_1 | 0, 10)")
+  expect_match2(scode, "target += cauchy_lpdf(sdme_2 | 0, 5)")
+  expect_match2(scode, "Xme_2 = meanme_2 + sdme_2 * zme_2")
   
   scode <- make_stancode(
     y ~ me(x, xsd)*z + (me(x, xsd)*z|ID), data = dat
@@ -929,6 +938,10 @@ test_that("noise-free terms appear in the Stan code", {
   )
   expect_match2(scode, "mu_a[n] = mu_a[n] + (bme_a[1]) * Xme_1[n]")
   expect_match2(scode, "mu_b[n] = mu_b[n] + (bme_b[1]) * Xme_1[n]")
+  
+  scode <- make_stancode(cbind(y, z) ~ me(x, xsd), dat)
+  expect_match2(scode, "mu_y[n] = mu_y[n] + (bme_y[1]) * Xme_1[n]")
+  expect_match2(scode, "mu_z[n] = mu_z[n] + (bme_z[1]) * Xme_1[n]")
 })
 
 test_that("Stan code of multi-membership models is correct", {
@@ -1085,8 +1098,8 @@ test_that("Stan code of mixture model is correct", {
   
   scode <- make_stancode(bf(abs(y) | se(c) ~ x), data = data, 
                          mixture(gaussian, student))
-  expect_match2(scode, "ps[1] = log(theta1) + normal_lpdf(Y[n] | mu1[n], se);")
-  expect_match2(scode, "ps[2] = log(theta2) + student_t_lpdf(Y[n] | nu2, mu2[n], se);")
+  expect_match2(scode, "ps[1] = log(theta1) + normal_lpdf(Y[n] | mu1[n], se[n]);")
+  expect_match2(scode, "ps[2] = log(theta2) + student_t_lpdf(Y[n] | nu2, mu2[n], se[n]);")
   
   fam <- mixture(gaussian, student, exgaussian)
   scode <- make_stancode(bf(y ~ x), data = data, family = fam)
@@ -1137,12 +1150,15 @@ test_that("Stan code for Gaussian processes is correct", {
   dat <- data.frame(y = rnorm(30), x1 = rnorm(30), x2 = rnorm(30),
                     z = factor(rep(4:6, each = 10)))
   
-  prior <- c(prior(normal(0, 10), lscale),
-             prior(gamma(0.1, 0.1), sdgp))
+  prior <- prior(gamma(0.1, 0.1), sdgp)
   scode <- make_stancode(y ~ gp(x1) + gp(x2, by = x1), dat, prior = prior)
-  expect_match2(scode, "target += normal_lpdf(lscale_1 | 0, 10)")
+  expect_match2(scode, "target += inv_gamma_lpdf(lscale_1")
   expect_match2(scode, "target += gamma_lpdf(sdgp_1 | 0.1, 0.1)")
   expect_match2(scode, "Cgp_2 .* gp(Xgp_2, sdgp_2[1], lscale_2[1], zgp_2)")
+  
+  prior <- prior + prior(normal(0, 1), lscale, coef = gp(x1))
+  scode <- make_stancode(y ~ gp(x1) + gp(x2, by = x1), dat, prior = prior)
+  expect_match2(scode, "target += normal_lpdf(lscale_1 | 0, 1)")
   
   # Suppress Stan parser warnings that can currently not be avoided
   scode <- make_stancode(y ~ gp(x1, x2) + gp(x1, by = z), 
@@ -1153,7 +1169,7 @@ test_that("Stan code for Gaussian processes is correct", {
     "sdgp_2[2], lscale_2[2], zgp_2[Jgp_2_2]);"
   ))
   
-  prior <- c(prior(normal(0, 10), lscale, nlpar = a),
+  prior <- c(prior(normal(0, 10), lscale, coef = gp(x1), nlpar = a),
              prior(gamma(0.1, 0.1), sdgp, nlpar = a),
              prior(normal(0, 1), b, nlpar = a))
   scode <- make_stancode(bf(y ~ a, a ~ gp(x1), nl = TRUE), 
@@ -1162,8 +1178,9 @@ test_that("Stan code for Gaussian processes is correct", {
   expect_match2(scode, "target += gamma_lpdf(sdgp_a_1 | 0.1, 0.1)")
   expect_match2(scode, "gp(Xgp_a_1, sdgp_a_1[1], lscale_a_1[1], zgp_a_1)")
   
+  
   scode <- make_stancode(bf(y ~ a, a ~ gp(x1, by = z), nl = TRUE),
-                         data = dat, prior = prior, silent = TRUE)
+                         data = dat, silent = TRUE)
   expect_match2(scode, 
     "mu_a[Jgp_a_1_1] = mu_a[Jgp_a_1_1] + gp(Xgp_a_1[Jgp_a_1_1],"
   )
@@ -1180,8 +1197,19 @@ test_that("Stan code for SAR models is correct", {
   expect_match2(scode, "target += normal_lpdf(lagsar | 0.5, 1)")
   
   scode <- make_stancode(CRIME ~ INC + HOVAL, data = COL.OLD, 
-                         family = student(),
-                         autocor = cor_errorsar(COL.nb),
+                         family = student(), autocor = cor_lagsar(COL.nb))
+  expect_match2(scode, 
+    "target += student_t_lagsar_lpdf(Y | nu, mu, sigma, lagsar, W)"
+  )
+  
+  scode <- make_stancode(CRIME ~ INC + HOVAL, data = COL.OLD, 
+                         autocor = cor_errorsar(COL.nb))
+  expect_match2(scode, 
+    "target += normal_errorsar_lpdf(Y | mu, sigma, errorsar, W)"
+  )
+  
+  scode <- make_stancode(CRIME ~ INC + HOVAL, data = COL.OLD, 
+                         family = student(), autocor = cor_errorsar(COL.nb),
                          prior = prior(beta(2, 3), errorsar))
   expect_match2(scode, 
     "target += student_t_errorsar_lpdf(Y | nu, mu, sigma, errorsar, W)"
@@ -1191,7 +1219,7 @@ test_that("Stan code for SAR models is correct", {
   expect_error(
     make_stancode(bf(CRIME ~ INC + HOVAL, sigma ~ INC),
                   data = COL.OLD, autocor = cor_lagsar(COL.nb)),
-    "SAR models are not yet implemented when predicting 'sigma'" 
+    "SAR models are not implemented when predicting 'sigma'" 
   )
 })
 

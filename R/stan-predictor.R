@@ -46,7 +46,7 @@ stan_effects.btl <- function(x, data, ranef, prior, center_X = TRUE,
     if (is.formula(x$offset))
       paste0(" + offset", p),
     if (get_arr(x$autocor))
-      " + Yarr * arr",
+      paste0(" + Yarr", p, " * arr", p),
     "; \n"
   )
   
@@ -885,11 +885,10 @@ stan_gp <- function(bterms, data, prior) {
       "  vector<lower=0>[Kgp", pi, "] lscale", pi, "; \n",
       "  vector[N] zgp", pi, "; \n"
     ) 
-    rgpef <- rename(gpef[i])
     str_add(out$prior) <- paste0(
-      stan_prior(prior, class = "sdgp", coef = rgpef, 
+      stan_prior(prior, class = "sdgp", coef = gpef[i], 
                  px = px, suffix = pi),
-      stan_prior(prior, class = "lscale", coef = rgpef, 
+      stan_prior(prior, class = "lscale", coef = gpef[i], 
                  px = px, suffix = pi),
       collapse(tp(), "normal_lpdf(zgp", pi, " | 0, 1); \n")
     )

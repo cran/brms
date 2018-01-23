@@ -2,6 +2,53 @@
 \title{brms News}
 \encoding{UTF-8}
 
+\section{CHANGES IN VERSION 2.1.0}{
+  \subsection{NEW FEATURES}{
+    \itemize{
+      \item Fit models on multiple imputed 
+      datasets via \code{brm_multiple} thanks 
+      to Ruben Arslan. (#27)
+      \item Combine multiple \code{brmsfit} objects 
+      via function \code{combine_models}.
+      \item Compute model averaged posterior 
+      predictions with method \code{pp_average}. (#319)
+      \item Add new argument \code{ordinal} to
+      \code{marginal_effects} to generate special
+      plots for ordinal models thanks to the idea 
+      of the GitHub user silberzwiebel. (#190)
+      \item Use informative inverse-gamma priors
+      for length-scale parameters of Gaussian
+      processes. (#275)
+      \item Compute hypotheses for all levels of a 
+      grouping factor at once using argument \code{scope} 
+      in method \code{hypothesis}. (#327)
+      \item Vectorize user-defined \pkg{Stan} functions
+      exported via \code{export_functions} using
+      argument \code{vectorize}.
+      \item Allow predicting new data in models
+      with ARMA autocorrelation structures.
+    }
+  }
+  \subsection{BUG FIXES}{
+    \itemize{
+      \item Correctly recover noise-free coefficients
+      through \code{me} terms thanks to Ruben Arslan.
+      As a side effect, it is no longer possible to define
+      priors on noise-free \code{Xme} variables directly, but 
+      only on their hyper-parameters \code{meanme} and \code{sdme}.
+      \item Fix problems in renaming parameters of the
+      \code{cor_bsts} structure thanks to Joshua Edward Morten. (#312)
+      \item Fix some unexpected errors when predicting
+      from ordinal models thanks to David Hervas and 
+      Florian Bader. (#306, #307, #331)
+      \item Fix problems when estimating and predicting
+      multivariate ordinal models thanks to David West. (#314)
+      \item Fix various minor problems in autocorrelation 
+      structures thanks to David West. (#320)
+    }
+  }
+}
+
 \section{CHANGES IN VERSION 2.0.1}{
   \subsection{NEW FEATURES}{
     \itemize{

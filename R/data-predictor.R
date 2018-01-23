@@ -56,10 +56,7 @@ data_effects.btl <- function(x, data, ranef = empty_ranef(),
       x, data, knots = knots, not4stan = not4stan, 
       smooths = old_standata$smooths
     ),
-    data_mo(
-      x, data, ranef = ranef, prior = prior, 
-      Jmo = old_standata$Jmo
-    ),
+    data_mo(x, data, prior = prior, Jmo = old_standata$Jmo),
     data_re(x, data, ranef = ranef),
     data_me(x, data),
     data_cs(x, data),
@@ -113,7 +110,7 @@ data_fe <- function(bterms, data, knots = NULL,
   out <- list()
   p <- usc(combine_prefix(bterms))
   is_ordinal <- is_ordinal(bterms$family)
-  is_bsts <- inherits(bterms$autocor, "cor_bsts")
+  is_bsts <- is.cor_bsts(bterms$autocor)
   # the intercept is removed inside the Stan code for ordinal models
   cols2remove <- if (is_ordinal && not4stan || is_bsts) "(Intercept)"
   X <- get_model_matrix(rhs(bterms$fe), data, cols2remove = cols2remove)
@@ -165,8 +162,7 @@ data_fe <- function(bterms, data, knots = NULL,
   c(out, setNames(list(ncol(X), X), paste0(c("K", "X"), p)))
 }
 
-data_mo <- function(bterms, data, ranef = empty_ranef(),
-                    prior = brmsprior(), Jmo = NULL) {
+data_mo <- function(bterms, data, prior = brmsprior(), Jmo = NULL) {
   # prepare data for monotonic effects for use in Stan
   # Args: see data_effects
   out <- list()
@@ -447,8 +443,13 @@ data_offset <- function(bterms, data) {
   px <- check_prefix(bterms)
   if (is.formula(bterms$offset)) {
     p <- usc(combine_prefix(px))
-    mf <- model.frame(bterms$offset, rm_attr(data, "terms"))
-    out[[paste0("offset", p)]] <- model.offset(mf)
+    mf <- rm_attr(data, "terms")
+    mf <- model.frame(bterms$offset, mf, na.action = na.pass)
+    offset <- model.offset(mf)
+    if (length(offset) == 1L) {
+      offset <- rep(offset, nrow(data))
+    }
+    out[[paste0("offset", p)]] <- offset
   }
   out
 }
@@ -621,7 +622,8 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
                                     old_standata = NULL) {
   # prepare data for the response variable
   N <- nrow(data)
-  out <- list(Y = unname(model.response(model.frame(x$respform, data))))
+  Y <- model.response(model.frame(x$respform, data, na.action = na.pass))
+  out <- list(Y = unname(Y))
   families <- family_names(x$family)
   if (is.mixfamily(x$family)) {
     family4error <- paste0(families, collapse = ", ")

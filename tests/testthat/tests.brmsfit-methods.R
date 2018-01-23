@@ -59,6 +59,9 @@ test_that("all S3 methods have reasonable ouputs", {
   coef4 <- SM(coef(fit4))
   expect_equal(dim(coef4$subject), c(10, 4, 8))
   
+  # combine_models
+  expect_equal(nsamples(combine_models(fit1, fit1)), nsamples(fit1) * 2)
+  
   # bayes_R2
   fit1 <- add_ic(fit1, "R2")
   R2 <- bayes_R2(fit1, summary = FALSE)
@@ -164,6 +167,13 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(hyp$hypothesis), c(1, 6))
   expect_output(print(hyp, chars = NULL), "r_visit[4,Intercept]", fixed = TRUE)
   expect_output(print(hyp), "l-99% CI", fixed = TRUE)
+  
+  hyp <- hypothesis(
+    fit1, c("Intercept = 0", "Intercept + exp(Trt1) = 0"),
+    group = "visit", scope = "coef"
+  )
+  expect_equal(dim(hyp$hypothesis), c(8, 6))
+  expect_equal(rownames(hyp$hypothesis)[1], "(Intercept) = 0 [1]")
   
   expect_error(hypothesis(fit1, "Intercept > x"), fixed = TRUE,
                "cannot be found in the model: \n'b_x'")
@@ -314,8 +324,14 @@ test_that("all S3 methods have reasonable ouputs", {
   me <- marginal_effects(fit2, re_formula = NULL, conditions = mdata)
   expect_equal(nrow(me$Age), exp_nrow)
   
-  expect_warning(me4 <- marginal_effects(fit4),
-                 "Predictions are treated as continuous variables")
+  expect_warning(
+    me4 <- marginal_effects(fit4),
+    "Predictions are treated as continuous variables"
+  )
+  expect_true(is(me4, "brmsMarginalEffects"))
+  me4 <- marginal_effects(fit4, "x2", ordinal = TRUE)
+  expect_true(is(me4, "brmsMarginalEffects"))
+  me4 <- marginal_effects(fit4, "x2", method = "predict", ordinal = TRUE)
   expect_true(is(me4, "brmsMarginalEffects"))
   
   me5 <- marginal_effects(fit5)
@@ -400,6 +416,14 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(posterior_linpred(fit1)), 
                c(nsamples(fit1), nobs(fit1)))
   
+  # pp_average
+  ppa <- pp_average(fit1, fit1, weights = "waic")
+  expect_equal(dim(ppa), c(nobs(fit1), 4))
+  ppa <- pp_average(fit1, fit1, weights = c(1, 3))
+  expect_equal(attr(ppa, "weights"), c(fit1 = 0.25, fit1 = 0.75))
+  ns <- c(fit1 = nsamples(fit1) / 4, fit1 = 3 * nsamples(fit1) / 4)
+  expect_equal(attr(ppa, "nsamples"), ns)
+
   # pp_check
   expect_true(is(pp_check(fit1), "ggplot"))
   expect_true(is(pp_check(fit1, newdata = fit1$data[1:100, ]), "ggplot"))
@@ -440,32 +464,38 @@ test_that("all S3 methods have reasonable ouputs", {
   # predict
   pred <- predict(fit1)
   expect_equal(dim(pred), c(nobs(fit1), 4))
-  expect_equal(colnames(pred), 
-               c("Estimate", "Est.Error", "2.5%ile", "97.5%ile"))
+  expect_equal(colnames(pred), c("Estimate", "Est.Error", "2.5%ile", "97.5%ile"))
   pred <- predict(fit1, nsamples = 10, probs = c(0.2, 0.5, 0.8))
   expect_equal(dim(pred), c(nobs(fit1), 5))
   
-  newdata <- data.frame(Age = c(0, -0.2), visit = c(1, 4),
-                        Trt = c(1, 0), count = c(2, 10),
-                        patient = c(1, 42), Exp = c(1, 2))
+  newdata <- data.frame(
+    Age = c(0, -0.2), visit = c(1, 4), Trt = c(1, 0), 
+    count = c(2, 10), patient = c(1, 42), Exp = c(1, 2)
+  )
   pred <- predict(fit1, newdata = newdata)
   expect_equal(dim(pred), c(2, 4))
   
   newdata$visit <- c(1, 6)
-  pred <- predict(fit1, newdata = newdata, 
-                  allow_new_levels = TRUE)
+  pred <- predict(fit1, newdata = newdata, allow_new_levels = TRUE)
   expect_equal(dim(pred), c(2, 4))
+  
+  # predict NA responses in ARMA models
+  df <- fit1$data[1:10, ]
+  df$count[8:10] <- NA
+  pred <- predict(fit1, newdata = df, nsamples = 1)
+  expect_true(!anyNA(pred[, "Estimate"]))
   
   pred <- predict(fit2)
   expect_equal(dim(pred), c(nobs(fit2), 4))
   
-  pred <- predict(fit2, newdata = newdata, 
-                  allow_new_levels = TRUE)
+  pred <- predict(fit2, newdata = newdata, allow_new_levels = TRUE)
   expect_equal(dim(pred), c(2, 4))
   
   pred <- predict(fit4)
   expect_equal(dim(pred), c(nobs(fit4), 4))
   expect_equal(colnames(pred), paste0("P(Y = ", 1:4, ")"))
+  pred <- predict(fit4, newdata = fit4$data[1, ])
+  expect_equal(dim(pred), c(1, 4))
   
   pred <- predict(fit5)
   expect_equal(dim(pred), c(nobs(fit5), 4))

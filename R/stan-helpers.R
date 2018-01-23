@@ -105,7 +105,7 @@ stan_autocor <- function(bterms, prior) {
   Kar <- get_ar(autocor)
   Kma <- get_ma(autocor)
   if (Kar || Kma) {
-    err_msg <- "ARMA models are not yet implemented"
+    err_msg <- "ARMA models are not implemented"
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
@@ -145,7 +145,7 @@ stan_autocor <- function(bterms, prior) {
     if (use_cov(autocor)) {
       # if the user wants ARMA effects to be estimated using
       # a covariance matrix for residuals
-      err_msg <- "ARMA covariance matrices are yet implemented"
+      err_msg <- "ARMA covariance matrices are not implemented"
       if (isTRUE(bterms$rescor)) {
         stop2(err_msg, " when 'rescor' is estimated.")
       }
@@ -214,7 +214,7 @@ stan_autocor <- function(bterms, prior) {
   Karr <- get_arr(autocor)
   if (Karr) {
     # autoregressive effects of the response
-    err_msg <- "ARR models are not yet implemented"
+    err_msg <- "ARR models are not implemented"
     if (length(bterms$dpars[["mu"]]$nlpars)) {
       stop2(err_msg, " for non-linear models.")
     }
@@ -236,7 +236,7 @@ stan_autocor <- function(bterms, prior) {
     )
   }
   if (is.cor_sar(autocor)) {
-    err_msg <- "SAR models are not yet implemented"
+    err_msg <- "SAR models are not implemented"
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
@@ -269,7 +269,7 @@ stan_autocor <- function(bterms, prior) {
     }
   }
   if (is.cor_car(autocor)) {
-    err_msg <- "CAR models are not yet implemented"
+    err_msg <- "CAR models are not implemented"
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
@@ -337,7 +337,7 @@ stan_autocor <- function(bterms, prior) {
     } 
   }
   if (is.cor_bsts(autocor)) {
-    err_msg <- "BSTS models are not yet implemented"
+    err_msg <- "BSTS models are not implemented"
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
@@ -346,9 +346,6 @@ stan_autocor <- function(bterms, prior) {
     }
     if (length(bterms$dpars[["mu"]]$nlpars)) {
       stop2(err_msg, " in non-linear models.")
-    }
-    if (isTRUE(bterms$rescor)) {
-      stop2(err_msg, " when 'rescor' is estimated.")
     }
     str_add(out$data) <- paste0(
       "  vector[N] tg", p, ";  // indicates independent groups \n"
@@ -381,7 +378,7 @@ stan_autocor <- function(bterms, prior) {
     )
   }
   if (is.cor_fixed(autocor)) {
-    err_msg <- "Fixed residual covariance matrices are not yet implemted"
+    err_msg <- "Fixed residual covariance matrices are not implemented"
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
@@ -692,29 +689,39 @@ stan_mixture <- function(bterms, prior) {
 
 stan_Xme <- function(bterms, prior) {
   # global Stan definitions for noise-free variables
-  # stopifnot(is.brmsterms(bterms))
   out <- list()
   uni_me <- rename(get_uni_me(bterms))
   if (length(uni_me)) {
     K <- paste0("_", seq_along(uni_me))
     str_add(out$data) <- paste0(
-      "  // noisy variables \n",
-      collapse("  vector[N] Xn", K, "; \n"),
-      "  // measurement noise \n",
-      collapse("  vector<lower=0>[N] noise", K, "; \n")
+      "  // noisy variables\n",
+      collapse("  vector[N] Xn", K, ";\n"),
+      "  // measurement noise\n",
+      collapse("  vector<lower=0>[N] noise", K, ";\n")
     )
     str_add(out$par) <- paste0(
-      "  // noise free variables \n",
-      collapse("  vector[N] Xme", K, "; \n")  
+      "  // parameters for noise free variables\n",
+      collapse(
+        "  vector[N] zme", K, ";\n",
+        "  real meanme", K, ";\n",
+        "  real<lower=0> sdme", K, ";\n"
+      )
+    )
+    str_add(out$tparD) <- collapse(
+      "  vector[N] Xme", K, " = meanme", K, " + sdme", K, " * zme", K, ";\n"
     )
     for (k in seq_along(uni_me)) {
+      sfx <- paste0("_", k)
       str_add(out$prior) <- stan_prior(
-        prior, class = "Xme", coef = uni_me[k],
-        suffix = paste0("_", k)
+        prior, class = "meanme", coef = uni_me[k], suffix = sfx
+      )
+      str_add(out$prior) <- stan_prior(
+        prior, class = "sdme", coef = uni_me[k], suffix = sfx
       )
     }
     str_add(out$prior) <- collapse(
-      "  target += normal_lpdf(Xn", K, " | Xme", K, ", noise", K, ");\n"
+      "  target += normal_lpdf(Xn", K, " | Xme", K, ", noise", K, ");\n",
+      "  target += normal_lpdf(zme", K, " | 0, 1);\n"
     )
   }
   out
@@ -1124,7 +1131,7 @@ stan_vector <- function(...) {
 }
 
 stan_has_built_in_fun <- function(family) {
-  # indicates if a family-link combination has a build in 
+  # indicates if a family-link combination has a built in 
   # function in Stan (such as binomial_logit)
   # Args:
   #   family: a list with elements 'family' and 'link'
@@ -1146,15 +1153,6 @@ stan_has_built_in_fun <- function(family) {
     family %in% logit_families && link == "logit" ||
     isTRUE(dpar %in% c("zi", "hu")) && link == "logit"
   )
-}
-
-stan_is_vectorized <- function(family) {
-  # indicate if family has a vectorized implementation in Stan
-  !(is_categorical(family) || is_ordinal(family) || 
-    is_hurdle(family) || is_zero_inflated(family) ||
-    is_zero_one_inflated(family) ||
-    is_wiener(family) || is_exgaussian(family) || 
-    is_asym_laplace(family) || is_gev(family))
 }
 
 stan_needs_kronecker <- function(ranef, names_cov_ranef) {

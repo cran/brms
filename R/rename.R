@@ -355,12 +355,12 @@ change_autocor <- function(bterms, data, pars) {
   change <- list()
   if (is.cor_bsts(bterms$autocor)) {
     data <- order_data(data, bterms = bterms)
-    if (nzchar(bterms$time$group)) {
+    if (!is.null(bterms$time$group)) {
       group <- gsub("[ \t\r\n]", "", get(bterms$time$group, data))
     } else {
       group <- rep(1, nrow(data)) 
     }
-    if (nzchar(bterms$time$time)) {
+    if (!is.null(bterms$time$time)) {
       time <- gsub("[ \t\r\n]", "", get(bterms$time$time, data))
     } else {
       time <- ulapply(unique(group), function(g) seq_len(sum(group == g)))
@@ -478,7 +478,7 @@ reorder_pars <- function(x) {
     "errorsar", "car", "sdcar", "sigmaLL", "sd", "cor", "sds", 
     "sdgp", "lscale", dpars(), "temp", "rescor", "delta", 
     "lasso", "simo", "r", "s", "zgp", "rcar", "loclev", 
-    "Xme", "prior", "lp"
+    "meanme", "sdme", "Xme", "prior", "lp"
   )
   # reorder parameter classes
   class <- get_matches("^[^[:digit:]_]+", x$fit@sim$pars_oi)

@@ -38,7 +38,12 @@ compute_ics <- function(models, model_names,
       }
     }
     if (compare) {
-      match_response(models)
+      if (!match_response(models)) {
+        warning2(
+          "Model comparisons are likely invalid as the response ", 
+          "parts of at least two models do not match."
+        )
+      }
       out <- compare_ic(x = out)
     }
     class(out) <- "iclist"
@@ -140,15 +145,15 @@ compute_ic <- function(x, ic = c("loo", "waic", "psislw", "kfold"),
 #' # model with population-level effects only
 #' fit1 <- brm(rating ~ treat + period + carry,
 #'             data = inhaler, family = "gaussian")
-#' w1 <- WAIC(fit1)
+#' waic1 <- WAIC(fit1)
 #' 
 #' # model with an additional varying intercept for subjects
 #' fit2 <- brm(rating ~ treat + period + carry + (1|subject),
 #'             data = inhaler, family = "gaussian")
-#' w2 <- WAIC(fit2)
+#' waic2 <- WAIC(fit2)
 #' 
 #' # compare both models
-#' compare_ic(w1, w2)
+#' compare_ic(waic1, waic2)
 #' }
 #' 
 #' @export
@@ -348,13 +353,9 @@ match_response <- function(models) {
       out <- TRUE
     } else {
       out <- FALSE
-      warning2(
-        "Model comparisons are likely invalid as the response ", 
-        "parts of at least two models do not match."
-      )
     }
   }
-  invisible(out)
+  out
 }
 
 #' @rdname reloo

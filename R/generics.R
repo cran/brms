@@ -75,115 +75,6 @@ is.brmsfit <- function(x) {
   inherits(x, "brmsfit")
 }
 
-#' Non-Linear Hypothesis Testing
-#' 
-#' Perform non-linear hypothesis testing for all model parameters. 
-#' 
-#' @param x An \code{R} object. If it is no \code{brmsfit} object,
-#'  it must be coercible to a \code{data.frame}.
-#' @param hypothesis A character vector specifying one or more 
-#'  non-linear hypothesis concerning parameters of the model.
-#' @param class A string specifying the class of parameters being tested. 
-#'  Default is "b" for population-level effects. 
-#'  Other typical options are "sd" or "cor". 
-#'  If \code{class = NULL}, all parameters can be tested
-#'  against each other, but have to be specified with their full name 
-#'  (see also \code{\link[brms:parnames]{parnames}}) 
-#' @param group Name of a grouping factor to evaluate only 
-#'  group-level effects parameters related to this grouping factor.
-#'  Ignored if \code{class} is not \code{"sd"} or \code{"cor"}.
-#' @param alpha The alpha-level of the tests (default is 0.05;
-#'  see 'Details' for more information).
-#' @param seed A single numeric value passed to \code{set.seed} 
-#'  to make results reproducible.
-#' @param ... Currently ignored.
-#' 
-#' @details Among others, \code{hypothesis} computes an 
-#'  evidence ratio (\code{Evid.Ratio}) for each hypothesis. 
-#'  For a directed hypothesis, this is just the posterior probability 
-#'  under the hypothesis against its alternative.
-#'  That is, when the hypothesis if of the form \code{a > b}, 
-#'  the evidence ratio is the ratio of the posterior probability 
-#'  of \code{a > b} and the posterior probability of \code{a < b}.
-#'  In this example, values greater than one indicate that the evidence in
-#'  favor of \code{a > b} is larger than evidence in favor of \code{a < b}.
-#'  For an undirected (point) hypothesis, the evidence ratio 
-#'  is a Bayes factor between the hypothesis and its alternative
-#'  computed via the Savage-Dickey density ratio method.
-#'  That is the posterior density at the point of interest divided
-#'  by the prior density at that point.
-#'  Values greater than one indicate that evidence in favor of the point
-#'  hypothesis has increased after seeing the data.
-#'  In order to calculate this Bayes factor, all parameters related 
-#'  to the hypothesis must have proper priors
-#'  and argument \code{sample_prior} of function \code{brm} 
-#'  must be set to \code{TRUE}. 
-#'  When interpreting Bayes factors, make sure 
-#'  that your priors are reasonable and carefully chosen,
-#'  as the result will depend heavily on the priors. 
-#'  In particular, avoid using default priors.
-#'  
-#'  The argument \code{alpha} specifies the size of the credible interval
-#'  (i.e., Bayesian confidence interval).
-#'  For instance, if \code{alpha = 0.05} (5\%), the credible interval
-#'  will contain \code{1 - alpha = 0.95} (95\%) of the posterior values.
-#'  Hence, \code{alpha * 100}\% of the posterior values will lie
-#'  outside of the credible interval. Although this allows testing of
-#'  hypotheses in a similar manner as in the frequentist null-hypothesis
-#'  testing framework, we strongly argue against using arbitrary cutoffs 
-#'  (e.g., \code{p < .05}) to determine the 'existence' of an effect.
-#' 
-#' @return A \code{\link[brms:brmshypothesis]{brmshypothesis}} object.
-#' 
-#' @seealso \code{\link[brms:brmshypothesis]{brmshypothesis}}
-#' 
-#' @author Paul-Christian Buerkner \email{paul.buerkner@@gmail.com}
-#' 
-#' @examples
-#' \dontrun{
-#' ## define priors
-#' prior <- c(set_prior("normal(0,2)", class = "b"),
-#'            set_prior("student_t(10,0,1)", class = "sigma"),
-#'            set_prior("student_t(10,0,1)", class = "sd"))
-#' 
-#' ## fit a linear mixed effects models
-#' fit <- brm(time ~ age + sex + disease + (1 + age|patient),
-#'            data = kidney, family = lognormal(),
-#'            prior = prior, sample_prior = TRUE, 
-#'            control = list(adapt_delta = 0.95))
-#' 
-#' ## perform two-sided hypothesis testing
-#' (hyp1 <- hypothesis(fit, "sexfemale = age + diseasePKD"))
-#' plot(hyp1)
-#' hypothesis(fit, "exp(age) - 3 = 0", alpha = 0.01)
-#' 
-#' ## perform one-sided hypothesis testing
-#' hypothesis(fit, "diseasePKD + diseaseGN - 3 < 0")
-#' 
-#' hypothesis(fit, "age < Intercept", 
-#'            class = "sd", group  = "patient")
-#' 
-#' ## test the amount of random intercept variance on all variance
-#' h <- paste("sd_patient_Intercept^2 / (sd_patient_Intercept^2 +",
-#'            "sd_patient_age^2 + sigma^2) = 0")
-#' (hyp2 <- hypothesis(fit, h, class = NULL))
-#' plot(hyp2)
-#' 
-#' ## test more than one hypothesis at once
-#' (hyp3 <- hypothesis(fit, c("diseaseGN = diseaseAN", 
-#'                            "2 * diseaseGN - diseasePKD = 0")))
-#' plot(hyp3, ignore_prior = TRUE)
-#' 
-#' ## use the default method
-#' dat <- as.data.frame(fit)
-#' hypothesis(dat, "b_age > 0")
-#' }
-#' 
-#' @export
-hypothesis <- function(x, ...) {
-  UseMethod("hypothesis")
-}
-
 #' Descriptions of \code{brmshypothesis} Objects
 #' 
 #' A \code{brmshypothesis} object contains posterior samples
@@ -678,16 +569,17 @@ kfold <- function(x, ...) {
   UseMethod("kfold")
 }
 
-#' Extract Stan Model Code
-#' 
-#' Extract the model code in Stan language
+#' Extract Stan model code
 #' 
 #' @aliases stancode.brmsfit
 #' 
 #' @param object An object of class \code{brmsfit}
+#' @param version Logical; indicates if the first line containing
+#'   the \pkg{brms} version number should be included.
+#'   Defaults to \code{TRUE}.
 #' @param ... Currently ignored
 #' 
-#' @return model code in stan language for further processing.
+#' @return Stan model code for further processing.
 #' 
 #' @export
 stancode <- function(object, ...) {
@@ -812,15 +704,19 @@ stanplot <- function(object, ...) {
 #' @param method Either \code{"fitted"} or \code{"predict"}. 
 #'   If \code{"fitted"}, plot marginal predictions of the regression curve. 
 #'   If \code{"predict"}, plot marginal predictions of the responses.
-#' @param spaghetti Logical; Indicates whether predictions should
+#' @param spaghetti Logical. Indicates if predictions should
 #'   be visualized via spaghetti plots. Only applied for numeric
 #'   predictors. If \code{TRUE}, it is recommended 
 #'   to set argument \code{nsamples} to a relatively small value 
 #'   (e.g. \code{100}) in order to reduce computation time.
-#' @param surface Logical; Indicates whether interactions or 
+#' @param surface Logical. Indicates if interactions or 
 #'   two-dimensional smooths should be visualized as a surface. 
 #'   Defaults to \code{FALSE}. The surface type can be controlled 
 #'   via argument \code{stype} of the related plotting method.
+#' @param ordinal Logical. Indicates if effects in ordinal models
+#'   should be visualized as a raster with the response categories
+#'   on the y-axis. Defaults to \code{FALSE} and ignored in
+#'   non-ordinal models.
 #' @param transform A function or a character string naming 
 #'   a function to be applied on the predicted responses
 #'   before summary statistics are computed. Only allowed
@@ -1039,6 +935,56 @@ marginal_smooths <- function(x, ...) {
   UseMethod("marginal_smooths")
 }
 
+#' Posterior predictive samples averaged across models
+#' 
+#' Compute posterior predictive samples averaged across models.
+#' Weighting can be done in various ways, for instance using
+#' Akaike weights based on information criteria or 
+#' marginal likelihoods.
+#' 
+#' @aliases pp_average
+#' 
+#' @param x A \code{brmsfit} object.
+#' @param ... More \code{brmsfit} objects.
+#' @param weights Name of the criterion to compute weights from. 
+#'   Should be one of \code{"loo"} (default), 
+#'   \code{"waic"}, \code{"kfold"}, or \code{"bridge"} 
+#'   (log marginal likelihood). Alternatively, a numeric
+#'   vector with pre-specified weights.
+#' @param method Type of predictions to average. Should be one of 
+#'   \code{"predict"} (default), \code{"fitted"}, or \code{"residuals"}. 
+#' @param more_args Optional \code{list} of further arguments 
+#'   passed to the function specified in \code{method}.
+#' @param control Optional \code{list} of further arguments 
+#'   passed to the function specified in \code{weights}.
+#' @inheritParams predict.brmsfit
+#' 
+#' @return Same as the output of the method specified 
+#'   in argument \code{method}.
+#'   
+#' @examples 
+#' \dontrun{
+#' # model with 'treat' as predictor
+#' fit1 <- brm(rating ~ treat + period + carry, data = inhaler)
+#' summary(fit1)
+#' 
+#' # model without 'treat' as predictor
+#' fit2 <- brm(rating ~ period + carry, data = inhaler)
+#' summary(fit2)
+#' 
+#' # compute model-averaged predicted values
+#' (df <- unique(inhaler[, c("treat", "period", "carry")]))
+#' pp_average(fit1, fit2, newdata = df)
+#' 
+#' # compute model-averaged fitted values
+#' pp_average(fit1, fit2, method = "fitted", newdata = df)
+#' }
+#' 
+#' @export
+pp_average <- function(x, ...) {
+  UseMethod("pp_average")
+}
+
 #' Posterior Probabilities of Mixture Component Memberships
 #' 
 #' Compute the posterior probabilities of mixture component 
@@ -1108,13 +1054,18 @@ pp_mixture <- function(x, ...) {
 
 #' Expose user-defined \pkg{Stan} functions
 #' 
-#' Export user-defined \pkg{Stan} function to the 
-#' \code{\link[base:environment]{.GlobalEnv}}.
-#' For more details see 
+#' Export user-defined \pkg{Stan} function and
+#' optionally vectorize them. For more details see 
 #' \code{\link[rstan:expose_stan_functions]{expose_stan_functions}}.
 #' 
 #' @param x An \R object
-#' @param ... Further arguments
+#' @param vectorize Logical; Indicates if the exposed functions
+#'   should be vectorized via \code{\link{Vectorize}}. 
+#'   Defaults to \code{FALSE}.
+#' @param env Environment where the functions should be made
+#'   available. Defaults to the global environment.
+#' @param ... Further arguments passed to 
+#'   \code{\link[rstan:expose_stan_functions]{expose_stan_functions}}.
 #' 
 #' @export
 expose_functions <- function(x, ...) {

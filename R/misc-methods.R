@@ -132,7 +132,7 @@ print.brmshypothesis <- function(x, digits = 2, chars = 20, ...) {
   x$hypothesis[, 1:5] <- round(x$hypothesis[, 1:5], digits = digits)
   print(x$hypothesis, quote = FALSE)
   cat(paste0("---\n'*': The expected value under the hypothesis ", 
-             "lies outside the ", (1 - x$alpha) * 100, "% CI."))
+             "lies outside the ", (1 - x$alpha) * 100, "% CI.\n"))
   invisible(x)
 }
 
@@ -176,12 +176,6 @@ prior_samples.default <- function(x, pars = NA, exact_match = FALSE, ...) {
     }
   }
   posterior_samples(x, pars = pars, exact_match = exact_match, ...)
-}
-
-#' @rdname hypothesis
-#' @export
-hypothesis.default <- function(x, hypothesis, alpha = 0.05, ...) {
-  hypothesis_internal(as.data.frame(x), hypothesis, alpha = alpha, ...)
 }
 
 #' @rdname posterior_summary

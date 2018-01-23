@@ -212,9 +212,7 @@ validate_newdata <- function(
     not_reqvars <- setdiff(all.vars(bterms$allvars), all.vars(reqvars))
     not_reqvars <- setdiff(not_reqvars, names(newdata))
     if (length(not_reqvars)) {
-      # use NaN rather then NA as the latter will cause model.matrix 
-      # to return <x>TRUE instead of <x> as column names
-      newdata[, not_reqvars] <- NaN
+      newdata[, not_reqvars] <- NA
     }
   }
   only_resp <- all.vars(bterms$respform)
@@ -227,7 +225,7 @@ validate_newdata <- function(
       stop2("Response variables must be specified in 'newdata'.\n",
             "Missing variables: ", collapse_comma(missing_resp))
     } else {
-      newdata[, missing_resp] <- NaN
+      newdata[, missing_resp] <- NA
     }
   }
   # censoring and weighting vars are unused in post-processing methods
@@ -491,7 +489,9 @@ extract_old_standata.brmsterms <- function(x, data, ...) {
   if (has_trials(x$family) || has_cat(x$family)) {
     # trials and ncat should not be computed based on new data
     data_response <- data_response(x, data, check_response = FALSE)
-    out[c("trials", "ncat")] <- data_response[c("trials", "ncat")]
+    # partially match via $ to be independent of the response suffix
+    out$trials <- data_response$trials
+    out$ncat <- data_response$ncat
   }
   if (is.cor_car(x$autocor)) {
     if (isTRUE(nzchar(x$time$group))) {
