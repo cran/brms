@@ -1,3 +1,5 @@
+context("Tests for brmsfit helper functions")
+
 test_that("first_greater returns expected results", {
   set.seed(12345)
   A <- cbind(1:10, 11:20, 21:30)
@@ -76,9 +78,9 @@ test_that("evidence_ratio returns expected results", {
   expect_equal(evidence_ratio(ps, cut = 0.5, wsign = "less"), 5/10)
 })
 
-test_that("find_names finds all valid variable names in a string", {
+test_that("find_vars finds all valid variable names in a string", {
   string <- "x + b.x - .5 + abc(a__3) : 1/2 - 0.2"
-  expect_equal(find_names(string), c("x", "b.x", "a__3"))
+  expect_equal(find_vars(string), c("x", "b.x", "a__3"))
 })
 
 test_that(".predictor_arma runs without errors", {
@@ -94,3 +96,10 @@ test_that(".predictor_arma runs without errors", {
   expect_silent(.predictor_arma(eta, Y = Y, J_lag = J_lag, ma = ma))
   expect_silent(.predictor_arma(eta, Y = Y, J_lag = J_lag, ar = ar, ma = ma))
 })
+
+test_that("make_conditions works correctly", {
+  conds <- make_conditions(epilepsy, c("log_Base4_c", "log_Age_c"))
+  expect_equal(dim(conds), c(9, 3))
+  expect_equal(conds$cond__[3], "log_Base4_c = -0.75 & log_Age_c = 0.22")
+})
+

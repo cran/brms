@@ -27,16 +27,20 @@
 make_standata <- function(formula, data, family = gaussian(), 
                           prior = NULL, autocor = NULL, cov_ranef = NULL,
                           sample_prior = c("no", "yes", "only"), 
-                          knots = NULL, check_response = TRUE,
-                          only_response = FALSE, control = list(), 
-                          ...) {
+                          stanvars = NULL, knots = NULL, 
+                          check_response = TRUE, only_response = FALSE, 
+                          control = list(), ...) {
   # internal control arguments:
   #   new: is make_standata is called with new data?
   #   not4stan: is make_standata called for use in S3 methods?
   #   save_order: should the initial order of the data be saved?
-  #   old_standata: list of stan data computed from the orginal data
+  #   old_sdata: list of stan data computed from the orginal data
   #   terms_attr: list of attributes of the original model.frame
   dots <- list(...)
+  # some input checks
+  if (is.brmsfit(formula)) {
+    stop2("Use 'standata' to extract Stan data from 'brmsfit' objects.")
+  }
   check_response <- as_one_logical(check_response)
   only_response <- as_one_logical(only_response)
   not4stan <- isTRUE(control$not4stan)
@@ -51,7 +55,7 @@ make_standata <- function(formula, data, family = gaussian(),
     prior, bterms = bterms, data = data, 
     check_nlpar_prior = FALSE
   )
-  na_action <- if (new) na.pass else na.omit
+  na_action <- if (new) na.pass else na.omit2
   data <- update_data(
     data, bterms = bterms, na.action = na_action, 
     drop.unused.levels = !new, knots = knots,
@@ -67,21 +71,31 @@ make_standata <- function(formula, data, family = gaussian(),
     data_response(
       bterms, data, check_response = check_response,
       not4stan = not4stan, new = new, 
-      old_standata = control$old_standata
+      old_sdata = control$old_sdata
     )
   )
   if (!only_response) {
     ranef <- tidy_ranef(
       bterms, data, old_levels = control$old_levels,
-      old_standata = control$old_standata  
+      old_sdata = control$old_sdata  
     )
+    meef <- tidy_meef(bterms, data, old_levels = control$old_levels)
     args_eff <- nlist(
-      x = bterms, data, prior, ranef, cov_ranef, knots, 
-      not4stan, old_standata = control$old_standata
+      x = bterms, data, prior, ranef, meef, cov_ranef, 
+      knots, not4stan, old_sdata = control$old_sdata
     )
     out <- c(out, do.call(data_effects, args_eff))
   }
   out$prior_only <- as.integer(identical(sample_prior, "only"))
+  stanvars <- validate_stanvars(stanvars)
+  if (is.stanvars(stanvars)) {
+    inv_names <- intersect(names(stanvars), names(out))
+    if (length(inv_names)) {
+      stop2("Cannot overwrite existing variables: ", 
+            collapse_comma(inv_names))
+    }
+    out[names(stanvars)] <- lapply(stanvars, "[[", "sdata")
+  }
   if (isTRUE(control$save_order)) {
     attr(out, "old_order") <- attr(data, "old_order")
   }

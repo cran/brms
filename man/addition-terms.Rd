@@ -9,11 +9,12 @@
 \alias{resp_dec}
 \alias{resp_cens}
 \alias{resp_trunc}
+\alias{resp_mi}
 \title{Additional Response Information}
 \usage{
 resp_se(x, sigma = FALSE)
 
-resp_weights(x)
+resp_weights(x, scale = FALSE)
 
 resp_trials(x)
 
@@ -24,6 +25,8 @@ resp_dec(x)
 resp_cens(x, y2 = NULL)
 
 resp_trunc(lb = -Inf, ub = Inf)
+
+resp_mi(sdy = NULL)
 }
 \arguments{
 \item{x}{A vector; usually a variable defined in the
@@ -41,6 +44,9 @@ parameter \code{sigma} should be included in addition to the known
 measurement error. Defaults to \code{FALSE} for backwards compatibility,
 but setting it to \code{TRUE} is usually the better choice.}
 
+\item{scale}{Logical; Indicates whether weights should be scaled
+so that the average weight equals one. Defaults to \code{FALSE}.}
+
 \item{y2}{A vector specifying the upper bounds in interval censoring.}
 
 \item{lb}{A numeric vector or single numeric value specifying 
@@ -48,6 +54,11 @@ the lower truncation bound.}
 
 \item{ub}{A numeric vector or single numeric value specifying 
 the upper truncation bound.}
+
+\item{sdy}{Optional known measurement error of the response
+treated as standard deviation. If specified, handles
+measurement error and (completely) missing values
+at the same time using the plausible-values-technique.}
 }
 \value{
 A vector containing additional information on the response

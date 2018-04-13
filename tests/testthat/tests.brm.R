@@ -1,9 +1,11 @@
+# calling context() avoids a strange bug in testthat 2.0.0
+# cannot actually run brms models in tests as it takes way too long
+context("Tests for brms error messages")
+
 test_that("brm produces expected errors", {
   dat <- data.frame(y = rnorm(10), x = rnorm(10), g = rep(1:5, 2))
   
   # formula parsing
-  expect_error(brm(bf(y ~ a^x, a + b ~ 1, nl = TRUE), dat),
-               "missing in formula: 'b'")
   expect_error(brm(~ x + (1|g), dat), 
                "response variable is missing")
   expect_error(brm(bf(y ~ a, nl = TRUE)),
@@ -29,8 +31,10 @@ test_that("brm produces expected errors", {
                "Can only combine group-level terms")
   expect_error(brm(y ~ x + (1|g) + (x|g), dat), 
                "Duplicated group-level effects are not allowed")
-  expect_error(brm(y~mo(g)*me(x, g), dat),
-               "Cannot use multiple special terms within one term")
+  expect_error(brm(y~mo(g)*t2(x), dat), fixed = TRUE,
+               "The term 'mo(g):t2(x)' is invalid")
+  expect_error(brm(y~x*cs(g), dat), fixed = TRUE,
+               "The term 'x:cs(g)' is invalid")
   expect_error(brm(y~me(x, 2 * g)*me(x, g), dat),
                "Variable 'x' is used in different calls to 'me'")
   
@@ -40,7 +44,7 @@ test_that("brm produces expected errors", {
   expect_error(brm(y ~ 1, dat, autocor = cor_ar(x~t1|g1)), 
                "Autocorrelation formulas must be one-sided")
   expect_error(brm(y ~ 1, dat, autocor = cor_ar(~1|g1/g2)), 
-               paste("Illegal grouping term: g1/g2"))
+               paste("Illegal grouping term 'g1/g2'"))
   expect_error(brm(y ~ 1, dat, poisson(), autocor = cor_ma(~x)),
                "not implemented for family 'poisson'")
   

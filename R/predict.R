@@ -103,6 +103,18 @@ predict_lognormal <- function(i, draws, ...) {
   )
 }
 
+predict_shifted_lognormal <- function(i, draws, ...) {
+  args <- list(
+    meanlog = get_dpar(draws, "mu", i = i), 
+    sdlog = get_dpar(draws, "sigma", i = i),
+    shift = get_dpar(draws, "ndt", i = i)
+  )
+  rng_continuous(
+    nrng = draws$nsamples, dist = "shifted_lnorm", args = args, 
+    lb = draws$data$lb[i], ub = draws$data$ub[i]
+  )
+}
+
 predict_skew_normal <- function(i, draws, ...) {
   sigma <- get_dpar(draws, "sigma", i = i)
   alpha <- get_dpar(draws, "alpha", i = i)
@@ -331,8 +343,7 @@ predict_gamma <- function(i, draws, ...) {
 
 predict_weibull <- function(i, draws, ...) {
   shape <- get_dpar(draws, "shape", i = i)
-  mu <- get_dpar(draws, "mu", i = i) 
-  scale <- ilink(mu / shape, draws$f$link)
+  scale <- get_dpar(draws, "mu", i = i) / gamma(1 + 1 / shape) 
   args <- list(shape = shape, scale = scale)
   rng_continuous(
     nrng = draws$nsamples, dist = "weibull", args = args, 
@@ -574,6 +585,12 @@ predict_ordinal <- function(i, draws, family, ...) {
     family = family, link = draws$f$link
   )
   first_greater(p, target = runif(draws$nsamples, min = 0, max = 1))
+}
+
+predict_custom <- function(i, draws, ...) {
+  predict_fun <- paste0("predict_", draws$f$name)
+  predict_fun <- get(predict_fun, draws$f$env)
+  predict_fun(i = i, draws = draws, ...)
 }
 
 predict_mixture <- function(i, draws, ...) {

@@ -4,7 +4,10 @@ p <- function(x, i = NULL, row = TRUE) {
   #   x: an R object typically a vector or matrix
   #   i: optional index; if NULL, x is returned unchanged
   #   row: indicating if rows or cols should be indexed
-  #        only relevant if x has two dimensions
+  #        only relevant if x has two or three dimensions
+  if (isTRUE(length(dim(x)) > 3L)) {
+    stop2("'p' can only handle objects up to 3 dimensions.")
+  }
   if (!length(i)) {
     out <- x
   } else if (length(dim(x)) == 2L) {
@@ -12,6 +15,12 @@ p <- function(x, i = NULL, row = TRUE) {
       out <- x[i, , drop = FALSE]
     } else {
       out <- x[, i, drop = FALSE]
+    }
+  } else if (length(dim(x)) == 3L) {
+    if (row) {
+      out <- x[i, , , drop = FALSE]
+    } else {
+      out <- x[, i, , drop = FALSE]
     }
   } else {
     out <- x[i]
@@ -50,7 +59,7 @@ find_rows <- function(x, ..., ls = list(), fun = '%in%') {
 
 subset2 <- function(x, ..., ls = list(), fun = '%in%') {
   # subset x using arguments passed via ls and ...
-  x[find_rows(x, ..., ls = ls, fun = fun), ]
+  x[find_rows(x, ..., ls = ls, fun = fun), , drop = FALSE]
 }
 
 select_indices <- function(x, i) {
@@ -89,6 +98,16 @@ array2list <- function(x) {
   }
   names(out) <- dimnames(x)[[ndim]]
   out
+}
+
+move2start <- function(x, first) {
+  # move elements to the start of a named object
+  x[c(first, setdiff(names(x), first))]
+}
+
+repl <- function(expr, n) {
+  # wrapper around replicate but without simplifying
+  replicate(n, expr, simplify = FALSE)
 }
 
 first_greater <- function(A, target, i = 1) {
@@ -148,22 +167,33 @@ is_like_factor <- function(x) {
   is.factor(x) || is.character(x) || is.logical(x)
 }
 
-as_one_logical <- function(x) {
+as_one_logical <- function(x, allow_na = FALSE) {
   # coerce 'x' to TRUE or FALSE if possible
   s <- substitute(x)
   x <- as.logical(x)
-  if (anyNA(x) || length(x) != 1L) {
+  if (length(x) != 1L || anyNA(x) && !allow_na) {
     s <- substr(deparse_combine(s), 1L, 100L)
     stop2("Cannot coerce ", s, " to a single logical value.")
   }
   x
 }
 
-as_one_character <- function(x) {
+as_one_numeric <- function(x, allow_na = FALSE) {
+  # coerce 'x' to a signle number value
+  s <- substitute(x)
+  x <- SW(as.numeric(x))
+  if (length(x) != 1L || anyNA(x) && !allow_na) {
+    s <- substr(deparse_combine(s), 1L, 100L)
+    stop2("Cannot coerce ", s, " to a single numeric value.")
+  }
+  x
+}
+
+as_one_character <- function(x, allow_na = FALSE) {
   # coerce 'x' to a single character string
   s <- substitute(x)
   x <- as.character(x)
-  if (anyNA(x) || length(x) != 1L) {
+  if (length(x) != 1L || anyNA(x) && !allow_na) {
     s <- substr(deparse_combine(s), 1L, 100L)
     stop2("Cannot coerce ", s, " to a single character value.")
   }
@@ -237,15 +267,23 @@ is_symmetric <- function(x, tol = sqrt(.Machine$double.eps)) {
   isSymmetric(x, tol = tol, check.attributes = FALSE)
 }
 
-ulapply <- function(X, FUN, ...) {
-  # short for unlist(lapply(.))
-  unlist(lapply(X = X, FUN = FUN, ...))
+ulapply <- function(X, FUN, ..., recursive = TRUE, use.names = TRUE) {
+  # short for unlist(lapply())
+  unlist(lapply(X, FUN, ...), recursive, use.names)
 }
 
 lc <- function(l, ...) {
   # append ... to l
-  dots <- list(...)
+  dots <- rmNULL(list(...), recursive = FALSE)
   c(l, dots)
+}
+
+'c<-' <- function(x, value) {
+  c(x, value)
+}
+
+'lc<-' <- function(x, value) {
+  lc(x, value)
 }
 
 collapse <- function(..., sep = "") {
@@ -267,6 +305,41 @@ collapse_comma <- function(...) {
   paste0(x, value)
 }
 
+na.omit2 <- function (object, ...) {
+  # like stats:::na.omit.data.frame but allows to ignore variables
+  # keeps NAs in variables with attribute keep_na = TRUE 
+  # Args:
+  #  ignore: names of variables for which NAs should be kept
+  stopifnot(is.data.frame(object))
+  omit <- logical(nrow(object))
+  for (j in seq_along(object)) {
+    x <- object[[j]]
+    keep_na <- isTRUE(attr(x, "keep_na", TRUE))
+    if (!is.atomic(x) || keep_na) {
+      next
+    } 
+    x <- is.na(x)
+    d <- dim(x)
+    if (is.null(d) || length(d) != 2L) {
+      omit <- omit | x
+    } else {
+      for (ii in seq_len(d[2L])) {
+        omit <- omit | x[, ii]
+      } 
+    } 
+  }
+  if (any(omit > 0L)) {
+    out <- object[!omit, , drop = FALSE]
+    temp <- setNames(seq(omit)[omit], attr(object, "row.names")[omit])
+    attr(temp, "class") <- "omit"
+    attr(out, "na.action") <- temp
+    warning2("Rows containing NAs were excluded from the model.")
+  } else {
+    out <- object
+  }
+  out
+}
+
 require_package <- function(package) {
   if (!requireNamespace(package, quietly = TRUE)) {
     stop2("Please install the '", package, "' package.")
@@ -274,37 +347,39 @@ require_package <- function(package) {
   invisible(TRUE)
 }
 
-rename <- function(x, symbols = NULL, subs = NULL, 
-                   fixed = TRUE, check_dup = FALSE) {
-  # rename certain symbols in a character vector
+rename <- function(x, pattern = NULL, replacement = NULL, 
+                   fixed = TRUE, check_dup = FALSE, ...) {
+  # rename certain patterns in a character vector
   # Args:
   #   x: a character vector to be renamed
-  #   symbols: the regular expressions in x to be replaced
-  #   subs: the replacements
+  #   pattern: the regular expressions in x to be replaced
+  #   replacement: the replacements
   #   fixed: same as for sub, grepl etc
   #   check_dup: logical; check for duplications in x after renaming
+  #   ...: passed to gsub
   # Returns: 
   #   renamed character vector of the same length as x
-  symbols <- as.character(symbols)
-  subs <- as.character(subs)
-  if (!length(symbols)) {
-    symbols <- c(" ", "(", ")", "[", "]", ",", "\"", "'", 
-                 "+", "-", "*", "/", "^", "=", "!=")
+  pattern <- as.character(pattern)
+  replacement <- as.character(replacement)
+  if (!length(pattern) && !length(replacement)) {
+    # default renaming to avoid special characters in coeffcient names 
+    pattern <- c(
+      " ", "(", ")", "[", "]", ",", "\"", "'", 
+      "?", "+", "-", "*", "/", "^", "="
+    )
+    replacement <- c(rep("", 9), "P", "M", "MU", "D", "E", "EQ")
   }
-  if (!length(subs)) {
-    subs <- c(rep("", 8), "P", "M", "MU", "D", "E", "EQ", "NEQ")
+  if (length(replacement) == 1L) {
+    replacement <- rep(replacement, length(pattern))
   }
-  if (length(subs) == 1L) {
-    subs <- rep(subs, length(symbols))
-  }
-  stopifnot(length(symbols) == length(subs))
+  stopifnot(length(pattern) == length(replacement))
   # avoid zero-length pattern error
-  has_chars <- nzchar(symbols)
-  symbols <- symbols[has_chars]
-  subs <- subs[has_chars]
+  has_chars <- nzchar(pattern)
+  pattern <- pattern[has_chars]
+  replacement <- replacement[has_chars]
   out <- x
-  for (i in seq_along(symbols)) {
-    out <- gsub(symbols[i], subs[i], out, fixed = fixed)
+  for (i in seq_along(pattern)) {
+    out <- gsub(pattern[i], replacement[i], out, fixed = fixed, ...)
   }
   dup <- duplicated(out)
   if (check_dup && any(dup)) {
@@ -324,7 +399,8 @@ collapse_lists <- function(..., ls = list()) {
   ls <- c(list(...), ls)
   elements <- unique(unlist(lapply(ls, names)))
   out <- do.call(mapply, 
-    c(FUN = collapse, lapply(ls, "[", elements), SIMPLIFY = FALSE))
+    c(FUN = collapse, lapply(ls, "[", elements), SIMPLIFY = FALSE)
+  )
   names(out) <- elements
   out
 }
@@ -494,6 +570,14 @@ grepl_expr <- function(pattern, expr, ...) {
 
 escape_dot <- function(x) {
   gsub(".", "\\.", x, fixed = TRUE)
+}
+
+escape_all <- function(x) {
+  special <- c(".", "*", "+", "?", "^", "$", "(", ")", "[", "]")
+  for (s in special) {
+    x <- gsub(s, paste0("\\", s), x, fixed = TRUE)
+  }
+  x
 }
 
 usc <- function(x, pos = c("prefix", "suffix")) {
@@ -688,9 +772,7 @@ diff_quad <- function(x, x_new = NULL) {
   } else {
     x_new <- as.matrix(x_new)
   }
-  .diff_quad <- function(x1, x2) {
-    (x1 - x2)^2
-  }
+  .diff_quad <- function(x1, x2) (x1 - x2)^2
   out <- 0
   for (i in seq_len(ncol(x))) {
     out <- out + outer(x[, i], x_new[, i], .diff_quad)
@@ -712,6 +794,18 @@ softmax <- function(x) {
   }
   x <- exp(x) 
   x / rowSums(x)
+}
+
+round_largest_remainder <- function(x) {
+  # round using the largest remainder method
+  x <- as.numeric(x)
+  total <- round(sum(x))
+  out <- floor(x)
+  diff <- x - out
+  J <- order(diff, decreasing = TRUE)
+  I <- seq_len(total - floor(sum(out)))
+  out[J[I]] <- out[J[I]] + 1
+  out
 }
 
 wsp <- function(x = "", nsp = 1) {
@@ -783,6 +877,11 @@ warn_deprecated <- function(new, old = as.character(sys.call(sys.parent()))[1]) 
   }
   warning2(msg)
   invisible(NULL)
+}
+
+viridis6 <- function() {
+  # colours taken from the viridis package
+  c("#440154", "#414487", "#2A788E", "#22A884", "#7AD151", "#FDE725")
 }
 
 expect_match2 <- function(object, regexp, ..., all = TRUE) {

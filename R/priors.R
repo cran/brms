@@ -334,7 +334,7 @@
 #' @export
 set_prior <- function(prior, class = "b", coef = "", group = "",
                       resp = "", dpar = "", nlpar = "", 
-                      lb = NULL, ub = NULL, check = TRUE) {
+                      lb = NA, ub = NA, check = TRUE) {
   prior <- as_one_character(prior)
   class <- as_one_character(class)
   group <- as_one_character(group)
@@ -342,15 +342,13 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
   resp <- as_one_character(resp)
   dpar <- as_one_character(dpar)
   nlpar <- as_one_character(nlpar)
-  lb <- as.numeric(lb)
-  ub <- as.numeric(ub)
+  lb <- as_one_character(lb, allow_na = TRUE)
+  ub <- as_one_character(ub, allow_na = TRUE)
   check <- as_one_logical(check)
-  if (length(lb) > 1 || length(ub) > 1) {
-    stop2("If specified, 'lb' and 'ub' must be of length 1.")
-  }
   # validate boundaries
+  bound <- ""
   is_arma <- class %in% c("ar", "ma")
-  if (length(lb) || length(ub) || is_arma) {
+  if (!is.na(lb) || !is.na(ub) || is_arma) {
     if (!(class %in% c("b", "ar", "ma", "arr"))) {
       stop2(
         "Currently boundaries are only allowed for ", 
@@ -361,25 +359,15 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
       stop2("Argument 'coef' may not be specified when using boundaries.")
     }
     if (is_arma) {
-      lb <- ifelse(length(lb), lb, -1)
-      ub <- ifelse(length(ub), ub, 1) 
-      if (is.na(lb) || is.na(ub) || abs(lb) > 1 || abs(ub) > 1) {
-        warning2(
-          "Setting boundaries of autocorrelation parameters ", 
-          "outside of [-1,1] may not be appropriate."
-        )
-      }
+      lb <- ifelse(!is.na(lb), lb, -1)
+      ub <- ifelse(!is.na(ub), ub, 1)
     }
     # don't put spaces in boundary declarations
-    lb <- if (length(lb) && !is.na(lb)) paste0("lower=", lb)
-    ub <- if (length(ub) && !is.na(ub)) paste0("upper=", ub)
+    lb <- if (!is.na(lb)) paste0("lower=", lb)
+    ub <- if (!is.na(ub)) paste0("upper=", ub)
     if (!is.null(lb) || !is.null(ub)) {
       bound <- paste0("<", paste(c(lb, ub), collapse = ","), ">")
-    } else {
-      bound <- ""
     }
-  } else {
-    bound <- ""
   }
   if (!check) {
     # prior will be added to the log-posterior as is
@@ -479,6 +467,7 @@ get_prior <- function(formula, data, family = gaussian(),
   bterms <- parse_bf(formula)
   data <- update_data(data, bterms = bterms)
   ranef <- tidy_ranef(bterms, data)
+  meef <- tidy_meef(bterms, data)
   # initialize output
   prior <- empty_brmsprior()
   # priors for distributional parameters
@@ -492,7 +481,7 @@ get_prior <- function(formula, data, family = gaussian(),
     internal = internal
   )
   # priors for noise-free variables
-  prior <- prior + prior_Xme(bterms)
+  prior <- prior + prior_Xme(meef, internal = internal)
   # do not remove unique(.)
   to_order <- with(prior, order(resp, dpar, nlpar, class, group, coef))
   prior <- unique(prior[to_order, , drop = FALSE])
@@ -503,6 +492,11 @@ get_prior <- function(formula, data, family = gaussian(),
 prior_effects <- function(x, ...) {
   # generate priors various kind of effects 
   UseMethod("prior_effects")
+}
+
+#' @export
+prior_effects.default <- function(x, ...) {
+  empty_brmsprior()
 }
 
 prior_effects.mvbrmsterms <- function(x, internal = FALSE, ...) {
@@ -571,6 +565,13 @@ prior_effects.brmsterms <- function(x, data, ...) {
   if (is.mixfamily(x$family) && !any(dp_classes == "theta")) {
     prior <- prior + brmsprior(class = "theta", resp = x$resp)
   }
+  # priors for noise-free response variables
+  sdy <- get_sdy(x, data)
+  if (!is.null(sdy)) {
+    prior <- prior + 
+      brmsprior(class = "meanme", resp = x$resp) +
+      brmsprior(class = "sdme", resp = x$resp)
+  }
   # priors for autocorrelation parameters
   prior <- prior + prior_autocor(x, def_scale_prior = def_scale_prior)
   prior
@@ -587,11 +588,10 @@ prior_effects.btl <- function(x, data, spec_intercept = TRUE,
   # Return:
   #   An object of class brmsprior
   prior_fe(x, data, def_dprior = def_dprior, spec_intercept = spec_intercept) +
-  prior_cs(x, data) +
-  prior_mo(x, data) +
-  prior_sm(x, data, def_scale_prior = def_scale_prior) + 
-  prior_me(x, data) + 
-  prior_gp(x, data, def_scale_prior = def_scale_prior)
+    prior_sp(x, data) +
+    prior_cs(x, data) +
+    prior_sm(x, data, def_scale_prior = def_scale_prior) + 
+    prior_gp(x, data, def_scale_prior = def_scale_prior)
 }
 
 #' @export
@@ -632,19 +632,23 @@ prior_fe <- function(bterms, data, spec_intercept = TRUE, def_dprior = "") {
   prior
 }
 
-prior_mo <- function(bterms, data) {
-  # priors for monotonic effects parameters
+prior_sp <- function(bterms, data) {
+  # priors for special effects parameters
   # Returns:
   #   an object of class brmsprior
   prior <- empty_brmsprior()
-  monef <- get_mo_labels(bterms, data)
-  if (length(monef)) {
+  spef <- tidy_spef(bterms, data)
+  if (!is.null(spef)) {
     px <- check_prefix(bterms)
-    simo_coef <- get_simo_labels(monef)
-    monef <- rename(monef)
-    prior <- prior + 
-      brmsprior(class = "b", coef = c("", monef), ls = px) + 
-      brmsprior(class = "simo", coef = simo_coef, ls = px)
+    prior <- prior + brmsprior(
+      class = "b", coef = c("", spef$coef), ls = px
+    )
+    simo_coef <- get_simo_labels(spef)
+    if (length(simo_coef)) {
+      prior <- prior + brmsprior(
+        class = "simo", coef = simo_coef, ls = px
+      ) 
+    }
   }
   prior
 }
@@ -663,31 +667,35 @@ prior_cs <- function(bterms, data) {
   prior
 }
 
-prior_me <- function(bterms, data) {
-  # default priors of coefficients of noisy terms
-  # Returns:
-  #   an object of class brmsprior
-  prior <- empty_brmsprior()
-  meef <- get_me_labels(bterms, data)
-  if (length(meef)) {
-    px <- check_prefix(bterms)
-    prior <- prior + 
-      brmsprior(class = "b", coef = c("", rename(meef)), ls = px)
-  }
-  prior
-}
-
-prior_Xme <- function(bterms) {
+prior_Xme <- function(meef, internal = FALSE) {
   # default priors for hyper-parameters of noise-free variables
   # Returns:
   #   an object of class brmsprior
+  stopifnot(is.meef_frame(meef))
   prior <- empty_brmsprior()
-  uni_me <- get_uni_me(bterms)
-  if (length(uni_me)) {
-    uni_me <- rename(uni_me)
+  if (nrow(meef)) {
     prior <- prior + 
-      brmsprior(class = "meanme", coef = c("", uni_me)) +
-      brmsprior(class = "sdme", coef = c("", uni_me))
+      brmsprior(class = "meanme", coef = c("", meef$coef)) +
+      brmsprior(class = "sdme", coef = c("", meef$coef))
+    # priors for correlation parameters
+    groups <- unique(meef$grname)
+    for (i in seq_along(groups)) {
+      g <- groups[i]
+      K <- which(meef$grname %in% g)
+      if (meef$cor[K[1]] && length(K) > 1L) {
+        if (internal) {
+          prior <- prior + brmsprior("lkj_corr_cholesky(1)", class = "Lme")
+          if (nzchar(g)) {
+            prior <- prior + brmsprior(class = "Lme", group = g)
+          }
+        } else {
+          prior <- prior + brmsprior("lkj(1)", class = "corme")
+          if (nzchar(g)) {
+            prior <- prior + brmsprior(class = "corme", group = g)
+          }
+        }
+      }
+    }
   }
   prior
 }
@@ -991,8 +999,8 @@ check_prior <- function(prior, formula, data = NULL,
   prior <- prior[!no_checks, ]
   # check for duplicated priors
   prior$class <- rename(
-    prior$class, symbols = c("^cor$", "^rescor$"), 
-    subs = c("L", "Lrescor"), fixed = FALSE
+    prior$class, c("^cor$", "^rescor$", "^corme$"), 
+    c("L", "Lrescor", "Lme"), fixed = FALSE
   )
   rcols <- rcols_prior()
   duplicated_input <- duplicated(prior[, rcols])
@@ -1054,7 +1062,7 @@ check_prior_content <- function(prior, warn = TRUE) {
       "sigma", "shape", "nu", "phi", "kappa", "beta", "bs", 
       "disc", "sdcar", "sigmaLL", "sd", "sds", "sdgp", "lscale" 
     )
-    cor_pars <- c("cor", "L", "rescor", "Lrescor")
+    cor_pars <- c("cor", "rescor", "corme", "L", "Lrescor", "Lme")
     autocor_pars <- c("ar", "ma")
     lb_warning <- ub_warning <- ""
     autocor_warning <- FALSE
@@ -1082,11 +1090,10 @@ check_prior_content <- function(prior, warn = TRUE) {
           ub_warning <- paste0(ub_warning, msg_prior, "\n")
         }
       } else if (prior$class[i] %in% cor_pars) {
-        if (nchar(prior$prior[i]) && !grepl("^lkj", prior$prior[i])) {
+        if (nzchar(prior$prior[i]) && !grepl("^lkj", prior$prior[i])) {
           stop2(
-            "Currently 'lkj' is the only valid prior ",
-            "for group-level correlations. See help(set_prior) ",
-            "for more details."
+            "The only supported prior for correlation matrices is ", 
+            "the 'lkj' prior. See help(set_prior) for more details."
           )
         }
       } else if (prior$class[i] %in% autocor_pars) {
@@ -1137,9 +1144,8 @@ check_prior_special <- function(x, ...) {
 }
 
 #' @export
-check_prior_special.default <- function(x, ...) {
-  # invalid class will result in an empty brmsprior object
-  check_prior_special(empty_brmsprior(), ...)
+check_prior_special.default <- function(x, prior = empty_brmsprior(), ...) {
+  prior
 }
 
 #' @export
@@ -1250,7 +1256,8 @@ check_prior_special.btl <- function(x, prior, data, is_nlpar = FALSE,
     }
   }
   # prepare priors of monotonic effects
-  monef <- get_mo_labels(x, data)
+  spef <- tidy_spef(x, data)
+  monef <- spef[lengths(spef$call_mo) > 0, "coef"]
   for (mo in monef) {
     take <- find_rows(prior, class = "simo", coef = mo, ls = px)
     simo_prior <- prior$prior[take]
@@ -1270,10 +1277,10 @@ check_prior_special.btl <- function(x, prior, data, is_nlpar = FALSE,
     if (any(grepl("^(horseshoe|lasso)\\(", b_prior))) {
       # horseshoe prior for population-level parameters
       if (any(nzchar(prior[b_index, "bound"]))) {
-        stop2("Boundaries for population-level effects are not", 
+        stop2("Boundaries for population-level effects are not ", 
               "allowed when using the horseshoe or lasso priors.")
       }
-      if (any(ulapply(x[c("me", "mo", "cs")], is.formula))) {
+      if (any(ulapply(x[c("sp", "cs")], is.formula))) {
         stop2("Horseshoe or lasso priors are not yet allowed ",
               "in models with special population-level effects.")
       }
@@ -1283,8 +1290,8 @@ check_prior_special.btl <- function(x, prior, data, is_nlpar = FALSE,
       )
       if (any(nchar(prior$prior[b_coef_indices]))) {
         stop2(
-          "Defining priors for single population-level parameters",
-          "is not allowed when using horseshoe or lasso priors",
+          "Defining priors for single population-level parameters ",
+          "is not allowed when using horseshoe or lasso priors ",
           "(except for the Intercept)."
         )
       }

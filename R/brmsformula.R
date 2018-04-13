@@ -91,13 +91,26 @@
 #'   If, for instance, one specifies the terms \code{(1+x|2|g)} and 
 #'   \code{(1+z|2|g)} somewhere in the formulas passed to \code{brmsformula},
 #'   correlations between the corresponding group-level effects 
-#'   will be estimated. 
+#'   will be estimated.
 #'   
-#'   You can specify multi-membership terms
-#'   using the \code{\link[brms:mm]{mm}} function. For instance, 
-#'   a multi-membership term with two members could be
-#'   \code{(1|mm(g1, g2))}, where \code{g1} and \code{g2} specify
-#'   the first and second member, respectively.
+#'   If levels of the grouping factor belong to different sub-populations,
+#'   it may be reasonable to assume a different covariance matrix for each 
+#'   of the sub-populations. For instance, the variation within the
+#'   treatment group and within the control group in a randomized control
+#'   trial might differ. Suppose that \code{y} is the outcome, and
+#'   \code{x} is the factor indicating the treatment and control group. 
+#'   Then, we could estimate different hyper-parameters of the varying
+#'   effects (in this case a varying intercept) for treatment and control
+#'   group via \code{y ~ x + (1 | gr(subject, by = x))}.
+#'   
+#'   You can specify multi-membership terms using the \code{\link{mm}} 
+#'   function. For instance, a multi-membership term with two members 
+#'   could be \code{(1 | mm(g1, g2))}, where \code{g1} and \code{g2} 
+#'   specify the first and second member, respectively. Moreover,
+#'   if a covariate \code{x} varies across the levels of the grouping-factors
+#'   \code{g1} and \code{g2}, we can save the respective covariate values
+#'   in the variables \code{x1} and \code{x2} and then model the varying
+#'   effect as \code{(1 + mmc(x1, x2) | mm(g1, g2))}.
 #'   
 #'   \bold{Special predictor terms}
 #'   
@@ -108,21 +121,22 @@
 #'   used in the \pkg{gamm4} package. For more details on this model class 
 #'   see \code{\link[mgcv:gam]{gam}} and \code{\link[mgcv:gamm]{gamm}}.
 #'   
-#'   Gaussian process terms can be fitted using the \code{\link[brms:gp]{gp}}
+#'   Gaussian process terms can be fitted using the \code{\link{gp}}
 #'   function in the \code{pterms} part of the model formula. Similar to
 #'   smooth terms, Gaussian processes can be used to model complex non-linear
 #'   relationships, for instance temporal or spatial autocorrelation. 
 #'   However, they are computationally demanding and are thus not recommended 
 #'   for very large datasets.
 #'   
-#'   The \code{pterms} and \code{gterms} parts may contain three non-standard
-#'   effect types namely monotonic, measurement error, and category specific effects,
-#'   which can be specified using terms of the form \code{mo(predictor)},
-#'   \code{me(predictor, sd_predictor)}, and \code{cs(<predictors>)}, 
-#'   respectively. Category specific effects can only be estimated in
+#'   The \code{pterms} and \code{gterms} parts may contain four non-standard
+#'   effect types namely monotonic, measurement error, missing value, and 
+#'   category specific effects, which can be specified using terms of the 
+#'   form \code{mo(predictor)}, \code{me(predictor, sd_predictor)}, 
+#'   \code{mi(predictor)}, and \code{cs(<predictors>)}, respectively. 
+#'   Category specific effects can only be estimated in
 #'   ordinal models and are explained in more detail in the package's 
 #'   main vignette (type \code{vignette("brms_overview")}). 
-#'   The other two effect types are explained in the following.
+#'   The other thee effect types are explained in the following.
 #'   
 #'   A monotonic predictor must either be integer valued or an ordered factor, 
 #'   which is the first difference to an ordinary continuous predictor. 
@@ -160,6 +174,23 @@
 #'   \code{y ~ me(x, sdx) * me(x2, sdx2) * z}. In future version of \pkg{brms},
 #'   a vignette will be added to explain more details about these
 #'   so called 'error-in-variables' models and provide real world examples.
+#'   
+#'   When a variable contains missing values, the corresponding rows will
+#'   be excluded from the data by default (row-wise exclusion). However,
+#'   quite often we want to keep these rows and instead estimate the missing values.
+#'   There are two approaches for this: (a) Impute missing values before
+#'   the model fitting for instance via multiple imputation (see
+#'   \code{\link{brm_multiple}} for a way to handle multiple imputed datasets).
+#'   (b) Impute missing values on the fly during model fitting. The latter
+#'   approach is explained in the following. Using a variable with missing 
+#'   values as predictors requires two things, First, we need to specify that 
+#'   the predictor contains missings that should to be imputed. 
+#'   If, say, \code{y} is the primary response, \code{x} is a 
+#'   predictor with missings and \code{z} is a predictor without missings, 
+#'   we go for \code{y ~ mi(x) + z}. Second, we need to model \code{x} 
+#'   as an additional response with corresponding predictors and the 
+#'   addition term \code{mi()}. In our example, we could write
+#'   \code{x | mi() ~ z}. See \code{\link{mi}} for examples with real data.
 #'   
 #'   \bold{Additional response information}
 #'   
@@ -219,6 +250,11 @@
 #'   Instead of numbers, variables in the data set can also be passed allowing 
 #'   for varying truncation points across observations. Defining only one of 
 #'   the two arguments in \code{trunc} leads to one-sided truncation.
+#'   
+#'   For all continuous families, missing values in the responses can be imputed 
+#'   within Stan by using the addition term \code{mi}. This is mostly 
+#'   useful in combination with \code{mi} predictor terms as explained 
+#'   above under 'Special predictor terms'.
 #'   
 #'   For families \code{binomial} and \code{zero_inflated_binomial}, 
 #'   addition should contain a variable indicating the number of trials 
@@ -499,6 +535,11 @@
 #' bf(y1 ~ x + (1|g)) + 
 #'   gaussian() + cor_ar(~1|g) +
 #'   bf(y2 ~ z) + poisson()
+#'   
+#' # model missing values in predictors
+#' bf(bmi ~ age * mi(chl)) +
+#'   bf(chl | mi() ~ age) + 
+#'   set_rescor(FALSE)
 #' 
 #' @export
 brmsformula <- function(formula, ..., flist = NULL, family = NULL,
@@ -649,6 +690,8 @@ bf <- function(formula, ..., flist = NULL, family = NULL,
 #'   the response variables should be modeled. Currently this is only
 #'   possible in multivariate \code{gaussian} and \code{student} models.
 #'   Only relevant in multivariate models.
+#' @param mecor Logical; Indicates if correlations between latent variables
+#'   defined by \code{\link{me}} terms should be modeled. Defaults to \code{TRUE}.
 #' @inheritParams brmsformula
 #' 
 #' @return For \code{lf} and \code{nlf} a \code{list} that can be 
@@ -834,6 +877,12 @@ allow_rescor <- function(x) {
   all(families == "gaussian") || all(families == "student")
 }
 
+#' @rdname brmsformula-helpers
+#' @export
+set_mecor <- function(mecor = TRUE) {
+  structure(as_one_logical(mecor), class = "setmecor")
+}
+
 #' @export
 "+.bform" <- function(e1, e2) {
   if (is.brmsformula(e1)) {
@@ -868,6 +917,8 @@ plus_brmsformula <- function(e1, e2) {
       attr(e1$pforms[[dpar]], "nl") <- e2
       e1 <- bf(e1)
     }
+  } else if (inherits(e2, "setmecor")) {
+    e1$mecor <- e2[1]
   } else if (is.brmsformula(e2)) {
     e1 <- mvbf(e1, e2)
   } else if (inherits(e2, "setrescor")) {
@@ -888,7 +939,9 @@ plus_mvbrmsformula <- function(e1, e2) {
   if (is.family(e2) || is.cor_brms(e2)) {
     e1$forms <- lapply(e1$forms, "+", e2)
   } else if (inherits(e2, "setrescor")) {
-    e1$rescor <- e2
+    e1$rescor <- e2[1]
+  } else if (inherits(e2, "setmecor")) {
+    e1$mecor <- e2[1]
   } else if (is.brmsformula(e2)) {
     e1 <- mvbf(e1, e2)
   } else {
@@ -1041,7 +1094,7 @@ valid_dpars.default <- function(family, bterms = NULL, ...) {
     zoi = is_zero_one_inflated(family),
     coi = is_zero_one_inflated(family),
     bs = is_wiener(family), 
-    ndt = is_wiener(family), 
+    ndt = has_ndt(family), 
     bias = is_wiener(family), 
     disc = is_ordinal(family),
     quantile = is_asym_laplace(family),
@@ -1089,8 +1142,7 @@ is_dpar_name <- function(dpars, family = NULL, ...) {
 
 dpar_class <- function(dpar) {
   # class of a distributional parameter
-  out <- get_matches("^[^[:digit:]]+", dpar, simplify = FALSE)
-  ulapply(out, function(x) ifelse(length(x), x, ""))
+  sub("[[:digit:]]*$", "", dpar)
 }
 
 dpar_id <- function(dpar) {
@@ -1146,7 +1198,8 @@ validate_formula.brmsformula <- function(
       stop2("Cannot remove the intercept in an ordinal model.")
     }
   }
-  needs_cat <- is_categorical(out$family) && is.null(out$family$cats)
+  out$mecor <- default_mecor(out$mecor)
+  needs_cat <- is_categorical(out$family) && is.null(out$family$dpars)
   if (needs_cat && !is.null(data)) {
     respform <- formula2str(lhs(out$formula))
     respform <- formula(gsub("\\|+[^~]*~", "~", respform))
@@ -1197,11 +1250,12 @@ validate_formula.mvbrmsformula <- function(
   }
   allow_rescor <- allow_rescor(formula)
   if (is.null(formula$rescor)) {
-    formula$rescor <- allow_rescor
-    message(
-      "Setting 'rescor' to ", formula$rescor, 
-      " by default for this combination of families"
+    # with 'mi' terms we usually don't want rescor to be estimated
+    miforms <- ulapply(formula$forms, function(f)
+      parse_ad(f$formula, f$family, FALSE)[["mi"]]
     )
+    formula$rescor <- allow_rescor && !length(miforms)
+    message("Setting 'rescor' to ", formula$rescor, " by default for this model")
   }
   formula$rescor <- as_one_logical(formula$rescor)
   if (formula$rescor) {
@@ -1209,6 +1263,11 @@ validate_formula.mvbrmsformula <- function(
       stop2("Currently, estimating 'rescor' is only possible ", 
             "in multivariate gaussian or student models.")
     }
+  }
+  # handle default of correlations between 'me' terms
+  formula$mecor <- default_mecor(formula$mecor)
+  for (i in seq_along(formula$forms)) {
+    formula$forms[[i]]$mecor <- formula$mecor
   }
   formula
 }

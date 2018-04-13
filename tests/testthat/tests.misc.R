@@ -1,3 +1,5 @@
+context("Tests for miscellaneous functions")
+
 test_that("p performs correct indexing", {
   expect_equal(p(1:10), 1:10)
   x <- rnorm(10)
@@ -33,11 +35,14 @@ test_that("rename returns an error on duplicated names", {
 
 test_that("rename perform correct renaming", {
   names <- c("acd", "a[23]", "b__")
-  expect_equal(rename(names, symbols = c("[", "]", "__"), subs = c(".", ".", ":")),
-               c("acd", "a.23.", "b:"))
-  expect_equal(rename(names, symbols = c("^\\[", "\\]", "__$"), 
-                      subs = c(".", ".", ":"), fixed = FALSE),
-               c("acd", "a[23.", "b:"))
+  expect_equal(
+    rename(names, c("[", "]", "__"), c(".", ".", ":")), 
+    c("acd", "a.23.", "b:")
+  )
+  expect_equal(
+    rename(names, c("^\\[", "\\]", "__$"), c(".", ".", ":"), fixed = FALSE),
+    c("acd", "a[23.", "b:")
+  )
 })
 
 test_that("collapse_lists performs correct collapsing after names", {
@@ -95,9 +100,13 @@ test_that("rhs keeps attributes", {
 })
 
 test_that("lsp works correctly", {
-  expect_equal(lsp("base", pattern = "^log"),
-               c("log", "log10", "log1p", "log2", "logb", "logical"))
-  expect_equal(lsp("brms", pattern = "^log_"),
-               c("log_diff_exp", "log_inv_logit", "log_lik.brmsfit", 
-                 "log_mean_exp", "log_posterior.brmsfit", "log_sum_exp"))
+  expect_equal(
+    lsp("base", pattern = "^log"),
+    c("log", "log10", "log1p", "log2", "logb", "logical")
+  )
+  expect_equal(
+    lsp("brms", pattern = "^log_[^l]"),
+    c("log_diff_exp", "log_inv_logit",  "log_mean_exp", 
+      "log_posterior.brmsfit", "log_sum_exp")
+  )
 })

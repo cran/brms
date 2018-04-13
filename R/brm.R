@@ -64,10 +64,10 @@
 #'   (default is \code{TRUE}). Set to \code{FALSE} to save memory. 
 #'   The argument has no impact on the model fitting itself.
 #' @param save_mevars A flag to indicate if samples
-#'   of noise-free variables obtained by using \code{me} terms
-#'   should be saved (default is \code{FALSE}).
-#'   Saving these samples allows to use methods such as
-#'   \code{predict} with the noise-free variables but 
+#'   of latent noise-free variables obtained by using \code{me} 
+#'   and \code{mi} terms should be saved (default is \code{FALSE}).
+#'   Saving these samples allows to better use methods such as
+#'   \code{predict} with the latent variables but 
 #'   leads to very large \R objects even for models
 #'   of moderate size and complexity.
 #' @param save_all_pars A flag to indicate if samples from
@@ -85,12 +85,12 @@
 #' @param knots Optional list containing user specified knot values to be 
 #'   used for basis construction of smoothing terms. 
 #'   See \code{\link[mgcv:gamm]{gamm}} for more details.
+#' @param stanvars An optional \code{stanvars} object generated
+#'   by function \code{\link{stanvar}} to define additional variables
+#'   in the data block of \pkg{Stan}.
 #' @param stan_funs An optional character string containing self-defined 
 #'   \pkg{Stan} functions, which will be included in the functions block 
-#'   of the generated \pkg{Stan} code. 
-#'   Note that these functions must additionally be defined 
-#'   as \emph{vectorized} \R functions in the global environment for 
-#'   various post-processing methods to work on the returned model object.
+#'   of the generated \pkg{Stan} code.
 #' @param fit An instance of S3 class \code{brmsfit} derived from a previous fit; 
 #'   defaults to \code{NA}. 
 #'   If \code{fit} is of class \code{brmsfit}, the compiled model associated 
@@ -170,12 +170,12 @@
 #'   \bold{Formula syntax of brms models}
 #'   
 #'   Details of the formula syntax applied in \pkg{brms} 
-#'   can be found in \code{\link[brms:brmsformula]{brmsformula}}.
+#'   can be found in \code{\link{brmsformula}}.
 #'   
 #'   \bold{Families and link functions}
 #'   
 #'   Details of families supported by \pkg{brms} 
-#'   can be found in \code{\link[brms:brmsfamily]{brmsfamily}}.
+#'   can be found in \code{\link{brmsfamily}}.
 #'   
 #'   \bold{Prior distributions}
 #'   
@@ -226,6 +226,9 @@
 #'   Models Using Stan. Journal of Statistical Software, 80(1), 1-28. 
 #'   doi:10.18637/jss.v080.i01
 #'   
+#'   Paul-Christian Buerkner (in review). Advanced Bayesian Multilevel Modeling 
+#'   with the R Package brms. arXiv preprint.
+#'   
 #' @seealso
 #'   \code{\link{brms}}, 
 #'   \code{\link{brmsformula}}, 
@@ -234,87 +237,96 @@
 #'   
 #' @examples
 #' \dontrun{ 
-#' ## Poisson regression for the number of seizures in epileptic patients
-#' ## using student_t priors for population-level effects 
-#' ## and half cauchy priors for standard deviations of group-level effects 
-#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt  
-#'               + (1|patient) + (1|obs), 
-#'             data = epilepsy, family = poisson(), 
-#'             prior = c(prior(student_t(5,0,10), class = b),
-#'                       prior(cauchy(0,2), class = sd)))
-#' ## generate a summary of the results
+#' # Poisson regression for the number of seizures in epileptic patients
+#' # using student_t priors for population-level effects 
+#' # and half cauchy priors for standard deviations of group-level effects
+#' bprior1 <- prior(student_t(5,0,10), class = b) + 
+#'   prior(cauchy(0,2), class = sd)
+#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt + (1|patient),
+#'             data = epilepsy, family = poisson(), prior = bprior1)
+#'             
+#' # generate a summary of the results
 #' summary(fit1)
-#' ## plot the MCMC chains as well as the posterior distributions
+#' 
+#' # plot the MCMC chains as well as the posterior distributions
 #' plot(fit1, ask = FALSE)
-#' ## extract random effects standard devations and covariance matrices
-#' VarCorr(fit1)
-#' ## extract group specific effects of each level
-#' ranef(fit1)
-#' ## predict responses based on the fitted model
+#' 
+#' # predict responses based on the fitted model
 #' head(predict(fit1))  
-#' ## plot marginal effects of each predictor
+#' 
+#' # plot marginal effects for each predictor
 #' plot(marginal_effects(fit1), ask = FALSE)
-#' ## investigate model fit
-#' WAIC(fit1)
+#' 
+#' # investigate model fit
+#' LOO(fit1)
 #' pp_check(fit1)
-#'  
-#' ## Ordinal regression modeling patient's rating of inhaler instructions 
-#' ## category specific effects are estimated for variable 'treat'
+#' 
+#' 
+#' # Ordinal regression modeling patient's rating of inhaler instructions 
+#' # category specific effects are estimated for variable 'treat'
 #' fit2 <- brm(rating ~ period + carry + cs(treat), 
-#'             data = inhaler, family = sratio("cloglog"), 
+#'             data = inhaler, family = sratio("logit"), 
 #'             prior = set_prior("normal(0,5)"), chains = 2)
 #' summary(fit2)
 #' plot(fit2, ask = FALSE) 
-#' WAIC(fit2)   
-#' head(predict(fit2))
+#' WAIC(fit2)
 #' 
-#' ## Survival regression modeling the time between the first 
-#' ## and second recurrence of an infection in kidney patients.
+#' 
+#' # Survival regression modeling the time between the first 
+#' # and second recurrence of an infection in kidney patients.
 #' fit3 <- brm(time | cens(censored) ~ age * sex + disease + (1|patient), 
 #'             data = kidney, family = lognormal())
 #' summary(fit3) 
 #' plot(fit3, ask = FALSE)
 #' plot(marginal_effects(fit3), ask = FALSE)   
 #' 
-#' ## Probit regression using the binomial family
-#' n <- sample(1:10, 100, TRUE)  # number of trials
-#' success <- rbinom(100, size = n, prob = 0.4)
+#' 
+#' # Probit regression using the binomial family
+#' ntrials <- sample(1:10, 100, TRUE)
+#' success <- rbinom(100, size = ntrials, prob = 0.4)
 #' x <- rnorm(100)
-#' data4 <- data.frame(n, success, x)
-#' fit4 <- brm(success | trials(n) ~ x, data = data4,
+#' data4 <- data.frame(ntrials, success, x)
+#' fit4 <- brm(success | trials(ntrials) ~ x, data = data4,
 #'             family = binomial("probit"))
 #' summary(fit4)
 #' 
-#' ## Simple non-linear gaussian model
+#' 
+#' # Simple non-linear gaussian model
 #' x <- rnorm(100)
 #' y <- rnorm(100, mean = 2 - 1.5^x, sd = 1)
 #' data5 <- data.frame(x, y)
+#' bprior5 <- prior(normal(0, 2), nlpar = a1) +
+#'   prior(normal(0, 2), nlpar = a2)
 #' fit5 <- brm(bf(y ~ a1 - a2^x, a1 + a2 ~ 1, nl = TRUE),  
-#'             data = data5,
-#'             prior = c(prior(normal(0, 2), nlpar = a1),
-#'                       prior(normal(0, 2), nlpar = a2)))
+#'             data = data5, prior = bprior5)
 #' summary(fit5)
 #' plot(marginal_effects(fit5), ask = FALSE)
 #' 
-#' ## Normal model with heterogeneous variances
-#' data_het <- data.frame(y = c(rnorm(50), rnorm(50, 1, 2)),
-#'                        x = factor(rep(c("a", "b"), each = 50)))
+#' 
+#' # Normal model with heterogeneous variances
+#' data_het <- data.frame(
+#'   y = c(rnorm(50), rnorm(50, 1, 2)),
+#'   x = factor(rep(c("a", "b"), each = 50))
+#' )
 #' fit6 <- brm(bf(y ~ x, sigma ~ 0 + x), data = data_het)
 #' summary(fit6)
 #' plot(fit6)
 #' marginal_effects(fit6)
+#' 
 #' # extract estimated residual SDs of both groups
 #' sigmas <- exp(posterior_samples(fit6, "^b_sigma_"))
 #' ggplot(stack(sigmas), aes(values)) + 
 #'   geom_density(aes(fill = ind))
 #'   
-#' ## Quantile regression predicting the 25%-quantile
+#'  
+#' # Quantile regression predicting the 25%-quantile
 #' fit7 <- brm(bf(y ~ x, quantile = 0.25), data = data_het, 
 #'             family = asym_laplace())
 #' summary(fit7)
 #' marginal_effects(fit7)
 #' 
-#' ## use the future package for parallelization
+#' 
+#' # use the future package for more flexible parallelization
 #' library(future)
 #' plan(multiprocess)
 #' fit7 <- update(fit7, future = TRUE)
@@ -329,10 +341,11 @@
 brm <- function(formula, data, family = gaussian(), prior = NULL, 
                 autocor = NULL, cov_ranef = NULL, 
                 sample_prior = c("no", "yes", "only"), 
-                sparse = FALSE, knots = NULL, stan_funs = NULL, 
-                fit = NA, save_ranef = TRUE, save_mevars = FALSE, 
-                save_all_pars = FALSE, inits = "random", chains = 4, 
-                iter = 2000, warmup = floor(iter / 2), thin = 1,
+                sparse = FALSE, knots = NULL, stanvars = NULL,
+                stan_funs = NULL, fit = NA, save_ranef = TRUE, 
+                save_mevars = FALSE, save_all_pars = FALSE, 
+                inits = "random", chains = 4, iter = 2000, 
+                warmup = floor(iter / 2), thin = 1,
                 cores = getOption("mc.cores", 1L), control = NULL,
                 algorithm = c("sampling", "meanfield", "fullrank"),
                 future = getOption("future", FALSE), silent = TRUE, 
@@ -347,22 +360,15 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   if (is(fit, "brmsfit")) {
     # re-use existing model
     x <- fit
-    sdata <- standata(x, new = dots$new)
-    dots$new <- NULL
-    # extract the compiled model
+    sdata <- standata(x)
     x$fit <- rstan::get_stanmodel(x$fit)
   } else {  
     # build new model
     formula <- validate_formula(
       formula, data = data, family = family, autocor = autocor
     )
-    if (is.mvbrmsformula(formula)) {
-      family <- lapply(formula$forms, "[[", "family")
-      autocor <- lapply(formula$forms, "[[", "autocor")
-    } else {
-      family <- formula$family
-      autocor <- formula$autocor
-    }
+    family <- get_element(formula, "family")
+    autocor <- get_element(formula, "autocor")
     bterms <- parse_bf(formula)
     if (is.null(dots$data.name)) {
       data.name <- substr(collapse(deparse(substitute(data))), 1, 50)
@@ -380,7 +386,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       formula = formula, family = family, data = data, 
       data.name = data.name, prior = prior, 
       autocor = autocor, cov_ranef = cov_ranef, 
-      stan_funs = stan_funs, algorithm = algorithm
+      stanvars = stanvars, stan_funs = stan_funs,
+      algorithm = algorithm
     )
     x$ranef <- tidy_ranef(bterms, data = x$data)  
     x$exclude <- exclude_pars(
@@ -389,15 +396,19 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       save_all_pars = save_all_pars
     )
     x$model <- make_stancode(
-      formula = formula, data = data, prior = prior, 
+      formula, data = data, prior = prior, 
       sparse = sparse, cov_ranef = cov_ranef,
       sample_prior = sample_prior, knots = knots, 
-      stan_funs = stan_funs, save_model = save_model, 
-      brm_call = TRUE
+      stanvars = stanvars, stan_funs = stan_funs, 
+      save_model = save_model, brm_call = TRUE
     )
     # generate Stan data before compiling the model to avoid
     # unnecessary compilations in case of invalid data
-    sdata <- standata(x, newdata = dots$is_newdata)
+    sdata <- make_standata(
+      formula, data = data, prior = prior, 
+      cov_ranef = cov_ranef, sample_prior = sample_prior,
+      knots = knots, stanvars = stanvars
+    )
     message("Compiling the C++ model")
     x$fit <- eval_silent(
       rstan::stan_model(stanc_ret = x$model, save_dso = save_dso)

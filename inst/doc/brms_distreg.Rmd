@@ -15,9 +15,24 @@ params:
 %\VignetteEncoding{UTF-8}
 -->
 
-```{r, child = "children/SETTINGS-knitr.txt"}
+```{r, SETTINGS-knitr, include=FALSE}
+stopifnot(require(knitr))
+options(width = 90)
+opts_chunk$set(
+  comment = NA,
+  message = FALSE,
+  warning = FALSE,
+  eval = if (isTRUE(exists("params"))) params$EVAL else FALSE,
+  dev = "png",
+  dpi = 150,
+  fig.asp = 0.8,
+  fig.width = 5,
+  out.width = "60%",
+  fig.align = "center"
+)
+library(brms)
+theme_set(theme_default())
 ```
-
 
 ## Introduction
 
@@ -45,7 +60,6 @@ head(dat1)
 The following model estimates the effect of `group` on both the mean and the residual standard deviation of the normal response distribution.
 
 ```{r, results='hide'}
-library(brms)
 fit1 <- brm(bf(symptom_post ~ group, sigma ~ group), 
             data = dat1, family = gaussian())
 ```
@@ -124,7 +138,7 @@ According to the model, trying to fish with children not only decreases the over
 
 ## Additive Distributional Models
 
-In the examples so far, we did not have multilevel data and thus did not fully use the capabilities of the distributional regression framework of **brms**. In the example presented below, we will not only show how to deal with multilevel data in distributional models, but also how to incorporate smooth terms (i.e., splines) into the model. In many applications, we have no or only a very vaque idea how the relationship between a predictor and the response looks like. A very flexible approach to tackle this problems is to use splines and let them figure out the form of the relationship. For illustration purposes, we simulate some data with the **mgcv** package, which is also used in **brms** to prepare smooth terms.
+In the examples so far, we did not have multilevel data and thus did not fully use the capabilities of the distributional regression framework of **brms**. In the example presented below, we will not only show how to deal with multilevel data in distributional models, but also how to incorporate smooth terms (i.e., splines) into the model. In many applications, we have no or only a very vague idea how the relationship between a predictor and the response looks like. A very flexible approach to tackle this problems is to use splines and let them figure out the form of the relationship. For illustration purposes, we simulate some data with the **mgcv** package, which is also used in **brms** to prepare smooth terms.
 
 ```{r}
 dat_smooth <- mgcv::gamSim(eg = 6, n = 200, scale = 2, verbose = FALSE)
@@ -134,9 +148,11 @@ head(dat_smooth[, 1:6])
 The data contains the predictors `x0` to `x3` as well as the grouping factor `fac` indicating the nested structure of the data. We predict the response variable `y` using smooth terms of `x1` and `x2` and a varying intercept of `fac`. In addition, we assume the residual standard deviation `sigma` to vary by a smoothing term of `x0` and a varying intercept of `fac`.
 
 ```{r, results='hide'}
-fit_smooth1 <- brm(bf(y ~ s(x1) + s(x2) + (1|fac), sigma ~ s(x0) + (1|fac)),
-                   data = dat_smooth, family = gaussian(),
-                   chains = 2, control = list(adapt_delta = 0.95))
+fit_smooth1 <- brm(
+  bf(y ~ s(x1) + s(x2) + (1|fac), sigma ~ s(x0) + (1|fac)),
+  data = dat_smooth, family = gaussian(),
+  chains = 2, control = list(adapt_delta = 0.95)
+)
 ```
 
 ```{r}

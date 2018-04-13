@@ -1,3 +1,5 @@
+context("Tests for fitted helper functions")
+
 test_that("fitted helper functions run without errors", {
   # actually run fitted.brmsfit that call the helper functions
   fit <- brms:::rename_pars(brms:::brmsfit_example1)
@@ -8,6 +10,7 @@ test_that("fitted helper functions run without errors", {
   fit <- add_samples(fit, "zi", dist = "beta", shape1 = 1, shape2 = 1)
   fit <- add_samples(fit, "quantile", dist = "beta", shape1 = 2, shape2 = 1)
   fit <- add_samples(fit, "xi", dist = "unif", min = -1, max = 0.5)
+  fit <- add_samples(fit, "ndt", dist = "exp")
   draws <- brms:::extract_draws(fit)
   draws$dpars$mu <- brms:::get_dpar(draws, "mu")
   draws$dpars$sigma <- brms:::get_dpar(draws, "sigma")
@@ -23,6 +26,11 @@ test_that("fitted helper functions run without errors", {
   
   # pseudo log-normal model
   fit$family <- fit$formula$family <- lognormal()
+  expect_equal(dim(fitted(fit, summary = FALSE)), 
+               c(nsamples, nobs))
+  
+  # pseudo shifted log-normal model
+  fit$family <- fit$formula$family <- shifted_lognormal()
   expect_equal(dim(fitted(fit, summary = FALSE)), 
                c(nsamples, nobs))
   
@@ -59,6 +67,16 @@ test_that("fitted helper functions run without errors", {
   
   # pseudo zero-inflated poisson model
   fit$family <- fit$formula$family <- zero_inflated_poisson()
+  expect_equal(dim(fitted(fit, summary = FALSE)), c(nsamples, nobs))
+  
+  # pseudo custom model
+  fitted_test <- function(draws) {
+    draws$dpars$mu
+  }
+  fit$family <- fit$formula$family <- custom_family(
+    "test", dpars = "mu", links = c("logit"),
+    type = "int", vars = "trials[n]"
+  )
   expect_equal(dim(fitted(fit, summary = FALSE)), c(nsamples, nobs))
   
   # truncated continuous models

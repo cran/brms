@@ -1,3 +1,5 @@
+context("Tests for brmsfit methods")
+
 test_that("all S3 methods have reasonable ouputs", {
   fit1 <- brms:::rename_pars(brms:::brmsfit_example1)
   fit2 <- brms:::rename_pars(brms:::brmsfit_example2)
@@ -41,6 +43,10 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(as.mcmc(fit1, inc_warmup = TRUE)[[1]]), 
                c(fit1$fit@sim$iter, length(parnames(fit1))))
   
+  # autocor
+  expect_true(is.cor_arma(autocor(fit1)))
+  expect_true(is.cor_brms(autocor(fit6, resp = "count")))
+  
   # bayes_factor
   # don't test for now as it requires calling Stan's C++ code
   
@@ -73,9 +79,8 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(R2), c(2, 4))
   
   # family
-  expect_equal(family(fit1), brmsfamily("student", link = "identity"))
-  expect_equal(family(fit6, resp = "count"), 
-               brmsfamily("poisson", link = "log"))
+  expect_is(family(fit1), "brmsfamily")
+  expect_is(family(fit6, resp = "count"), "brmsfamily")
   expect_output(print(family(fit1), links = TRUE), "student.*log.*logm1")
   expect_output(print(family(fit5)), "Mixture.*gaussian.*exponential")
   
@@ -129,6 +134,9 @@ test_that("all S3 methods have reasonable ouputs", {
                allow_new_levels = TRUE)
   expect_equal(dim(fi), c(2, 4))
   
+  fi <- fitted(fit3, newdata = fit3$data[1:10, ]) 
+  expect_equal(dim(fi), c(10, 4))
+  
   fi <- fitted(fit4)
   expect_equal(dim(fi), c(nobs(fit4), 4, 4))
   fi <- fitted(fit4, newdata = fit4$data[1, ])
@@ -154,7 +162,7 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # hypothesis
   hyp <- hypothesis(fit1, c("Intercept > Trt1", "Trt1:Age = -1"))
-  expect_equal(dim(hyp$hypothesis), c(2, 6))
+  expect_equal(dim(hyp$hypothesis), c(2, 7))
   expect_output(print(hyp), "(Intercept)-(Trt1) > 0", fixed = TRUE)
   expect_true(is(plot(hyp, plot = FALSE)[[1]], "ggplot"))
   
@@ -164,16 +172,16 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_true(is(plot(hyp, ignore_prior = TRUE, plot = FALSE)[[1]], "ggplot"))
   
   hyp <- hypothesis(fit1, "0 > r_visit[4,Intercept]", class = "", alpha = 0.01)
-  expect_equal(dim(hyp$hypothesis), c(1, 6))
+  expect_equal(dim(hyp$hypothesis), c(1, 7))
   expect_output(print(hyp, chars = NULL), "r_visit[4,Intercept]", fixed = TRUE)
-  expect_output(print(hyp), "l-99% CI", fixed = TRUE)
+  expect_output(print(hyp), "99%-CI", fixed = TRUE)
   
   hyp <- hypothesis(
     fit1, c("Intercept = 0", "Intercept + exp(Trt1) = 0"),
     group = "visit", scope = "coef"
   )
-  expect_equal(dim(hyp$hypothesis), c(8, 6))
-  expect_equal(rownames(hyp$hypothesis)[1], "(Intercept) = 0 [1]")
+  expect_equal(dim(hyp$hypothesis), c(8, 8))
+  expect_equal(hyp$hypothesis$Group[1], "1")
   
   expect_error(hypothesis(fit1, "Intercept > x"), fixed = TRUE,
                "cannot be found in the model: \n'b_x'")
@@ -187,10 +195,10 @@ test_that("all S3 methods have reasonable ouputs", {
                fixed = TRUE)
   
   # test hypothesis.default method
-  hyp <- hypothesis(as.data.frame(fit3), "bme_meAgeAgeSD > sigma")
-  expect_equal(dim(hyp$hypothesis), c(1, 6))
-  hyp <- hypothesis(fit3$fit, "bme_meAgeAgeSD > sigma")
-  expect_equal(dim(hyp$hypothesis), c(1, 6))
+  hyp <- hypothesis(as.data.frame(fit3), "bsp_meAgeAgeSD > sigma")
+  expect_equal(dim(hyp$hypothesis), c(1, 7))
+  hyp <- hypothesis(fit3$fit, "bsp_meAgeAgeSD > sigma")
+  expect_equal(dim(hyp$hypothesis), c(1, 7))
   
   # omit launch_shiny
   
@@ -201,12 +209,10 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # LOO
   loo1 <- SW(LOO(fit1, cores = 1))
-  expect_true(is.numeric(loo1[["looic"]]))
-  expect_true(loo1[["se_looic"]] > 0)
-  expect_output(print(loo1), "LOOIC")
-  expect_equal(loo1, SW(loo(fit1, cores = 1)))
+  expect_true(is.numeric(loo1$estimates))
+  expect_output(print(loo1), "looic")
   
-  loo_compare1 <- SW(LOO(fit1, fit1, cores = 1))
+  loo_compare1 <- SW(loo(fit1, fit1, cores = 1))
   expect_equal(length(loo_compare1), 3)
   expect_equal(dim(loo_compare1$ic_diffs__), c(1, 2))
   expect_output(print(loo_compare1), "fit1 - fit1")
@@ -216,33 +222,29 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(dim(loo_compare2$ic_diffs__), c(3, 2))
   
   loo2 <- SW(LOO(fit2, cores = 1))
-  expect_true(is.numeric(loo2[["looic"]]))
+  expect_true(is.numeric(loo2$estimates))
   
   loo3 <- SW(LOO(fit3, cores = 1))
-  expect_true(is.numeric(loo3[["looic"]]))
+  expect_true(is.numeric(loo3$estimates))
   loo3 <- SW(LOO(fit3, pointwise = TRUE, cores = 1))
-  expect_true(is.numeric(loo3[["looic"]]))
+  expect_true(is.numeric(loo3$estimates))
   
   loo4 <- SW(LOO(fit4, cores = 1))
-  expect_true(is.numeric(loo4[["looic"]]))
+  expect_true(is.numeric(loo4$estimates))
   
   loo5 <- SW(LOO(fit5, cores = 1))
-  expect_true(is.numeric(loo5[["looic"]]))
+  expect_true(is.numeric(loo5$estimates))
   
   loo6_1 <- SW(LOO(fit6, cores = 1))
-  expect_true(is.numeric(loo6_1[["looic"]]))
+  expect_true(is.numeric(loo6_1$estimates))
   loo6_2 <- SW(LOO(fit6, cores = 1, newdata = fit6$data))
-  expect_true(is.numeric(loo6_2[["looic"]]))
+  expect_true(is.numeric(loo6_2$estimates))
   loo_compare <- compare_ic(loo6_1, loo6_2)
   expect_range(loo_compare$ic_diffs__[1, 1], -1, 1)
 
   # loo_linpred
   llp <- SW(loo_linpred(fit1))
   expect_equal(length(llp), nobs(fit1))
-  llp2 <- SW(loo::psislw(-log_lik(fit1), cores = 1))
-  llp2 <- loo_linpred(fit1, lw = llp2$lw_smooth)
-  expect_equal(llp, llp2)
-  
   expect_error(loo_linpred(fit4), "Method 'loo_linpred'")
   llp <- SW(loo_linpred(fit2, scale = "response", type = "var"))
   expect_equal(length(llp), nobs(fit2))
@@ -260,8 +262,13 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(length(llp), nobs(fit4))
   
   # loo_predictive_interval
-  llp <- SW(loo_predictive_interval(fit3, pointwise = TRUE))
+  llp <- SW(loo_predictive_interval(fit3))
   expect_equal(dim(llp), c(nobs(fit3), 2))
+  
+  # loo_model_weights
+  llw <- SW(loo_model_weights(fit2, fit2))
+  expect_is(llw[1:2], "numeric")
+  expect_equal(names(llw), c("fit2", "fit2"))
   
   # marginal_effects
   me <- marginal_effects(fit1)
@@ -356,6 +363,10 @@ test_that("all S3 methods have reasonable ouputs", {
   # model.frame
   expect_equal(model.frame(fit1), fit1$data)
   
+  # model_weights
+  mw <- model_weights(fit1, fit1, weights = "waic")
+  expect_equal(mw, setNames(c(0.5, 0.5), c("fit1", "fit1")))
+  
   # ngrps
   expect_equal(ngrps(fit1), list(visit = 4))
   expect_equal(ngrps(fit2), list(patient = 59))
@@ -370,7 +381,7 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # parnames 
   expect_equal(parnames(fit1)[c(1, 8, 9, 13, 15, 17, 27, 35, 42, 50, 51)],
-               c("b_Intercept", "bmo_moExp", "ar[1]", "cor_visit__Intercept__Trt1", 
+               c("b_Intercept", "bsp_moExp", "ar[1]", "cor_visit__Intercept__Trt1", 
                  "nu", "simo_moExp1[2]", "r_visit[4,Trt1]", "s_sAge_1[8]", 
                  "prior_sd_visit", "prior_cor_visit", "lp__"))
   expect_equal(parnames(fit2)[c(1, 4, 6, 7, 9, 71, 129)],
@@ -389,8 +400,20 @@ test_that("all S3 methods have reasonable ouputs", {
   # only test error messages for now
   expect_error(post_prob(fit1, fit2, model_names = "test1"),
                "Number of model names is not equal to the number of models")
-  expect_error(post_prob(fit2, 3),
-               "Object '3' is not of class 'brmsfit'")
+  
+  # posterior_average
+  pnames <- c("b_Age", "nu")
+  ps <- posterior_average(fit1, fit1, pars = pnames, weights = c(0.3, 0.7))
+  expect_equal(dim(ps), c(nsamples(fit1), 2))
+  expect_equal(names(ps), pnames)
+  
+  weights <- rexp(3)
+  ps <- brms:::SW(posterior_average(
+    fit1, fit2, fit3, pars = "nu", weights = rexp(3), 
+    missing = 1, nsamples = 10
+  ))
+  expect_equal(dim(ps), c(10, 1))
+  expect_equal(names(ps), "nu")
   
   # posterior_samples
   ps <- posterior_samples(fit1)
@@ -403,6 +426,10 @@ test_that("all S3 methods have reasonable ouputs", {
   # test default method
   ps <- posterior_samples(fit1$fit, "^b_Intercept$")
   expect_equal(dim(ps), c(nsamples(fit1), 1))
+  
+  # posterior_summary
+  ps <- posterior_summary(fit1, "^b_")
+  expect_equal(dim(ps), c(7, 4))
   
   # posterior_interval
   expect_equal(dim(posterior_interval(fit1)), 
@@ -435,11 +462,7 @@ test_that("all S3 methods have reasonable ouputs", {
                  group = "visit", newdata = fit1$data[1:100, ])
   expect_true(is(pp, "ggplot"))
   
-  pp <- SW(pp_check(fit1, type = "loo_pit", loo_args = list(cores = 1)))
-  expect_true(is(pp, "ggplot"))
-  lw <- SW(loo::psislw(-log_lik(fit1), cores = 1)$lw_smooth)
-  # not getting warnings implies that the precomputed lw is used
-  pp <- pp_check(fit1, type = "loo_intervals", lw = lw)
+  pp <- SW(pp_check(fit1, type = "loo_pit", cores = 1))
   expect_true(is(pp, "ggplot"))
   
   expect_true(is(pp_check(fit3), "ggplot"))
@@ -491,6 +514,11 @@ test_that("all S3 methods have reasonable ouputs", {
   pred <- predict(fit2, newdata = newdata, allow_new_levels = TRUE)
   expect_equal(dim(pred), c(2, 4))
   
+  # check if grouping factors with a single level are accepted
+  newdata$patient <- factor(2)
+  pred <- predict(fit2, newdata = newdata)
+  expect_equal(dim(pred), c(2, 4))
+  
   pred <- predict(fit4)
   expect_equal(dim(pred), c(nobs(fit4), 4))
   expect_equal(colnames(pred), paste0("P(Y = ", 1:4, ")"))
@@ -499,11 +527,14 @@ test_that("all S3 methods have reasonable ouputs", {
   
   pred <- predict(fit5)
   expect_equal(dim(pred), c(nobs(fit5), 4))
-  
-  # check if grouping factors with a single level are accepted
-  newdata$patient <- factor(2)
-  pred <- predict(fit2, newdata = newdata)
-  expect_equal(dim(pred), c(2, 4))
+  newdata <- fit5$data[1:10, ]
+  newdata$patient <- "a"
+  pred <- predict(fit5, newdata, allow_new_levels = TRUE,
+                  sample_new_levels = "old_levels")
+  expect_equal(dim(pred), c(10, 4))
+  pred <- predict(fit5, newdata, allow_new_levels = TRUE,
+                  sample_new_levels = "gaussian")
+  expect_equal(dim(pred), c(10, 4))
   
   # predictive error
   expect_equal(dim(predictive_error(fit1)), 
@@ -516,7 +547,7 @@ test_that("all S3 methods have reasonable ouputs", {
   prs1 <- prior_samples(fit1)
   prior_names <- c(
     "temp_Intercept", "temp_sigma_Intercept", "b_Intercept", 
-    "b_sigma_Intercept", "sds_sAge_1", "nu", "sd_visit", "b", "bmo", 
+    "b_sigma_Intercept", "sds_sAge_1", "nu", "sd_visit", "b", "bsp", 
     paste0("simo_moExp1[", 1:4, "]"), "b_sigma", "cor_visit"
   )
   expect_equal(colnames(prs1), prior_names)
@@ -566,7 +597,7 @@ test_that("all S3 methods have reasonable ouputs", {
   # standata
   expect_equal(names(standata(fit1)),
     c("N", "Y",  "Kar", "Kma", "J_lag", "nb_1", "knots_1", 
-      "Zs_1_1", "K", "X", "Kmo", "Imo", "Xmo_1", "Jmo", 
+      "Zs_1_1", "K", "X", "Ksp", "Imo", "Xmo_1", "Jmo", 
       "con_simo_1", "Z_1_1", "Z_1_2", "offset", "K_sigma", 
       "X_sigma", "J_1", "N_1", "M_1", "NC_1", "prior_only")
   )
@@ -647,16 +678,18 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_true(is(up, "brmsfit"))
   
   # VarCorr
-  vc <- SM(VarCorr(fit1))
+  vc <- VarCorr(fit1)
   expect_equal(names(vc), c("visit"))
   Names <- c("Intercept", "Trt1")
   expect_equal(dimnames(vc$visit$cov)[c(1, 3)], list(Names, Names))
-  vc <- SM(VarCorr(fit2))
+  vc <- VarCorr(fit2)
   expect_equal(names(vc), c("patient"))
   expect_equal(dim(vc$patient$cor), c(2, 4, 2))
-  vc <- SM(VarCorr(fit2, summary = FALSE))
+  vc <- VarCorr(fit2, summary = FALSE)
   expect_equal(dim(vc$patient$cor), c(nsamples(fit2), 2, 2))
   expect_equal(dim(VarCorr(fit6)$residual__$sd), c(1, 4))
+  vc <- VarCorr(fit5)
+  expect_equal(dim(vc$patient$sd), c(2, 4))
   
   # vcov
   expect_equal(dim(vcov(fit1)), c(8, 8))
@@ -664,8 +697,7 @@ test_that("all S3 methods have reasonable ouputs", {
   
   # WAIC
   waic1 <- SW(WAIC(fit1))
-  expect_true(is.numeric(waic1[["waic"]]))
-  expect_true(is.numeric(waic1[["se_waic"]]))
+  expect_true(is.numeric(waic1$estimates))
   expect_equal(waic1, SW(waic(fit1)))
   
   fit1 <- SW(add_ic(fit1, "waic"))
@@ -675,12 +707,12 @@ test_that("all S3 methods have reasonable ouputs", {
   expect_equal(length(waic_compare), 3)
   expect_equal(dim(waic_compare$ic_diffs__), c(1, 2))
   waic2 <- SW(WAIC(fit2))
-  expect_true(is.numeric(waic2[["waic"]]))
+  expect_true(is.numeric(waic2$estimates))
   waic_pointwise <- SW(WAIC(fit2, pointwise = TRUE))
   expect_equal(waic2, waic_pointwise)
   expect_warning(WAIC(fit1, fit2), "Model comparisons are likely invalid")
   waic4 <- SW(WAIC(fit4))
-  expect_true(is.numeric(waic4[["waic"]]))
+  expect_true(is.numeric(waic4$estimates))
   
   # test diagnostic convenience functions
   expect_true(is(log_posterior(fit1), "data.frame"))

@@ -4,23 +4,23 @@ data_effects <- function(x, ...) {
 }
 
 #' @export
-data_effects.mvbrmsterms <- function(x, old_standata = NULL, ...) {
+data_effects.mvbrmsterms <- function(x, old_sdata = NULL, ...) {
   out <- list()
   for (i in seq_along(x$terms)) {
-    od <- old_standata[[x$responses[i]]]
-    out <- c(out, data_effects(x$terms[[i]], old_standata = od, ...))
+    od <- old_sdata[[x$responses[i]]]
+    out <- c(out, data_effects(x$terms[[i]], old_sdata = od, ...))
   }
   out
 }
 
 #' @export
-data_effects.brmsterms <- function(x, data, prior, ranef, cov_ranef = NULL,
-                                   knots = NULL, not4stan = FALSE, 
-                                   old_standata = NULL) {
+data_effects.brmsterms <- function(x, data, prior, ranef, meef,
+                                   cov_ranef = NULL, knots = NULL, 
+                                   not4stan = FALSE, old_sdata = NULL) {
   out <- list()
   args_eff <- nlist(data, ranef, prior, knots, not4stan)
   for (dp in names(x$dpars)) {
-    args_eff_spec <- list(x = x$dpars[[dp]], old_standata = old_standata[[dp]])
+    args_eff_spec <- list(x = x$dpars[[dp]], old_sdata = old_sdata[[dp]])
     data_aux_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
     out <- c(out, data_aux_eff)
   }
@@ -30,7 +30,7 @@ data_effects.brmsterms <- function(x, data, prior, ranef, cov_ranef = NULL,
   }
   c(out,
     data_gr(ranef, data, cov_ranef = cov_ranef),
-    data_Xme(x, data),
+    data_Xme(meef, data),
     data_mixture(x, prior = prior)
   )
 }
@@ -38,7 +38,7 @@ data_effects.brmsterms <- function(x, data, prior, ranef, cov_ranef = NULL,
 #' @export
 data_effects.btl <- function(x, data, ranef = empty_ranef(), 
                              prior = brmsprior(), knots = NULL, 
-                             not4stan = FALSE, old_standata = NULL) {
+                             not4stan = FALSE, old_sdata = NULL) {
   # prepare data for all types of effects for use in Stan
   # Args:
   #   data: the data passed by the user
@@ -49,18 +49,17 @@ data_effects.btl <- function(x, data, ranef = empty_ranef(),
   #   knots: optional knot values for smoothing terms
   #   nlpar: optional character string naming a non-linear parameter
   #   not4stan: is the data for use in S3 methods only?
-  #   old_standata: see 'extract_old_standata'
+  #   old_sdata: see 'extract_old_standata'
   # Returns:
   #   A named list of data to be passed to Stan
   c(data_fe(
       x, data, knots = knots, not4stan = not4stan, 
-      smooths = old_standata$smooths
+      smooths = old_sdata$smooths
     ),
-    data_mo(x, data, prior = prior, Jmo = old_standata$Jmo),
+    data_sp(x, data, prior = prior, Jmo = old_sdata$Jmo),
     data_re(x, data, ranef = ranef),
-    data_me(x, data),
     data_cs(x, data),
-    data_gp(x, data, gps = old_standata$gps),
+    data_gp(x, data, gps = old_sdata$gps),
     data_offset(x, data),
     data_prior(x, data, prior = prior)
   )
@@ -69,10 +68,14 @@ data_effects.btl <- function(x, data, ranef = empty_ranef(),
 #' @export 
 data_effects.btnl <- function(x, data, ranef = empty_ranef(), 
                               prior = brmsprior(), knots = NULL, 
-                              not4stan = FALSE, old_standata = NULL) {
+                              not4stan = FALSE, old_sdata = NULL) {
   # prepare data for non-linear parameters for use in Stan
   # matrix of covariates appearing in the non-linear formula
   out <- list()
+  if (is_nlpar(x)) {
+    # no data needs to be specified for nested nlpars
+    return(out)
+  }
   C <- get_model_matrix(x$covars, data = data)
   if (length(all.vars(x$covars)) != ncol(C)) {
     stop2("Factors with more than two levels are not allowed as covariates.")
@@ -85,10 +88,8 @@ data_effects.btnl <- function(x, data, ranef = empty_ranef(),
   } else {
     # use vectors as indexing matrices in Stan is slow
     if (ncol(C)) {
-      out <- c(out, setNames(
-        as.list(as.data.frame(C)), 
-        paste0("C", p, "_", seq_len(ncol(C)))
-      ))
+      Cnames <- paste0("C", p, "_", seq_len(ncol(C)))
+      out <- c(out, setNames(as.list(as.data.frame(C)), Cnames))
     }
   }
   for (nlp in names(x$nlpars)) {
@@ -96,7 +97,7 @@ data_effects.btnl <- function(x, data, ranef = empty_ranef(),
       data_effects(
         x$nlpars[[nlp]], data, ranef = ranef,
         prior = prior, knots = knots, not4stan = not4stan,
-        old_standata = old_standata[[nlp]]
+        old_sdata = old_sdata[[nlp]]
       )
     )
   }
@@ -105,7 +106,8 @@ data_effects.btnl <- function(x, data, ranef = empty_ranef(),
 
 data_fe <- function(bterms, data, knots = NULL,
                     not4stan = FALSE, smooths = NULL) {
-  # prepare data for fixed effects for use in Stan 
+  # prepare data of fixed effects and smooth terms for use in Stan
+  # handle smooth terms here as they also affect the FE design matrix 
   # Args: see data_effects
   out <- list()
   p <- usc(combine_prefix(bterms))
@@ -141,12 +143,12 @@ data_fe <- function(bterms, data, knots = NULL,
         if (!new_smooths) {
           sm$X <- mgcv::PredictMat(sm, rm_attr(data, "terms"))
         }
-        rasm <- mgcv::smooth2random(sm, names(data))
+        rasm <- mgcv::smooth2random(sm, names(data), type = 2)
         Xs[[ns]] <- rasm$Xf
         if (ncol(Xs[[ns]])) {
           colnames(Xs[[ns]]) <- paste0(sm$label, "_", seq_len(ncol(Xs[[ns]])))
         }
-        Zs <- lapply(rasm$rand, attr, "Xr")
+        Zs <- rasm$rand
         Zs <- setNames(Zs, paste0("Zs", p, "_", ns, "_", seq_along(Zs)))
         knots <- list(length(Zs), as.array(ulapply(Zs, ncol)))
         knots <- setNames(knots, paste0(c("nb", "knots"), p, "_", ns))
@@ -162,86 +164,62 @@ data_fe <- function(bterms, data, knots = NULL,
   c(out, setNames(list(ncol(X), X), paste0(c("K", "X"), p)))
 }
 
-data_mo <- function(bterms, data, prior = brmsprior(), Jmo = NULL) {
-  # prepare data for monotonic effects for use in Stan
-  # Args: see data_effects
-  out <- list()
-  monef <- get_mo_labels(bterms, data)
-  if (!length(monef)) {
-    return(out) 
-  }
-  px <- check_prefix(bterms)
-  p <- usc(combine_prefix(px))
-  att <- attributes(monef)
-  # store monotonic variables
-  out[[paste0("Kmo", p)]] <- length(monef)
-  out[[paste0("Imo", p)]] <- max(unlist(att$Imo))
-  Xmo <- lapply(unlist(att$calls_mo), 
-    function(x) as.array(attr(eval2(x, data), "var"))
-  )
-  Xmo_names <- paste0("Xmo", p, "_", seq_along(Xmo))
-  out <- c(out, setNames(Xmo, Xmo_names))
-  compute_Jmo <- is.null(Jmo)
-  if (!length(Jmo)) {
-    Jmo <- as.array(ulapply(Xmo, max))
-  }
-  out[[paste0("Jmo", p)]] <- Jmo
-  # store covariates of monotonic variables
-  Cmo <- get_model_matrix(bterms$mo, data)
-  avoid_dpars(colnames(Cmo), bterms = bterms)
-  Cmo <- Cmo[, att$not_one, drop = FALSE]
-  Cmo <- lapply(seq_len(ncol(Cmo)), function(i) as.array(Cmo[, i]))
-  if (length(Cmo)) {
-    Cmo_names <- paste0("Cmo", p, "_", seq_along(Cmo))
-    out <- c(out, setNames(Cmo, Cmo_names))
-  }
-  # store prior concentration of simplex parameters
-  simo_coef <- get_simo_labels(monef)
-  for (i in seq_along(simo_coef)) {
-    simo_prior <- subset2(prior, 
-      class = "simo", coef = simo_coef[i], ls = px
-    )
-    simo_prior <- simo_prior$prior
-    if (isTRUE(nzchar(simo_prior))) {
-      simo_prior <- eval2(simo_prior)
-      if (length(simo_prior) != Jmo[i]) {
-        stop2("Invalid Dirichlet prior for the simplex of coefficient '",
-              simo_coef[i], "'. Expected input of length ", Jmo[i], ".")
-      }
-    } else {
-      simo_prior <- rep(1, Jmo[i])
-    }
-    out[[paste0("con_simo", p, "_", i)]] <- simo_prior
-  }
-  out
-}
-
 data_re <- function(bterms, data, ranef) {
   # prepare data for group-level effects for use in Stan
   # Args: see data_effects
   out <- list()
   px <- check_prefix(bterms)
-  take <- find_rows(ranef, ls = px) &
-    !find_rows(ranef, type = c("mo", "me"))
+  take <- find_rows(ranef, ls = px) & !find_rows(ranef, type = "sp")
   ranef <- ranef[take, ]
-  if (nrow(ranef)) {
-    unique_forms <- ranef[!duplicated(ranef$gn), "form"]
-    Z <- lapply(unique_forms, get_model_matrix, data = data)
-    gn <- unique(ranef$gn)
-    for (i in seq_along(gn)) {
-      r <- subset2(ranef, gn = gn[i])
-      idp <- paste0(r$id[1], usc(combine_prefix(px)))
+  if (!nrow(ranef)) {
+    return(out) 
+  }
+  gn <- unique(ranef$gn)
+  for (i in seq_along(gn)) {
+    r <- subset2(ranef, gn = gn[i])
+    Z <- get_model_matrix(r$form[[1]], data = data, rename = FALSE)
+    idp <- paste0(r$id[1], usc(combine_prefix(px)))
+    Znames <- paste0("Z_", idp, "_", r$cn)
+    if (r$gtype[1] == "mm") {
+      ng <- length(r$gcall[[1]]$groups)
       if (r$type[1] == "cs") {
-        ncatM1 <- nrow(r) / ncol(Z[[i]])
-        Z_temp <- vector("list", ncol(Z[[i]]))
-        for (k in seq_along(Z_temp)) {
-          Z_temp[[k]] <- replicate(ncatM1, Z[[i]][, k], simplify = FALSE)
-        }
-        Z[[i]] <- do.call(cbind, unlist(Z_temp, recursive = FALSE))
+        stop2("'cs' is not supported in multi-membership terms.")
       }
-      Zname <- paste0("Z_", idp, "_", r$cn)
-      for (j in seq_len(ncol(Z[[i]]))) {
-        out <- c(out, setNames(list(as.array(Z[[i]][, j])), Zname[j]))
+      if (r$type[1] == "mmc") {
+        # see issue #353 for the general idea
+        mmc_expr <- "^mmc\\([^:]*\\)"
+        mmc_terms <- get_matches_expr(mmc_expr, colnames(Z))
+        for (t in mmc_terms) {
+          pos <- which(grepl_expr(escape_all(t), colnames(Z)))
+          if (length(pos) != ng) {
+            stop2("Invalid term '", t, "': Expected ", ng, 
+                  " coefficients but found ", length(pos), ".")
+          }
+          for (j in seq_along(Znames)) {
+            for (k in seq_len(ng)) {
+              out[[paste0(Znames[j], "_", k)]] <- as.array(Z[, pos[k]])
+            }
+          }
+        }
+      } else {
+        for (j in seq_along(Znames)) {
+          out[paste0(Znames[j], "_", seq_len(ng))] <- list(as.array(Z[, j]))
+        }
+      }
+    } else {
+      if (r$type[1] == "cs") {
+        ncatM1 <- nrow(r) / ncol(Z)
+        Z_temp <- vector("list", ncol(Z))
+        for (k in seq_along(Z_temp)) {
+          Z_temp[[k]] <- replicate(ncatM1, Z[, k], simplify = FALSE)
+        }
+        Z <- do.call(cbind, unlist(Z_temp, recursive = FALSE))
+      }
+      if (r$type[1] == "mmc") {
+        stop2("'mmc' is only supported in multi-membership terms.")
+      }
+      for (j in seq_len(ncol(Z))) {
+        out[[Znames[j]]] <- as.array(Z[, j])
       }
     }
   }
@@ -261,6 +239,8 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
     group <- id_ranef$group[1]
     levels <- attr(ranef, "levels")[[group]]
     if (id_ranef$gtype[1] == "mm") {
+      # multi-membership grouping term
+      stopifnot(!nzchar(id_ranef$by[1]))
       gs <- id_ranef$gcall[[1]]$groups
       ngs <- length(gs)
       weights <- id_ranef$gcall[[1]]$weights
@@ -284,10 +264,12 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
         weights <- matrix(1 / ngs, nrow = nrow(data), ncol = ngs)
       }
       for (i in seq_along(gs)) {
-        temp <- list(as.array(match(get(gs[i], data), levels)), weights[, i])
-        out <- c(out, setNames(temp, paste0(c("J_", "W_"), id, "_", i)))
+        J <- as.array(match(get(gs[i], data), levels))
+        out[[paste0("J_", id, "_", i)]] <- J
+        out[[paste0("W_", id, "_", i)]] <- as.array(weights[, i])
       }
     } else {
+      # ordinary grouping term
       g <- id_ranef$gcall[[1]]$groups
       gdata <- get(g, data)
       J <- match(gdata, levels)
@@ -298,9 +280,17 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
         J[is.na(J)] <- match(new_gdata, new_levels) + length(levels)
       }
       out[[paste0("J_", id)]] <- as.array(J)
+      if (nzchar(id_ranef$by[1])) {
+        stopifnot(!nzchar(id_ranef$type[1]))
+        bylevels <- id_ranef$bylevels[[1]]
+        Jby <- match(attr(levels, "by"), bylevels)
+        out[[paste0("Nby_", id)]] <- length(bylevels)
+        out[[paste0("Jby_", id)]] <- as.array(Jby)
+      }
     }
     temp <- list(length(levels), nranef, nranef * (nranef - 1) / 2)
     out <- c(out, setNames(temp, paste0(c("N_", "M_", "NC_"), id)))
+    # prepare customized covariance matrices
     if (group %in% names(cov_ranef)) {
       cov_mat <- as.matrix(cov_ranef[[group]])
       if (!isSymmetric(unname(cov_mat))) {
@@ -329,6 +319,60 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
   out
 }
 
+data_sp <- function(bterms, data, prior = brmsprior(), Jmo = NULL) {
+  # prepare data for special effects for use in Stan
+  # Args: see data_effects
+  out <- list()
+  spef <- tidy_spef(bterms, data)
+  if (is.null(spef)) {
+    return(out) 
+  }
+  px <- check_prefix(bterms)
+  p <- usc(combine_prefix(px))
+  # prepare general data
+  out[[paste0("Ksp", p)]] <- nrow(spef)
+  Csp <- get_model_matrix(bterms$sp, data)
+  avoid_dpars(colnames(Csp), bterms = bterms)
+  Csp <- Csp[, spef$Ic > 0, drop = FALSE]
+  Csp <- lapply(seq_len(ncol(Csp)), function(i) as.array(Csp[, i]))
+  if (length(Csp)) {
+    Csp_names <- paste0("Csp", p, "_", seq_along(Csp))
+    out <- c(out, setNames(Csp, Csp_names))
+  }
+  if (any(lengths(spef$Imo) > 0)) {
+    # prepare data specific to monotonic effects
+    out[[paste0("Imo", p)]] <- max(unlist(spef$Imo))
+    Xmo_fun <- function(x) as.array(attr(eval2(x, data), "var"))
+    Xmo <- lapply(unlist(spef$call_mo), Xmo_fun)
+    Xmo_names <- paste0("Xmo", p, "_", seq_along(Xmo))
+    out <- c(out, setNames(Xmo, Xmo_names))
+    compute_Jmo <- is.null(Jmo)
+    if (!length(Jmo)) {
+      Jmo <- as.array(ulapply(Xmo, max))
+    }
+    out[[paste0("Jmo", p)]] <- Jmo
+    # prepare prior concentration of simplex parameters
+    simo_coef <- get_simo_labels(spef)
+    for (i in seq_along(simo_coef)) {
+      simo_prior <- subset2(prior, 
+        class = "simo", coef = simo_coef[i], ls = px
+      )
+      simo_prior <- simo_prior$prior
+      if (isTRUE(nzchar(simo_prior))) {
+        simo_prior <- eval2(simo_prior)
+        if (length(simo_prior) != Jmo[i]) {
+          stop2("Invalid Dirichlet prior for the simplex of coefficient '",
+                simo_coef[i], "'. Expected input of length ", Jmo[i], ".")
+        }
+      } else {
+        simo_prior <- rep(1, Jmo[i])
+      }
+      out[[paste0("con_simo", p, "_", i)]] <- simo_prior
+    }
+  }
+  out
+}
+
 data_cs <- function(bterms, data) {
   # prepare data for category specific effects
   # Args: see data_effects
@@ -343,44 +387,58 @@ data_cs <- function(bterms, data) {
   out
 }
 
-data_me <- function(bterms, data) {
-  # prepare formula specific data of noise-free variables
-  # Args: see data_effects
-  out <- list()
-  px <- check_prefix(bterms)
-  meef <- get_me_labels(bterms, data)
-  if (length(meef)) {
-    att <- attributes(meef)
-    p <- usc(combine_prefix(px))
-    Cme <- get_model_matrix(bterms$me, data)
-    avoid_dpars(colnames(Cme), bterms = bterms)
-    Cme <- Cme[, att$not_one, drop = FALSE]
-    Cme <- lapply(seq_len(ncol(Cme)), function(i) Cme[, i])
-    if (length(Cme)) {
-      Cme <- setNames(Cme, paste0("Cme", p, "_", seq_along(Cme)))
-    }
-    Kme <- setNames(list(length(meef)), paste0("Kme", p))
-    out <- c(out, Cme, Kme)
-  }
-  out
-}
-
-data_Xme <- function(bterms, data) {
+data_Xme <- function(meef, data) {
   # prepare global data for noise free variables
-  stopifnot(is.brmsterms(bterms))
+  stopifnot(is.meef_frame(meef))
   out <- list()
-  uni_me <- get_uni_me(bterms)
-  if (length(uni_me)) {
-    Xn <- noise <- named_list(uni_me)
-    for (i in seq_along(uni_me)) {
-      temp <- eval2(uni_me[i], data)
-      Xn[[i]] <- as.array(attr(temp, "var"))
-      noise[[i]] <- as.array(attr(temp, "noise"))
+  groups <- unique(meef$grname)
+  for (i in seq_along(groups)) {
+    g <- groups[i]
+    K <- which(meef$grname %in% g)
+    Mme <- length(K)
+    out[[paste0("Mme_", i)]] <- Mme
+    out[[paste0("NCme_", i)]] <- Mme * (Mme - 1) / 2
+    if (nzchar(g)) {
+      levels <- get_levels(meef)[[g]]
+      gr <- attributes(eval2(meef$term[K[1]], data))[["gr"]]
+      Jme <- match(gr, levels)
+      if (anyNA(Jme)) {
+        # occurs for new levels only
+        new_gr <- gr[!gr %in% levels]
+        new_levels <- unique(new_gr)
+        Jme[is.na(Jme)] <- match(new_gr, new_levels) + length(levels)
+        # represent all indices between 1 and length(unique(Jme))
+        Jme <- as.numeric(factor(Jme))
+      }
+      ilevels <- unique(Jme)
+      out[[paste0("Nme_", i)]] <- length(ilevels)
+      out[[paste0("Jme_", i)]] <- Jme
     }
-    K <- seq_along(uni_me)
-    names(Xn) <- paste0("Xn_", K)
-    names(noise) <- paste0("noise_", K)
-    out <- c(out, Xn, noise)
+    for (k in K) {
+      att <- attributes(eval2(meef$term[k], data))
+      Xn <- as.array(att$var)
+      noise <- as.array(att$sdx)
+      if (nzchar(g)) {
+        for (l in ilevels) {
+          # validate values of the same level
+          take <- Jme %in% l
+          if (length(unique(Xn[take])) > 1L ||
+              length(unique(noise[take])) > 1L ) {
+            stop2(
+              "Measured values and measurement error should be ", 
+              "unique for each group. Occured for level '", 
+              levels[l], "' of group '", g, "'."
+            )
+          }
+        }
+        not_dupl_Jme <- !duplicated(Jme)
+        to_order <- order(Jme[not_dupl_Jme])
+        Xn <- Xn[not_dupl_Jme][to_order]
+        noise <- noise[not_dupl_Jme][to_order]
+      }
+      out[[paste0("Xn_", k)]] <- as.array(Xn)
+      out[[paste0("noise_", k)]] <- as.array(noise)
+    }
   }
   out
 }
@@ -484,9 +542,7 @@ data_autocor <- function(bterms, data, Y = NULL, new = FALSE,
       if (use_cov(autocor)) {
         # data for the 'covariance' version of ARMA 
         out$N_tg <- length(unique(tgroup))
-        out$begin_tg <- as.array(
-          ulapply(unique(tgroup), match, tgroup)
-        )
+        out$begin_tg <- as.array(ulapply(unique(tgroup), match, tgroup))
         out$nobs_tg <- as.array(with(out, 
           c(if (N_tg > 1L) begin_tg[2:N_tg], N + 1) - begin_tg
         ))
@@ -603,11 +659,11 @@ data_response <- function(x, ...) {
 }
 
 #' @export
-data_response.mvbrmsterms <- function(x, old_standata = NULL, ...) {
+data_response.mvbrmsterms <- function(x, old_sdata = NULL, ...) {
   out <- list()
   for (i in seq_along(x$terms)) {
-    od <- old_standata[[x$responses[i]]]
-    out <- c(out, data_response(x$terms[[i]], old_standata = od, ...))
+    od <- old_sdata[[x$responses[i]]]
+    out <- c(out, data_response(x$terms[[i]], old_sdata = od, ...))
   }
   if (x$rescor) {
     out$nresp <- length(x$responses)
@@ -619,7 +675,7 @@ data_response.mvbrmsterms <- function(x, old_standata = NULL, ...) {
 #' @export
 data_response.brmsterms <- function(x, data, check_response = TRUE,
                                     not4stan = FALSE, new = FALSE,
-                                    old_standata = NULL) {
+                                    old_sdata = NULL) {
   # prepare data for the response variable
   N <- nrow(data)
   Y <- model.response(model.frame(x$respform, data, na.action = na.pass))
@@ -678,11 +734,10 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
     } else if (is_ordinal(x$family)) {
       if (is.ordered(out$Y)) {
         out$Y <- as.numeric(out$Y)
-      } else if (all(is_wholenumber(out$Y))) {
-        out$Y <- out$Y - min(out$Y) + 1
-      } else {
-        stop2("Family '", family4error, "' requires either integers or ",
-              "ordered factors as responses.")
+      }
+      if (any(!is_wholenumber(out$Y)) || any(!out$Y > 0)) {
+        stop2("Family '", family4error, "' requires either positive ", 
+              "integers or ordered factors as responses.")
       }
       if (length(unique(out$Y)) < 2L) {
         stop2("At least two response categories are required.")
@@ -702,14 +757,15 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
     out$Y <- as.array(out$Y)
   }
   # data for addition arguments of the response
-  if (has_trials(x$family)) {
+  if (has_trials(x$family) || is.formula(x$adforms$trials)) {
     if (!length(x$adforms$trials)) {
-      if (!is.null(old_standata$trials)) {
-        out$trials <- old_standata$trials
+      out$trials <- max(out$Y, na.rm = TRUE)
+      if (is.finite(out$trials)) {
+        message("Using the maximum response value as the number of trials.")
+      } else if (!is.null(old_sdata$trials)) {
+        out$trials <- max(old_sdata$trials)
       } else {
-        message("Using the maximum of the response ",
-                "variable as the number of trials.")
-        out$trials <- max(out$Y)
+        stop2("Could not compute the number of trials.")
       }
     } else if (is.formula(x$adforms$trials)) {
       out$trials <- eval_rhs(x$adforms$trials, data = data)
@@ -729,12 +785,12 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
     }
     out$trials <- as.array(out$trials)
   }
-  if (has_cat(x$family)) {
+  if (has_cat(x$family) || is.formula(x$adforms$cat)) {
     if (!length(x$adforms$cat)) {
-      if (!is.null(old_standata$ncat)) {
-        out$ncat <- old_standata$ncat
+      if (!is.null(old_sdata$ncat)) {
+        out$ncat <- old_sdata$ncat
       } else {
-        out$ncat <- length(unique(out$Y))
+        out$ncat <- as.numeric(max(out$Y))
       }
     } else if (is.formula(x$adforms$cat)) {
       out$ncat <- eval_rhs(x$adforms$cat, data = data)
@@ -786,16 +842,43 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
       stop2("Invalid truncation bounds.")
     }
     inv_bounds <- out$Y < out$lb | out$Y > out$ub
-    if (check_response && any(inv_bounds)) {
+    if (check_response && isTRUE(any(inv_bounds))) {
       stop2("Some responses are outside of the truncation bounds.")
     }
   }
+  if (is.formula(x$adforms$mi)) {
+    sdy <- get_sdy(x, data)
+    if (is.null(sdy)) {
+      # missings only
+      which_mi <- which(is.na(out$Y))
+      out$Jmi <- as.array(which_mi)
+      out$Nmi <- length(out$Jmi)
+    } else {
+      # measurement error in the response
+      if (length(sdy) == 1L) {
+        sdy <- rep(sdy, length(out$Y))
+      }
+      if (length(sdy) != length(out$Y)) {
+        stop2("'sdy' must have the same length as the response.")
+      }
+      # all observations will have a latent score
+      which_mi <- which(is.na(out$Y) | is.infinite(sdy))
+      out$Jme <- as.array(setdiff(seq_along(out$Y), which_mi))
+      out$Nme <- length(out$Jme)
+      out$noise <- as.array(sdy)
+    }
+    if (!not4stan) {
+      # Stan does not allow NAs in data
+      # use Inf to that min(Y) is not affected
+      out$Y[which_mi] <- out$noise[which_mi] <- Inf
+    }
+  } 
   resp <- usc(combine_prefix(x))
   c(setNames(out, paste0(names(out), resp)),
     # specify data for autocors here in order to pass Y
     data_autocor(
       x, data = data, Y = out$Y, new = new,
-      old_locations = old_standata$locations
+      old_locations = old_sdata$locations
     )
   )
 }

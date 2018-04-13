@@ -19,11 +19,17 @@
 #'  parameter \code{sigma} should be included in addition to the known
 #'  measurement error. Defaults to \code{FALSE} for backwards compatibility,
 #'  but setting it to \code{TRUE} is usually the better choice.
+#' @param scale Logical; Indicates whether weights should be scaled
+#'  so that the average weight equals one. Defaults to \code{FALSE}.
 #' @param y2 A vector specifying the upper bounds in interval censoring.
 #' @param lb A numeric vector or single numeric value specifying 
 #'   the lower truncation bound.
 #' @param ub A numeric vector or single numeric value specifying 
 #'   the upper truncation bound.
+#' @param sdy Optional known measurement error of the response
+#'   treated as standard deviation. If specified, handles
+#'   measurement error and (completely) missing values
+#'   at the same time using the plausible-values-technique.
 #'
 #' @return A vector containing additional information on the response
 #'   variable in an appropriate format.
@@ -95,13 +101,17 @@ resp_se_no_data <- function(x, sigma = FALSE) {
 
 #' @rdname addition-terms
 #' @export
-resp_weights <- function(x) {
+resp_weights <- function(x, scale = FALSE) {
   # weights to be applied on any model
   if (!is.numeric(x)) {
     stop2("Weights must be numeric.")
   }
   if (min(x) < 0) {
     stop2("Weights must be non-negative.")
+  }
+  scale <- as_one_logical(scale)
+  if (scale) {
+    x <- x / sum(x) * length(x)
   }
   x
 }
@@ -137,11 +147,11 @@ resp_cat <- function(x) {
 resp_dec <- function(x) {
   # decisions for the wiener diffusion model
   if (is.character(x) || is.factor(x)) {
-    x <- ifelse(x == "lower", 0, ifelse(x == "upper", 1, x))
-    if (!is.numeric(x)) {
+    if (!all(unique(x) %in% c("lower", "upper"))) {
       stop2("Decisions should be 'lower' or 'upper' ", 
             "when supplied as characters or factors.")
     }
+    x <- ifelse(x == "lower", 0, 1)
   } else {
     x <- as.numeric(as.logical(x))
   }
@@ -180,7 +190,7 @@ resp_cens <- function(x, y2 = NULL) {
     )
   }
   if (any(cens %in% 2)) {
-    if (length(y2) != length(cens)) {
+    if (!length(y2)) {
       stop2("Argument 'y2' is required for interval censored data.")
     }
     attr(cens, "y2") <- unname(y2)
@@ -197,6 +207,15 @@ resp_trunc <- function(lb = -Inf, ub = Inf) {
     stop2("Truncation bounds are invalid: lb >= ub")
   }
   nlist(lb, ub)
+}
+
+#' @rdname addition-terms
+#' @export
+resp_mi <- function(sdy = NULL) {
+  if (!is.null(sdy) && !is.numeric(sdy)) {
+    stop2("Measurement error should be numeric.")
+  }
+  sdy
 }
 
 #' Defining smooths in \pkg{brms} formulas
@@ -245,29 +264,49 @@ t2 <- function(...) {
 
 #' Predictors with Measurement Error in \pkg{brms} Models
 #' 
-#' @param x The variable measured with error.
-#' @param sdx Known measurement error of \code{x}
-#'   treated as standard deviation.
-#' 
-#' @details For detailed documentation see \code{help(brmsformula)}. 
-#' 
+#' Specify predictors with measurement error.
 #' This function is almost solely useful when
 #' called in formulas passed to the \pkg{brms} package.
 #' 
-#' @seealso \code{\link{brmsformula}}
+#' @param x The variable measured with error.
+#' @param sdx Known measurement error of \code{x}
+#'   treated as standard deviation.
+#' @param gr Optional grouping factor to specify which
+#'   values of \code{x} correspond to the same value of the
+#'   latent variable. If \code{NULL} (the default) each
+#'   observation will have its own value of the latent variable.
+#' 
+#' @details 
+#' For detailed documentation see \code{help(brmsformula)}. 
+#' 
+#' By default, latent noise-free variables are assumed
+#' to be correlated. To change that, add \code{set_mecor(FALSE)}
+#' to your model formula object (see examples).
+#' 
+#' @seealso 
+#' \code{\link{brmsformula}}, \code{\link{brmsformula-helpers}}
 #'   
 #' @examples 
 #' \dontrun{
 #' # sample some data
 #' N <- 100
-#' dat <- data.frame(y = rnorm(N), x = rnorm(N), sdx = abs(rnorm(N, 1)))
+#' dat <- data.frame(
+#'   y = rnorm(N), x1 = rnorm(N), 
+#'   x2 = rnorm(N), sdx = abs(rnorm(N, 1))
+#'  )
 #' # fit a simple error-in-variables model 
-#' fit <- brm(y ~ me(x, sdx), data = dat, save_mevars = TRUE)
-#' summary(fit)
+#' fit1 <- brm(y ~ me(x1, sdx) + me(x2, sdx), data = dat, 
+#'            save_mevars = TRUE)
+#' summary(fit1)
+#' 
+#' # turn off modeling of correlations
+#' bform <- bf(y ~ me(x1, sdx) + me(x2, sdx)) + set_mecor(FALSE)
+#' fit2 <- brm(bform, data = dat, save_mevars = TRUE)
+#' summary(fit2)
 #' } 
 #' 
 #' @export
-me <- function(x, sdx = NULL) {
+me <- function(x, sdx = NULL, gr = NULL) {
   xname <- deparse(substitute(x))
   x <- as.vector(x)
   sdx <- as.vector(sdx)
@@ -285,8 +324,52 @@ me <- function(x, sdx = NULL) {
   if (isTRUE(any(sdx <= 0))) {
     stop2("Measurement error should be positive.")
   }
+  grname <- substitute(gr)
+  if (!is.null(grname)) {
+    grname <- deparse_combine(grname, max_char = NULL)
+    stopif_illegal_group(grname)
+    gr <- as.vector(gr)
+  } else {
+    grname <- ""
+  }
   out <- rep(1, length(x))
-  structure(out, var = x, noise = sdx, xname = xname)
+  structure(out, 
+    var = x, sdx = sdx, gr = gr, 
+    xname = xname, grname = grname
+  )
+}
+
+#' Predictors with Missing Values in \pkg{brms} Models
+#' 
+#' @param x The variable containing missings.
+#' 
+#' @details For detailed documentation see \code{help(brmsformula)}. 
+#' 
+#' This function is almost solely useful when
+#' called in formulas passed to the \pkg{brms} package.
+#' 
+#' @seealso \code{\link{brmsformula}}
+#'   
+#' @examples 
+#' \dontrun{
+#' data("nhanes", package = "mice")
+#' bform <- bf(bmi | mi() ~ age * mi(chl)) +
+#'   bf(chl | mi() ~ age) + set_rescor(FALSE)
+#' fit <- brm(bform, data = nhanes)
+#' summary(fit)
+#' plot(marginal_effects(fit, resp = "bmi"), ask = FALSE)
+#' LOO(fit, newdata = na.omit(fit$data))
+#' } 
+#' 
+#' @export
+mi <- function(x) {
+  xname <- deparse(substitute(x))
+  x <- as.vector(x)
+  if (!is.numeric(x)) {
+    stop2("Noisy variables should be numeric.")
+  }
+  out <- rep(1, length(x))
+  structure(out, var = x, xname = xname)
 }
 
 #' Category Specific Predictors in \pkg{brms} Models
@@ -514,33 +597,48 @@ gp <- function(..., by = NA, cov = "exp_quad", scale = TRUE) {
 #' and there is usually no need to call it directly.
 #' 
 #' @param ... One or more terms containing grouping factors.
+#' @param by An optional factor variable, specifying sub-populations
+#'   of the groups. For each level of the \code{by} variable, 
+#'   a separate variance-covariance matrix will be fitted. 
+#'   Levels of the grouping factor must be nested in levels 
+#'   of the \code{by} variable.
 #' 
 #' @seealso \code{\link{brmsformula}}
 #' 
 #' @examples 
 #' \dontrun{
 #' # model using basic lme4-style formula
-#' fit1 <- brm(count ~ Trt_c + (1|patient), data = epilepsy)
+#' fit1 <- brm(count ~ Trt + (1|patient), data = epilepsy)
 #' summary(fit1)
+#' 
 #' # equivalent model using 'gr' which is called anyway internally
-#' fit2 <- brm(count ~ Trt_c + (1|gr(patient)), data = epilepsy)
+#' fit2 <- brm(count ~ Trt + (1|gr(patient)), data = epilepsy)
 #' summary(fit2)
-#' WAIC(fit1, fit2)
+#' 
+#' # include Trt as a by variable
+#' fit3 <- brm(count ~ Trt + (1|gr(patient, by = Trt)), data = epilepsy)
+#' summary(fit3)
 #' }
 #' 
 #' @export
-gr <- function(...) {
+gr <- function(..., by = NULL) {
   label <- deparse(match.call())
   groups <- as.character(as.list(substitute(list(...)))[-1])
   if (length(groups) > 1L) {
     stop2("Grouping structure 'gr' expects only a single grouping term")
   }
-  if (illegal_group_expr(groups[1])) {
-    stop2("Illegal grouping term: ", groups[1], "\nIt may contain ",
-          "only variable names combined by the symbol ':'")
+  stopif_illegal_group(groups[1])
+  by <- substitute(by)
+  if (!is.null(by)) {
+    by <- all.vars(by)
+    if (length(by) != 1L) {
+      stop2("Argument 'by' must contain exactly one variable.")
+    }
+  } else {
+    by <- ""
   }
-  allvars <- str2formula(groups)
-  nlist(groups, allvars, label, type = "")
+  allvars <- str2formula(c(groups, by))
+  nlist(groups, allvars, label, by, type = "")
 }
 
 #' Set up multi-membership grouping terms in \pkg{brms}
@@ -558,34 +656,41 @@ gr <- function(...) {
 #'  If negative weights are specified, \code{scale} needs
 #'  to be set to \code{FALSE}.
 #'  
-#' @seealso \code{\link{brmsformula}}
+#' @seealso \code{\link{brmsformula}}, \code{\link{mmc}}
 #'  
 #' @examples 
 #' \dontrun{
 #' # simulate some data
-#' dat <- data.frame(y = rnorm(100), x = rnorm(100), 
-#'                   g1 = sample(1:10, 100, TRUE),
-#'                   g2 = sample(1:10, 100, TRUE))
+#' dat <- data.frame(
+#'  y = rnorm(100), x1 = rnorm(100), x2 = rnorm(100),
+#'  g1 = sample(1:10, 100, TRUE), g2 = sample(1:10, 100, TRUE)
+#' )
+#' 
 #' # multi-membership model with two members per group and equal weights
-#' fit1 <- brm(y ~ x + (1|mm(g1, g2)), data = dat)
+#' fit1 <- brm(y ~ x1 + (1|mm(g1, g2)), data = dat)
 #' summary(fit1)
 #' 
 #' # weight the first member two times for than the second member
 #' dat$w1 <- rep(2, 100)
 #' dat$w2 <- rep(1, 100)
-#' fit2 <- brm(y ~ x + (1|mm(g1, g2, weights = cbind(w1, w2))), data = dat)
+#' fit2 <- brm(y ~ x1 + (1|mm(g1, g2, weights = cbind(w1, w2))), data = dat)
 #' summary(fit2)
+#' 
+#' # multi-membership model with level specific covariate values
+#' dat$xc <- (dat$x1 + dat$x2) / 2
+#' fit3 <- brm(y ~ xc + (1 + mmc(x1, x2) | mm(g1, g2)), data = dat)
+#' summary(fit3)
 #' }
 #'   
 #' @export
 mm <- function(..., weights = NULL, scale = TRUE) {
   label <- deparse(match.call())
   groups <- as.character(as.list(substitute(list(...)))[-1])
+  if (length(groups) < 2) {
+    stop2("Multi-membership terms require at least two grouping variables.")
+  }
   for (i in seq_along(groups)) {
-    if (illegal_group_expr(groups[i])) {
-      stop2("Illegal grouping term: ", groups[i], "\nIt may contain ",
-            "only variable names combined by the symbol ':'")
-    }
+    stopif_illegal_group(groups[i])
   }
   scale <- as_one_logical(scale)
   weights <- substitute(weights)
@@ -596,7 +701,48 @@ mm <- function(..., weights = NULL, scale = TRUE) {
     attr(weights, "scale") <- scale
     weightvars <- str2formula(weightvars)
   }
-  nlist(groups, weights, weightvars, allvars, label, type = "mm")
+  nlist(groups, weights, weightvars, allvars, label, by = "", type = "mm")
+}
+
+#' Multi-Membership Covariates
+#' 
+#' Specify covarariates that vary over different levels 
+#' of multi-membership grouping factors thus requiring
+#' special treatment. This function is almost solely useful,
+#' when called in combination with \code{\link{mm}}. 
+#' Outside of multi-membership terms it will behave
+#' very much like \code{\link{cbind}}.
+#' 
+#' @param ... One or more terms containing covariates 
+#'   corresponding to the grouping levels specified in \code{\link{mm}}.
+#' 
+#' @return A matrix with covariates as columns.
+#' 
+#' @seealso \code{\link{mm}}
+#' 
+#' @examples 
+#' \dontrun{
+#' # simulate some data
+#' dat <- data.frame(
+#'   y = rnorm(100), x1 = rnorm(100), x2 = rnorm(100),
+#'   g1 = sample(1:10, 100, TRUE), g2 = sample(1:10, 100, TRUE)
+#' )
+#' 
+#' # multi-membership model with level specific covariate values
+#' dat$xc <- (dat$x1 + dat$x2) / 2 
+#' fit <- brm(y ~ xc + (1 + mmc(x1, x2) | mm(g1, g2)), data = dat)
+#' summary(fit)
+#' }
+#' 
+#' @export
+mmc <- function(...) {
+  dots <- list(...)
+  if (any(ulapply(dots, is_like_factor))) {
+    stop2("'mmc' requires numeric variables.")
+  }
+  out <- cbind(...)
+  colnames(out) <- paste0("?", colnames(out))
+  out
 }
 
 rhs <- function(x) {
@@ -626,12 +772,13 @@ str2formula <- function(x, ...) {
   #   ...: passed to formula(.)
   # Returns:
   #   a formula
-  if (length(x) && any(nzchar(x))) {
-    x <- paste(x, collapse = "+") 
+  has_chars <- nzchar(x)
+  if (length(x) && any(has_chars)) {
+    out <- paste(x[has_chars], collapse = "+") 
   } else {
-    x <- "1"
+    out <- "1"
   }
-  formula(paste("~", x), ...)
+  formula(paste("~", out), ...)
 }
 
 formula2str <- function(formula, rm = c(0, 0), space = c("rm", "trim")) {

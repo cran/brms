@@ -79,6 +79,33 @@ subset_samples <- function(x, subset = NULL, nsamples = NULL) {
   subset
 }
 
+get_rnames <- function(ranef, group = NULL, bylevels = NULL) {
+  # extract names of group-level effects
+  # Args:
+  #  ranef: output of tidy_ranef()
+  #  group: optinal name of a grouping factor for
+  #    which to extract effect names
+  #  bylevels: optional names of 'by' levels for 
+  #    which to extract effect names
+  stopifnot(is.data.frame(ranef))
+  if (!is.null(group)) {
+    group <- as_one_character(group)
+    ranef <- subset2(ranef, group = group)
+  }
+  stopifnot(length(unique(ranef$group)) == 1L)
+  out <- paste0(usc(combine_prefix(ranef), "suffix"), ranef$coef)
+  if (isTRUE(nzchar(ranef$by[1]))) {
+    if (!is.null(bylevels)) {
+      stopifnot(all(bylevels %in% ranef$bylevels[[1]]))
+    } else {
+      bylevels <- ranef$bylevels[[1]]
+    }
+    bylabels <- paste0(ranef$by[1], bylevels)
+    out <- outer(out, bylabels, paste, sep = ":")
+  }
+  out
+}
+
 get_cornames <- function(names, type = "cor", brackets = TRUE, sep = "__") {
   # get correlation names as combinations of variable names
   # Args:
@@ -110,25 +137,35 @@ get_cornames <- function(names, type = "cor", brackets = TRUE, sep = "__") {
   cornames
 }
 
-get_group_vars <- function(x) {
-  # extract names of grouping variables in the model
-  if (is.brmsfit(x)) {
-    x <- x$ranef
-  }
-  stopifnot(is.data.frame(x))
-  unique(ulapply(x$gcall, "[[", "groups"))
-}
-
 get_cat_vars <- function(x) {
   # extract names of categorical variables in the model
   stopifnot(is.brmsfit(x))
   like_factor <- sapply(model.frame(x), is_like_factor)
   valid_groups <- c(
     names(model.frame(x))[like_factor],
-    get_autocor_vars(x, var = "group"),
     get_group_vars(x)
   )
   unique(valid_groups[nzchar(valid_groups)])
+}
+
+get_levels <- function(...) {
+  # extract list of levels with one element per grouping factor
+  # Args:
+  #   ...: object with a level attribute
+  dots <- list(...)
+  out <- vector("list", length(dots))
+  for (i in seq_along(out)) {
+    levels <- attr(dots[[i]], "levels", exact = TRUE)
+    if (is.list(levels)) {
+      stopifnot(!is.null(names(levels)))
+      out[[i]] <- as.list(levels)
+    } else if (!is.null(levels)) {
+      stopifnot(isTRUE(nzchar(names(dots)[i])))
+      out[[i]] <- setNames(list(levels), names(dots)[[i]])
+    }
+  }
+  out <- unlist(out, recursive = FALSE)
+  out[!duplicated(names(out))]
 }
 
 get_estimate <- function(coef, samples, margin = 2, ...) {
@@ -373,11 +410,7 @@ get_dpar <- function(draws, dpar, i = NULL, ilink = NULL) {
   stopifnot(!is.null(x))
   if (is.list(x)) {
     # compute samples of a predicted parameter
-    if (!is.null(x$nlpars)) {
-      out <- nonlinear_predictor(x, i = i, fdraws = draws)
-    } else {
-      out <- linear_predictor(x, i = i, fdraws = draws)
-    }
+    out <- predictor(x, i = i, fdraws = draws)
     if (is.null(ilink)) {
       ilink <- apply_dpar_ilink(dpar, family = draws$f)
     }
@@ -537,9 +570,7 @@ apply_dpar_ilink <- function(dpar, family) {
   if (is.mixfamily(family)) {
     dpar <- dpar_class(dpar) 
   }
-  no_link_family <- family$family %in% 
-    c("weibull", "cumulative", "sratio", "cratio", "acat")
-  !(no_link_family && dpar == "mu" || family$family %in% "categorical")
+  !(is_ordinal(family) && dpar == "mu" || is_categorical(family))
 }
 
 choose_N <- function(draws) {
@@ -584,6 +615,69 @@ validate_resp <- function(resp, valid_resps, multiple = TRUE) {
   resp
 }
 
+split_dots <- function(x, ..., model_names = NULL, other = TRUE) {
+  # split '...' into a list of model objects and other arguments
+  # takes its argument names from parent.frame() 
+  # Args:
+  #   ....: objects to split into model and non-model objects
+  #   x: object treated in the same way as '...'. Adding it is
+  #      necessary for substitute() to catch the name of the first 
+  #      argument passed to S3 methods.
+  #   model_names: optional names of the model objects  
+  #   other: allow non-model arguments in '...'?
+  # Returns
+  #   A list of arguments. All brmsfit objects are stored 
+  #   as a list in element 'models' unless 'other' is FALSE.
+  other <- as_one_logical(other)
+  dots <- list(x, ...)
+  names <- substitute(list(x, ...), env = parent.frame())[-1]
+  names <- ulapply(names, deparse_combine)
+  if (length(names)) {
+    if (!length(names(dots))) {
+      names(dots) <- names
+    } else {
+      has_no_name <- !nzchar(names(dots))
+      names(dots)[has_no_name] <- names[has_no_name]
+    }
+  }
+  is_brmsfit <- unlist(lapply(dots, is.brmsfit))
+  models <- dots[is_brmsfit]
+  models <- validate_models(models, model_names, names(models))
+  out <- dots[!is_brmsfit]
+  if (is.null(out$subset) && !is.null(out$nsamples)) {
+    out$subset <- sample(nsamples(models[[1]]), out$nsamples)
+    out$nsamples <- NULL
+  }
+  if (other) {
+    out$models <- models
+  } else {
+    if (length(out)) {
+      stop2("Only model objects can be passed to '...' for this method.")
+    }
+    out <- models
+  }
+  out
+}
+
+validate_weights <- function(weights, models, control = list()) {
+  # validate weights passed to model averaging functions
+  # Args: see pp_average.brmsfit
+  if (!is.numeric(weights)) {
+    weight_args <- c(unname(models), control)
+    weight_args$weights <- weights
+    weights <- do.call(model_weights, weight_args)
+  } else {
+    if (length(weights) != length(models)) {
+      stop2("If numeric, 'weights' must have the same length ",
+            "as the number of models.")
+    }
+    if (any(weights < 0)) {
+      stop2("If numeric, 'weights' must be positive.")
+    }
+  }
+  weights / sum(weights)
+}
+
 reorder_obs <- function(eta, old_order = NULL, sort = FALSE) {
   # reorder observations to be in the initial user-defined order
   # currently only relevant for autocorrelation models 
@@ -610,7 +704,7 @@ reorder_obs <- function(eta, old_order = NULL, sort = FALSE) {
 
 fixef_pars <- function() {
   # regex to extract population-level coefficients
-  "^b(|cs|mo|me|m)_"
+  "^b(|cs|sp|mo|me|mi|m)_"
 }
 
 default_plot_pars <- function() {
@@ -637,14 +731,18 @@ extract_pars <- function(pars, all_pars, exact_match = FALSE,
   }
   if (!anyNA(pars)) {
     if (exact_match) {
-      pars <- all_pars[all_pars %in% pars]
+      out <- intersect(pars, all_pars)
     } else {
-      pars <- all_pars[apply(sapply(pars, grepl, x = all_pars, ...), 1, any)]
+      out <- vector("list", length(pars))
+      for (i in seq_along(pars)) {
+        out[[i]] <- all_pars[grepl(pars[i], all_pars, ...)]
+      }
+      out <- unique(unlist(out))
     }
   } else {
-    pars <- na_value
+    out <- na_value
   }
-  pars
+  out
 }
 
 add_samples <- function(x, newpar, dim = numeric(0), dist = "norm", ...) {

@@ -42,7 +42,7 @@ respectively.}
 \item{alpha}{The alpha-level of the tests (default is 0.05;
 see 'Details' for more information).}
 
-\item{seed}{A single numeric value passed to \code{set.seed} 
+\item{seed}{A single numeric value passed to \code{\link{set.seed}}
 to make results reproducible.}
 
 \item{...}{Currently ignored.}
@@ -114,8 +114,8 @@ hypothesis(fit, "age < Intercept",
            class = "sd", group  = "patient")
 
 ## test the amount of random intercept variance on all variance
-h <- paste("sd_patient_Intercept^2 / (sd_patient_Intercept^2 +",
-           "sd_patient_age^2 + sigma^2) = 0")
+h <- paste("sd_patient__Intercept^2 / (sd_patient__Intercept^2 +",
+           "sd_patient__age^2 + sigma^2) = 0")
 (hyp2 <- hypothesis(fit, h, class = NULL))
 plot(hyp2)
 

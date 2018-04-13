@@ -1,3 +1,5 @@
+context("Tests for make_standata")
+
 test_that(paste("make_standata returns correct data names ",
                 "for fixed and random effects"), {
   expect_equal(names(make_standata(rating ~ treat + period + carry 
@@ -107,10 +109,10 @@ test_that(paste("make_standata rejects incorrect response variables",
                "contain only two different values")
   expect_error(make_standata(y ~ 1, data = data.frame(y = factor(-1:1)), 
                              family = "cratio"),
-               "Family 'cratio' requires either integers or ordered factors")
+               "Family 'cratio' requires either positive integers or ordered factors")
   expect_error(make_standata(y ~ 1, data = data.frame(y = rep(0.5:7.5), 2), 
                              family = "sratio"),
-               "Family 'sratio' requires either integers or ordered factors")
+               "Family 'sratio' requires either positive integers or ordered factors")
   expect_error(make_standata(y ~ 1, data = data.frame(y = rep(-7.5:7.5), 2), 
                              family = "gamma"),
                "Family 'gamma' requires responses to be positive")
@@ -129,7 +131,7 @@ test_that("make_standata suggests using family bernoulli if appropriate", {
   expect_message(make_standata(y ~ 1, data = data.frame(y = rep(0:1,5)), 
                                family = "binomial"),
                  paste("family 'bernoulli' might be a more efficient choice."))
-  expect_message(make_standata(y ~ 1, data = data.frame(y = rep(0:1,5)), 
+  expect_message(make_standata(y ~ 1, data = data.frame(y = rep(1:2, 5)), 
                                family = "acat"),
                  paste("family 'bernoulli' might be a more efficient choice."))
   expect_error(make_standata(y ~ 1, data = data.frame(y = rep(0:1,5)), 
@@ -293,7 +295,7 @@ test_that("make_standata correctly prepares data for non-linear models", {
   sdata <- make_standata(bform, data = dat)
   expect_equal(names(sdata), 
     c("N", "Y", "C_1", "K_a", "X_a", "Z_1_a_1", 
-      "K_b", "X_b", "Kmo_b", "Imo_b", "Xmo_b_1", "Jmo_b", 
+      "K_b", "X_b", "Ksp_b", "Imo_b", "Xmo_b_1", "Jmo_b", 
       "con_simo_b_1", "Z_1_b_2", "J_1", "N_1", 
       "M_1", "NC_1", "prior_only")
   )
@@ -315,8 +317,10 @@ test_that("make_standata correctly prepares data for non-linear models", {
 })
 
 test_that("make_standata correctly prepares data for monotonic effects", {
-  data <- data.frame(y = rpois(120, 10), x1 = rep(1:4, 30), 
-                     x2 = factor(rep(c("a", "b", "c"), 40), ordered = TRUE))
+  data <- data.frame(
+    y = rpois(120, 10), x1 = rep(1:4, 30), z = rnorm(10),
+    x2 = factor(rep(c("a", "b", "c"), 40), ordered = TRUE)
+  )
   sdata <- make_standata(y ~ mo(x1)*mo(x2)*y, data = data)
   sdata_names <- c("Xmo_1", "Imo", "Jmo",  "con_simo_8", "con_simo_5")
   expect_true(all(sdata_names %in% names(sdata)))
@@ -343,6 +347,11 @@ test_that("make_standata correctly prepares data for monotonic effects", {
   expect_equal(sdata$con_simo_1, c(1, 0.5, 2))
   expect_equal(sdata$con_simo_3, c(1, 0.5, 2))
   
+  expect_error(
+    make_standata(y ~ mo(z), data = data),
+    "Monotonic predictors must be integers or ordered factors"
+  )
+  
   prior <- c(set_prior("dirichlet(c(1,0.5,2))", class = "simo", coef = "mox21"))
   expect_error(
     make_standata(y ~ mo(x2), data = data, prior = prior),
@@ -366,6 +375,15 @@ test_that("make_standata returns data for bsts models", {
   expect_equivalent(make_standata(bf(y~1, sigma ~ 1), data = dat, 
                                   autocor = cor_bsts(~t|g))$X_sigma[, 1],
                     rep(1, nrow(dat)))
+  
+  dat = data.frame(
+    y = rnorm(100), id = rep(1:10, each = 1),
+    day = rep(1:10, length.out = 100) 
+  )
+  expect_error(
+    make_standata(y~1, dat, autocor = cor_bsts(~day|id)),
+    "Time points within groups must be unique"
+  )
 })
 
 test_that("make_standata returns data for GAMMs", {
@@ -467,8 +485,48 @@ test_that("make_standata handles noise-free terms", {
   )
   expect_equal(sdata$Xn_1, as.array(dat$x))
   expect_equal(sdata$noise_2, as.array(dat$zsd))
-  expect_equal(unname(sdata$Cme_3), dat$x)
-  expect_equal(sdata$Kme, 6)
+  expect_equal(unname(sdata$Csp_3), as.array(dat$x))
+  expect_equal(sdata$Ksp, 6)
+  expect_equal(sdata$NCme_1, 1)
+})
+
+test_that("make_standata handles noise-free terms with grouping factors", {
+  dat <- data.frame(
+    y = rnorm(10), 
+    x1 = rep(1:5, each = 2), 
+    sdx = rep(1:5, each = 2),
+    g = rep(c("b", "c", "a", "d", 1), each = 2)
+  )
+  sdata <- make_standata(y ~ me(x1, sdx, gr = g), dat)
+  expect_equal(sdata$Xn_1, as.array(c(5, 3, 1, 2, 4)))
+  expect_equal(sdata$noise_1, as.array(c(5, 3, 1, 2, 4)))
+  
+  dat$sdx[2] <- 10
+  expect_error(
+    make_standata(y ~ me(x1, sdx, gr = g), dat),
+    "Measured values and measurement error should be unique"
+  )
+})
+
+test_that("make_standata handles missing value terms", {
+  dat = data.frame(y = rnorm(10), x = rnorm(10), g = 1:10)
+  miss <- c(1, 3, 9)
+  dat$x[miss] <- NA
+  bform <- bf(y ~ mi(x)*g) + bf(x | mi() ~ g) + set_rescor(FALSE)
+  sdata <- make_standata(bform, dat)
+  expect_equal(sdata$Jmi_x, as.array(miss))
+  expect_true(all(is.infinite(sdata$Y_x[miss])))
+})
+
+test_that("make_standata handles overimputation", {
+  dat = data.frame(y = rnorm(10), x = rnorm(10), g = 1:10, sdy = 1)
+  miss <- c(1, 3, 9)
+  dat$x[miss] <- dat$sdy[miss] <- NA
+  bform <- bf(y ~ mi(x)*g) + bf(x | mi(sdy) ~ g) + set_rescor(FALSE)
+  sdata <- make_standata(bform, dat)
+  expect_equal(sdata$Jme_x, as.array(setdiff(1:10, miss)))
+  expect_true(all(is.infinite(sdata$Y_x[miss])))
+  expect_true(all(is.infinite(sdata$noise_x[miss])))
 })
 
 test_that("make_standata handles multi-membership models", {
@@ -477,10 +535,49 @@ test_that("make_standata handles multi-membership models", {
                     w2 = rep(abs(rnorm(10))))
   sdata <- make_standata(y ~ (1|mm(g1,g2,g1,g2)), data = dat)
   expect_true(all(paste0(c("W_1_", "J_1_"), 1:4) %in% names(sdata)))
-  expect_equal(sdata$W_1_4, rep(0.25, 10))
+  expect_equal(sdata$W_1_4, as.array(rep(0.25, 10)))
+  expect_equal(unname(sdata$Z_1_1_1), as.array(rep(1, 10)))
+  expect_equal(unname(sdata$Z_1_1_2), as.array(rep(1, 10)))
   # this checks whether combintation of factor levels works as intended
   expect_equal(sdata$J_1_1, as.array(c(6, 5, 4, 3, 2, 1, 7, 7, 7, 7)))
   expect_equal(sdata$J_1_2, as.array(c(8, 1, 2, 3, 4, 5, 6, 9, 10, 7)))
+  
+  sdata <- make_standata(y ~ (1|mm(g1,g2, weights = cbind(w1, w2))), dat)
+  expect_equal(sdata$W_1_1, as.array(dat$w1 / (dat$w1 + dat$w2)))
+  
+  # tests mmc terms
+  sdata <- make_standata(y ~ (1+mmc(w1, w2)|mm(g1,g2)), data = dat)
+  expect_equal(unname(sdata$Z_1_2_1), as.array(dat$w1))
+  expect_equal(unname(sdata$Z_1_2_2), as.array(dat$w2))
+  
+  expect_error(
+    make_standata(y ~ (mmc(w1, w2, y)|mm(g1,g2)), data = dat),
+    "Invalid term 'mmc(w1, w2, y)':", fixed = TRUE
+  )
+  expect_error(
+    make_standata(y ~ (mmc(w1, w2)*y|mm(g1,g2)), data = dat),
+    "The term 'mmc(w1,w2):y' is invalid", fixed = TRUE
+  )
+  
+  # tests if ":" works in multi-membership models
+  sdata <- make_standata(y ~ (1|mm(w1:g1,w1:g2)), dat)
+  expect_true(all(c("J_1_1", "J_1_2") %in% names(sdata)))
+})
+
+test_that("by variables in grouping terms are handled correctly", {
+  gvar <- c("1A", "1B", "2A", "2B", "3A", "3B", "10", "100", "2", "3")
+  dat <- data.frame(
+    y = rnorm(100), x = rnorm(100),
+    g = rep(gvar, each = 10),
+    z = factor(rep(c(0, 4.5, 3, 2, 5), each = 20)),
+    z2 = factor(1:2)
+  )
+  sdata <- make_standata(y ~ x + (x | gr(g, by = z)), dat)
+  expect_equal(sdata$Nby_1, 5)
+  expect_equal(sdata$Jby_1, as.array(c(2, 2, 1, 1, 5, 4, 4, 5, 3, 3)))
+  
+  expect_error(make_standata(y ~ x + (1|gr(g, by = z2)), dat),
+               "Some levels of 'g' correspond to multiple levels of 'z2'")
 })
 
 test_that("make_standata handles calls to the 'poly' function", {
@@ -616,4 +713,28 @@ test_that("make_standata incldudes data of special priors", {
   )
   expect_equal(sdata$hs_df_a1, 7)
   expect_equal(sdata$lasso_df_a2, 2)
+})
+
+test_that("dots in formula are correctly expanded", {
+  dat <- data.frame(y = 1:10, x1 = 1:10, x2 = 1:10)
+  sdata <- make_standata(y ~ ., dat)
+  expect_equal(colnames(sdata$X), c("Intercept", "x1", "x2"))
+})
+
+test_that("argument 'stanvars' is handled correctly", {
+  bprior <- prior(normal(mean_intercept, 10), class = "Intercept")
+  mean_intercept <- 5
+  stanvars <- stanvar(mean_intercept)
+  sdata <- make_standata(count ~ Trt, data = epilepsy, 
+                         prior = bprior, stanvars = stanvars)
+  expect_equal(sdata$mean_intercept, 5)
+  
+  # define a multi_normal prior with known covariance matrix
+  bprior <- prior(multi_normal(M, V), class = "b")
+  stanvars <- stanvar(rep(0, 2), "M", scode = "  vector[K] M;") +
+    stanvar(diag(2), "V", scode = "  matrix[K, K] V;") 
+  sdata <- make_standata(count ~ Trt + log_Base4_c, epilepsy,
+                         prior = bprior, stanvars = stanvars)
+  expect_equal(sdata$M, rep(0, 2))
+  expect_equal(sdata$V, diag(2))
 })

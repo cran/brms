@@ -1,6 +1,59 @@
+#' Display Smooth Terms
+#' 
+#' Display smooth \code{s} and \code{t2} terms of models
+#' fitted with \pkg{brms}.
+#' 
+#' @inheritParams marginal_effects
+#' @param smooths Optional character vector of smooth terms
+#'   to display. If \code{NULL} (the default) all smooth terms
+#'   are shown.
+#' @param subset A numeric vector specifying
+#'  the posterior samples to be used. 
+#'  If \code{NULL} (the default), all samples are used.
+#' @param nsamples Positive integer indicating how many 
+#'  posterior samples should be used. 
+#'  If \code{NULL} (the default) all samples are used.
+#'  Ignored if \code{subset} is not \code{NULL}.
+#' @param ... Currently ignored.
+#'   
+#' @return For the \code{brmsfit} method, 
+#' an object of class \code{brmsMarginalEffects}. See
+#' \code{\link{marginal_effects}} for 
+#' more details and documentation of the related plotting function.
+#' 
+#' @details Two-dimensional smooth terms will be visualized using
+#'   either contour or raster plots.
+#'   
+#' @examples 
+#' \dontrun{
+#' set.seed(0) 
+#' dat <- mgcv::gamSim(1, n = 200, scale = 2)
+#' fit <- brm(y ~ s(x0) + s(x1) + s(x2) + s(x3), data = dat)
+#' # show all smooth terms
+#' plot(marginal_smooths(fit), rug = TRUE, ask = FALSE)
+#' # show only the smooth term s(x2)
+#' plot(marginal_smooths(fit, smooths = "s(x2)"), ask = FALSE)
+#' 
+#' # fit and plot a two-dimensional smooth term
+#' fit2 <- brm(y ~ t2(x0, x2), data = dat)
+#' ms <- marginal_smooths(fit2)
+#' plot(ms, stype = "contour")
+#' plot(ms, stype = "raster")
+#' }
+#' 
+#' @export
+marginal_smooths <- function(x, ...) {
+  UseMethod("marginal_smooths")
+}
+
 marginal_smooths_internal <- function(x, ...) {
   # compute predictions based on the smooths terms only
   UseMethod("marginal_smooths_internal")
+}
+
+#' @export
+marginal_smooths_internal.default <- function(x, ...) {
+  NULL
 }
 
 #' @export
@@ -31,13 +84,15 @@ marginal_smooths_internal.brmsterms <- function(x, ...) {
 
 #' @export
 marginal_smooths_internal.btl <- function(x, fit, samples, smooths,
-                                          conditions, probs, resolution,
-                                          too_far, spaghetti, ...) {
+                                          conditions, int_conditions, 
+                                          probs, resolution, too_far,
+                                          spaghetti, ...) {
   # Args:
   #   fit: brmsfit object
   #   samples: extract posterior samples
   #   smooths: optional names of smooth terms to plot
   #   conditions: output of prepare_conditions
+  #   int_conditions: values of by-vars at which to evalute smooths
   #   ...: currently ignored
   stopifnot(is.brmsfit(fit))
   out <- list()
@@ -45,21 +100,19 @@ marginal_smooths_internal.btl <- function(x, fit, samples, smooths,
   too_many_covars <- FALSE
   sm_labels <- get_sm_labels(x)
   sm_labels_by <- get_sm_labels(x, data = mf)
-  covars <- get_sm_labels(x, covars = TRUE, combine = FALSE)
+  all_vars <- get_sm_labels(x, covars = TRUE, combine = FALSE)
   for (i in seq_along(sm_labels)) {
     # loop over smooth terms and compute their predictions
-    byvars <- attr(covars, "byvars")[[i]]
-    byfactors <- ulapply(mf[, byvars, drop = FALSE], is_like_factor)
-    byfactors <- byvars[byfactors]
-    covars_no_byfactor <- setdiff(covars[[i]], byfactors)
-    ncovars <- length(covars_no_byfactor)
+    byvars <- attr(all_vars, "byvars")[[i]]
+    covars <- setdiff(all_vars[[i]], byvars)
+    ncovars <- length(covars)
     if (ncovars > 2L) {
       too_many_covars <- TRUE
     }
     include_smooth <- !length(smooths) || sm_labels[[i]] %in% smooths
-    if (include_smooth && ncovars <= 2L) {
-      values <- named_list(covars[[i]])
-      for (cv in names(values)) {
+    if (include_smooth && !too_many_covars) {
+      values <- named_list(all_vars[[i]])
+      for (cv in covars) {
         if (is.numeric(mf[[cv]])) {
           values[[cv]] <- seq(
             min(mf[[cv]]), max(mf[[cv]]), 
@@ -69,21 +122,35 @@ marginal_smooths_internal.btl <- function(x, fit, samples, smooths,
           values[[cv]] <- levels(factor(mf[[cv]]))
         }
       }
+      for (cv in byvars) {
+        if (cv %in% names(int_conditions)) {
+          values[[cv]] <- int_conditions[[cv]]
+        } else if (is.numeric(mf[[cv]])) {
+          mean2 <- mean(mf[[cv]], na.rm = TRUE)
+          sd2 <- sd(mf[[cv]], na.rm = TRUE)
+          values[[cv]] <- (-1:1) * sd2 + mean2
+        } else {
+          values[[cv]] <- levels(factor(mf[[cv]]))
+        }
+      }
       newdata <- expand.grid(values)
       if (ncovars == 2L && too_far > 0) {
         # exclude prediction grid points too far from data
         ex_too_far <- mgcv::exclude.too.far(
-          g1 = newdata[[covars_no_byfactor[1]]], 
-          g2 = newdata[[covars_no_byfactor[2]]], 
-          d1 = mf[, covars_no_byfactor[1]],
-          d2 = mf[, covars_no_byfactor[2]],
+          g1 = newdata[[covars[1]]], 
+          g2 = newdata[[covars[2]]], 
+          d1 = mf[, covars[1]],
+          d2 = mf[, covars[2]],
           dist = too_far
         )
         newdata <- newdata[!ex_too_far, ]  
       }
-      other_vars <- setdiff(names(conditions), covars[[i]])
+      other_vars <- setdiff(names(conditions), all_vars[[i]])
       newdata[, other_vars] <- conditions[1, other_vars]
-      sdata <- validate_newdata(newdata, fit = fit, re_formula = NA)
+      sdata <- standata(
+        fit, newdata, re_formula = NA, 
+        internal = TRUE, check_response = FALSE
+      )
       draws_args <- nlist(x, samples, sdata, data = mf, smooths_only = TRUE)
       draws <- do.call(extract_draws, draws_args)
       J <- which(attr(sm_labels_by, "termnum") == i)
@@ -91,29 +158,32 @@ marginal_smooths_internal.btl <- function(x, fit, samples, smooths,
       draws$fe$X <- draws$fe$X[, scs, drop = FALSE]
       draws$fe$b <- draws$fe$b[, scs, drop = FALSE]
       draws$sm <- draws$sm[J]
-      eta <- linear_predictor(draws, i = NULL)
-      spaghetti_data <- NULL
+      eta <- predictor(draws, i = NULL)
+      spa_data <- NULL
       if (spaghetti && ncovars == 1L) {
         sample <- rep(seq_len(nrow(eta)), each = ncol(eta))
-        spaghetti_data <- data.frame(as.numeric(t(eta)), factor(sample))
-        colnames(spaghetti_data) <- c("estimate__", "sample__")
-        spaghetti_data <- cbind(
-          newdata[, covars[[i]], drop = FALSE], spaghetti_data
-        )
+        spa_data <- data.frame(as.numeric(t(eta)), factor(sample))
+        colnames(spa_data) <- c("estimate__", "sample__")
+        spa_data <- cbind(newdata[, all_vars[[i]], drop = FALSE], spa_data)
       }
       eta <- posterior_summary(eta, robust = TRUE, probs = probs)
       colnames(eta) <- c("estimate__", "se__", "lower__", "upper__")
-      eta <- cbind(newdata[, covars[[i]], drop = FALSE], eta)
-      if (length(byfactors)) {
-        eta$cond__ <- Reduce(paste_colon, eta[, byfactors, drop = FALSE]) 
+      eta <- cbind(newdata[, all_vars[[i]], drop = FALSE], eta)
+      if (length(byvars)) {
+        # byvars will be plotted as facets
+        bynumeric <- byvars[ulapply(eta[byvars], is.numeric)]
+        for (cv in bynumeric) {
+          eta[[cv]] <- round(eta[[cv]], 2)
+        }
+        eta$cond__ <- Reduce(paste_colon, eta[, byvars, drop = FALSE]) 
       }
       response <- combine_prefix(x, keep_mu = TRUE)
       response <- paste0(response, ": ", sm_labels[[i]])
       attr(eta, "response") <- response
-      attr(eta, "effects") <- covars_no_byfactor
+      attr(eta, "effects") <- covars
       attr(eta, "surface") <- ncovars == 2L
-      attr(eta, "spaghetti") <- spaghetti_data
-      attr(eta, "points") <- mf[, covars[[i]], drop = FALSE]
+      attr(eta, "spaghetti") <- spa_data
+      attr(eta, "points") <- mf[, all_vars[[i]], drop = FALSE]
       attr(eta, "too_many_covars") <- too_many_covars
       out[[response]] <- eta
     }

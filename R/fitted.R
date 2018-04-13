@@ -35,10 +35,12 @@ fitted_internal.brmsdraws <- function(draws, scale = "response",
       stop2("Invalid argument 'dpar'. Valid distributional ",
             "parameters are: ", collapse_comma(dpars))
     }
-    if (!isTRUE(attr(draws$dpars[[dpar]], "predicted"))) {
+    predicted <- is.bdrawsl(draws$dpars[[dpar]]) ||
+      is.bdrawsnl(draws$dpars[[dpar]])
+    if (!predicted) {
       stop2("Distributional parameter '", dpar, "' was not predicted.")
     }
-    if (scale == "linear" && is.list(draws$dpars[[dpar]])) {
+    if (scale == "linear") {
       draws$dpars[[dpar]]$f$link <- "identity"
     }
     if (dpar_class(dpar) == "theta" && scale == "response") {
@@ -96,6 +98,10 @@ fitted_lognormal <- function(draws) {
   with(draws$dpars, exp(mu + sigma^2 / 2))
 }
 
+fitted_shifted_lognormal <- function(draws) {
+  with(draws$dpars, exp(mu + sigma^2 / 2) + ndt)
+}
+
 fitted_binomial <- function(draws) {
   trials <- as_draws_matrix(draws$data$trials, dim_mu(draws))
   draws$dpars$mu * trials 
@@ -126,9 +132,7 @@ fitted_gamma <- function(draws) {
 }
 
 fitted_weibull <- function(draws) {
-  # mu becomes the scale parameter
-  draws$dpars$mu <- with(draws, ilink(dpars$mu / dpars$shape, f$link))
-  with(draws$dpars, mu * gamma(1 + 1 / shape))
+  draws$dpars$mu
 }
 
 fitted_frechet <- function(draws) {
@@ -144,7 +148,7 @@ fitted_inverse.gaussian <- function(draws) {
 }
 
 fitted_exgaussian <- function(draws) {
-  with(draws$dpars, mu + beta)
+  draws$dpars$mu
 }
 
 fitted_wiener <- function(draws) {
@@ -230,6 +234,12 @@ fitted_cratio <- function(draws) {
 
 fitted_acat <- function(draws) {
   fitted_ordinal(draws)
+}
+
+fitted_custom <- function(draws) {
+  fitted_fun <- paste0("fitted_", draws$f$name)
+  fitted_fun <- get(fitted_fun, draws$f$env)
+  fitted_fun(draws)
 }
 
 fitted_mixture <- function(draws) {

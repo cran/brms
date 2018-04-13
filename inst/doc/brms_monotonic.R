@@ -15,7 +15,9 @@ opts_chunk$set(
   fig.width = 5,
   out.width = "60%",
   fig.align = "center"
-  )
+)
+library(brms)
+theme_set(theme_default())
 
 ## ---------------------------------------------------------------------------------------
 income_options <- c("below_20", "20_to_40", "40_to_100", "greater_100")
@@ -26,7 +28,6 @@ ls <- mean_ls[income] + rnorm(100, sd = 7)
 dat <- data.frame(income, ls)
 
 ## ---- results='hide'--------------------------------------------------------------------
-library(brms)
 fit1 <- brm(ls ~ mo(income), data = dat)
 
 ## ---------------------------------------------------------------------------------------
@@ -54,7 +55,7 @@ LOO(fit1, fit2, fit3)
 ## ---- results='hide'--------------------------------------------------------------------
 prior4 <- prior(dirichlet(c(2, 1, 1)), class = "simo", coef = "moincome1")
 fit4 <- brm(ls ~ mo(income), data = dat,
-           prior = prior4, sample_prior = TRUE)
+            prior = prior4, sample_prior = TRUE)
 
 ## ---------------------------------------------------------------------------------------
 summary(fit4)
