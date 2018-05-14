@@ -150,12 +150,8 @@ first_not_null <- function(...) {
   out
 }
 
-isFALSE <- function(x) {
-  identical(FALSE, x)
-}
-
 isNA <- function(x) {
-  identical(NA, x)
+  length(x) == 1L && is.na(x)
 }
 
 is_equal <- function(x, y, ...) {
@@ -198,6 +194,14 @@ as_one_character <- function(x, allow_na = FALSE) {
     stop2("Cannot coerce ", s, " to a single character value.")
   }
   x
+}
+
+has_rows <- function(x) {
+  isTRUE(nrow(x) > 0L)
+}
+
+has_cols <- function(x) {
+  isTRUE(ncol(x) > 0L)
 }
 
 expand <- function(..., dots = list(), length = NULL) {
@@ -436,6 +440,10 @@ named_list <- function(names, values = NULL) {
     values <- vector("list", length(names))
   }
   setNames(values, names)
+}
+
+empty_data_frame <- function() {
+  as.data.frame(matrix(nrow = 0, ncol = 0))
 }
 
 'replace_args<-' <- function(x, dont_replace = NULL, value) {

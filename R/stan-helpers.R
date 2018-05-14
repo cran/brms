@@ -122,7 +122,7 @@ stan_autocor <- function(bterms, prior) {
   family <- bterms$family
   autocor <- bterms$autocor
   resp <- bterms$response
-  is_linear <- is_linear(family)
+  allow_autocor <- allow_autocor(family)
   px <- check_prefix(bterms)
   p <- usc(combine_prefix(px))
   out <- list()
@@ -133,7 +133,7 @@ stan_autocor <- function(bterms, prior) {
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
-    if (!is_linear) {
+    if (!allow_autocor) {
       stop2(err_msg, " for family '", family$family, "'.") 
     }
     str_add(out$data) <- paste0( 
@@ -226,9 +226,10 @@ stan_autocor <- function(bterms, prior) {
         " = rep_matrix(0, N, max_lag", p, "); \n",
         "  vector[N] e", p, "; \n"
       )
+      Y <- ifelse(is.formula(bterms$adforms$mi), "Yl", "Y")
       str_add(out$modelC2) <- paste0(
         "    // computation of ARMA correlations \n",
-        "    e", p, "[n] = Y", p, "[n] - mu", p, "[n]; \n",
+        "    e", p, "[n] = ", Y, p, "[n] - mu", p, "[n]; \n",
         "    for (i in 1:J_lag", p, "[n]) { \n",
         "      E", p, "[n + 1, i] = e", p, "[n + 1 - i]; \n",
         "    } \n"
@@ -238,6 +239,11 @@ stan_autocor <- function(bterms, prior) {
   Karr <- get_arr(autocor)
   if (Karr) {
     # autoregressive effects of the response
+    warning2(
+      "The 'arr' correlation structure has been deprecated and ",
+      "will be removed from the package at some point. Consider ", 
+      "using lagged response values as ordinary predictors instead."
+    )
     err_msg <- "ARR models are not implemented"
     if (length(bterms$dpars[["mu"]]$nlpars)) {
       stop2(err_msg, " for non-linear models.")
@@ -264,7 +270,7 @@ stan_autocor <- function(bterms, prior) {
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
-    if (!is_linear) {
+    if (!allow_autocor) {
       stop2(err_msg, " for family '", family$family, "'.")
     }
     if (isTRUE(bterms$rescor)) {
@@ -300,30 +306,31 @@ stan_autocor <- function(bterms, prior) {
     if (length(bterms$dpars[["mu"]]$nlpars)) {
       stop2(err_msg, " in non-linear models.")
     }
-    if (isTRUE(bterms$rescor)) {
-      stop2(err_msg, " when 'rescor' is estimated.")
-    }
     str_add(out$data) <- paste0(
-      "  // data for the CAR structure \n",
-      "  int<lower=1> Nloc", p, "; \n",
-      "  vector[Nloc] Nneigh", p, "; \n",
-      "  vector[Nloc] eigenW", p, "; \n",
-      "  int<lower=1> Jloc", p, "[N]; \n",
-      "  int<lower=0> Nedges", p, "; \n",
-      "  int<lower=1> edges1", p, "[Nedges", p, "]; \n",
-      "  int<lower=1> edges2", p, "[Nedges", p, "]; \n"
+      "  // data for the CAR structure\n",
+      "  int<lower=1> Nloc", p, ";\n",
+      "  int<lower=1> Jloc", p, "[N];\n",
+      "  int<lower=0> Nedges", p, ";\n",
+      "  int<lower=1> edges1", p, "[Nedges", p, "];\n",
+      "  int<lower=1> edges2", p, "[Nedges", p, "];\n"
     )
-    str_add(out$par) <- paste0(
-      "  // parameters for the CAR structure \n",
-      "  real<lower=0> sdcar", p, "; \n"
-    )
-    str_add(out$prior) <- stan_prior(
-      prior, class = "sdcar", px = px, suffix = p
-    )
-    if (identical(autocor$type, "escar")) {
+    if (autocor$type %in% c("escar", "esicar")) {
+      str_add(out$data) <- paste0(
+        "  vector[Nloc", p, "] Nneigh", p, ";\n",
+        "  vector[Nloc", p, "] eigenW", p, ";\n"
+      )
       str_add(out$par) <- paste0(
-        "  real<lower=0, upper=1> car", p, "; \n",
-        "  vector[Nloc", p, "] rcar", p, "; \n"
+        "  // parameters for the CAR structure\n",
+        "  real<lower=0> sdcar", p, ";\n"
+      )
+      str_add(out$prior) <- stan_prior(
+        prior, class = "sdcar", px = px, suffix = p
+      )
+    }
+    if (autocor$type %in% "escar") {
+      str_add(out$par) <- paste0(
+        "  real<lower=0, upper=1> car", p, ";\n",
+        "  vector[Nloc", p, "] rcar", p, ";\n"
       )
       car_args <- c(
         "car", "sdcar", "Nloc", "Nedges", 
@@ -336,17 +343,17 @@ stan_autocor <- function(bterms, prior) {
         "    rcar", p, " | ", car_args, "\n",
         "  ); \n"
       )
-    } else if (identical(autocor$type, "esicar")) {
+    } else if (autocor$type %in% "esicar") {
       str_add(out$par) <- paste0(
-        "  vector[Nloc - 1] zcar", p, "; \n"
+        "  vector[Nloc", p, " - 1] zcar", p, ";\n"
       )
       str_add(out$tparD) <- paste0(
-        "  vector[Nloc] rcar", p, "; \n"                
+        "  vector[Nloc", p, "] rcar", p, ";\n"                
       )
       str_add(out$tparC1) <- paste0(
-        "  // apply sum-to-zero constraint \n",
-        "  rcar[1:(Nloc", p, " - 1)] = zcar", p, "; \n",
-        "  rcar[Nloc", p, "] = - sum(zcar", p, "); \n"
+        "  // sum-to-zero constraint\n",
+        "  rcar[1:(Nloc", p, " - 1)] = zcar", p, ";\n",
+        "  rcar[Nloc", p, "] = - sum(zcar", p, ");\n"
       )
       car_args <- c(
         "sdcar", "Nloc", "Nedges", 
@@ -358,11 +365,24 @@ stan_autocor <- function(bterms, prior) {
         "    rcar", p, " | ", car_args, "\n",
         "  ); \n"
       )
-    } 
+    } else if (autocor$type %in% "icar") {
+      # intrinsic car based on the case study of Mitzi Morris
+      # http://mc-stan.org/users/documentation/case-studies/icar_stan.html
+      str_add(out$par) <- paste0(
+        "  // parameters for the ICAR structure\n",
+        "  vector[Nloc", p, "] rcar", p, ";\n"
+      )
+      str_add(out$prior) <- paste0(
+        "  target += -0.5 * dot_self(rcar", p, "[edges1", p, "]", 
+        " - rcar", p, "[edges2", p, "]);\n",
+        "  // soft sum-to-zero constraint\n",
+        "  target += normal_lpdf(sum(rcar", p, ") | 0, 0.001 * Nloc", p, ");\n"
+      )
+    }
   }
   if (is.cor_bsts(autocor)) {
     warning2(
-      "The `bsts' correlation structure has been deprecated and ",
+      "The 'bsts' correlation structure has been deprecated and ",
       "will be removed from the package at some point. Consider ", 
       "using splines or Gaussian processes instead."
     )
@@ -383,7 +403,7 @@ stan_autocor <- function(bterms, prior) {
       "  vector[N] loclev", p, ";  // local level terms \n",
       "  real<lower=0> sigmaLL", p, ";  // SD of local level terms \n"
     )
-    if (is_linear) {
+    if (allow_autocor) {
       # ensures that the means of the loclev priors start close 
       # to the response values; this often helps with convergence
       link <- stan_link(family$link)
@@ -411,7 +431,7 @@ stan_autocor <- function(bterms, prior) {
     if (is.mixfamily(family)) {
       stop2(err_msg, " for mixture models.") 
     }
-    if (!is_linear) {
+    if (!allow_autocor) {
       stop2(err_msg, " for family '", family$family, "'.")
     }
     if (isTRUE(bterms$rescor)) {
@@ -434,7 +454,7 @@ stan_global_defs <- function(bterms, prior, ranef, cov_ranef) {
   # Returns:
   #   a list of character strings
   families <- family_names(bterms)
-  links <- family_names(bterms, link = TRUE)
+  links <- family_info(bterms, "link")
   unique_combs <- !duplicated(paste0(families, ":", links))
   families <- families[unique_combs]
   links <- links[unique_combs]
@@ -443,9 +463,6 @@ stan_global_defs <- function(bterms, prior, ranef, cov_ranef) {
     str_add(out$fun) <- "  #include 'fun_cauchit.stan' \n"
   } else if (any(links == "cloglog")) {
     str_add(out$fun) <- "  #include 'fun_cloglog.stan' \n"
-  }
-  if (any(families %in% c("student", "frechet"))) {
-    str_add(out$fun) <- "  #include 'fun_logm1.stan' \n"
   }
   hs_dfs <- ulapply(attr(prior, "special"), "[[", "hs_df")
   if (any(nzchar(hs_dfs))) {
@@ -460,64 +477,21 @@ stan_global_defs <- function(bterms, prior, ranef, cov_ranef) {
       "  #include 'fun_kronecker.stan' \n"
     )
   }
-  if (any(families %in% "zero_inflated_poisson")) {
-    str_add(out$fun) <- "  #include 'fun_zero_inflated_poisson.stan' \n"
-  } 
-  if (any(families %in% "zero_inflated_negbinomial")) {
-    str_add(out$fun) <- "  #include 'fun_zero_inflated_negbinomial.stan' \n"
-  } 
-  if (any(families %in% "zero_inflated_binomial")) {
-    str_add(out$fun) <- "  #include 'fun_zero_inflated_binomial.stan' \n"
+  family_files <- family_info(bterms, "include")
+  if (length(family_files)) {
+    str_add(out$fun) <- collapse("  #include '", family_files, "'\n")
   }
-  if (any(families %in% "zero_inflated_beta")) {
-    str_add(out$fun) <- "  #include 'fun_zero_inflated_beta.stan' \n"
-  }
-  if (any(families %in% "zero_one_inflated_beta")) {
-    str_add(out$fun) <- "  #include 'fun_zero_one_inflated_beta.stan' \n"
-  }
-  if (any(families %in% "hurdle_poisson")) {
-    str_add(out$fun) <- "  #include 'fun_hurdle_poisson.stan' \n"
-  }
-  if (any(families %in% "hurdle_negbinomial")) {
-    str_add(out$fun) <- "  #include 'fun_hurdle_negbinomial.stan' \n"
-  }
-  if (any(families %in% "hurdle_gamma")) {
-    str_add(out$fun) <- "  #include 'fun_hurdle_gamma.stan' \n"
-  }
-  if (any(families %in% "hurdle_lognormal")) {
-    str_add(out$fun) <- "  #include 'fun_hurdle_lognormal.stan' \n"
-  }
-  if (any(families %in% "inverse.gaussian")) {
-    str_add(out$fun) <- "  #include 'fun_inv_gaussian.stan' \n"
-  } 
-  if (any(families %in% "von_mises")) {
-    str_add(out$fun) <- paste0(
-      "  #include 'fun_tan_half.stan' \n",
-      "  #include 'fun_von_mises.stan' \n"
-    )
-  } 
-  if (any(families %in% "wiener")) {
-    str_add(out$fun) <- "  #include 'fun_wiener_diffusion.stan' \n"
-  }
-  if (any(families %in% "asym_laplace")) {
-    str_add(out$fun) <- "  #include 'fun_asym_laplace.stan' \n"
-  } 
-  if (any(families %in% "skew_normal")) {
-    str_add(out$tdataD) <- "  real sqrt_2_div_pi = sqrt(2 / pi()); \n"
-  } 
-  if (any(families %in% "gen_extreme_value")) {
-    str_add(out$fun) <- paste0(
-      "  #include 'fun_gen_extreme_value.stan' \n",
-      "  #include 'fun_scale_xi.stan' \n"
-    )
+  const <- family_info(bterms, "const")
+  if (length(const)) {
+    str_add(out$tdataD) <- collapse("  ", const, ";\n")
   }
   is_ordinal <- ulapply(families, is_ordinal)
   if (any(is_ordinal)) {
-    ord_families <- families[is_ordinal]
+    ord_fams <- families[is_ordinal]
     ord_links <- links[is_ordinal]
-    for (i in seq_along(ord_families)) {
-      for (cs in c(FALSE, TRUE)) {
-        str_add(out$fun) <- stan_ordinal_lpmf(ord_families[i], ord_links[i], cs)
+    for (i in seq_along(ord_fams)) {
+      for (cs in 0:1) {
+        str_add(out$fun) <- stan_ordinal_lpmf(ord_fams[i], ord_links[i], cs)
       }
     }
   }
@@ -544,12 +518,18 @@ stan_global_defs <- function(bterms, prior, ranef, cov_ranef) {
     )
   }
   if (any(ulapply(autocors, is.cor_sar))) {
-    str_add(out$fun) <- paste0(
-      "  #include 'fun_normal_lagsar.stan'\n",
-      "  #include 'fun_student_t_lagsar.stan'\n",
-      "  #include 'fun_normal_errorsar.stan'\n",
-      "  #include 'fun_student_t_errorsar.stan'\n"
-    )
+    if ("gaussian" %in% families) {
+      str_add(out$fun) <- paste0(
+        "  #include 'fun_normal_lagsar.stan'\n",
+        "  #include 'fun_normal_errorsar.stan'\n"
+      )
+    }
+    if ("student" %in% families) {
+      str_add(out$fun) <- paste0(
+        "  #include 'fun_student_t_lagsar.stan'\n",
+        "  #include 'fun_student_t_errorsar.stan'\n"
+      )
+    }
   }
   if (any(ulapply(autocors, is.cor_car))) {
     str_add(out$fun) <- paste0(
