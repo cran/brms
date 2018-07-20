@@ -269,6 +269,9 @@ get_all_effects.brmsterms <- function(x, rsv_vars = NULL,
   for (dp in names(x$dpars)) {
     out <- c(out, get_all_effects(x$dpars[[dp]]))
   }
+  for (nlp in names(x$nlpars)) {
+    out <- c(out, get_all_effects(x$nlpars[[nlp]]))
+  }
   out <- rmNULL(lapply(out, setdiff, y = rsv_vars))
   if (length(out) && comb_all) {
     out <- unique(unlist(out))
@@ -283,14 +286,16 @@ get_all_effects.brmsterms <- function(x, rsv_vars = NULL,
 
 #' @export
 get_all_effects.btl <- function(x, ...) {
-  out <- get_var_combs(x[["fe"]], x[["sp"]], x[["cs"]], x[["gp"]])
-  c(out, get_all_effects_sm(x))
+  c(get_var_combs(x[["fe"]], x[["sp"]], x[["cs"]]), 
+    get_all_effects_type(x, "sm"), 
+    get_all_effects_type(x, "gp"))
 }
 
-get_all_effects_sm <- function(x) {
-  # extract combinations of covars and byvars from splines
+get_all_effects_type <- function(x, type) {
+  # extract combinations of covars and byvars from splines and GPs
   stopifnot(is.btl(x))
-  terms <- all_terms(x[["sm"]])
+  type <- as_one_character(type)
+  terms <- all_terms(x[[type]])
   out <- named_list(terms)
   for (i in seq_along(terms)) {
     sm <- eval2(terms[i])
@@ -303,15 +308,11 @@ get_all_effects_sm <- function(x) {
 #' @export
 get_all_effects.btnl <- function(x, ...) {
   covars <- all.vars(rhs(x$covars))
-  covars_comb <- as.list(covars)
+  out <- as.list(covars)
   if (length(covars) > 1L) {
-    covars_comb <- c(covars_comb, 
-      utils::combn(covars, 2, simplify = FALSE)
-    )
+    c(out) <- utils::combn(covars, 2, simplify = FALSE)
   }
-  nl_effects <- lapply(x$nlpars, get_all_effects)
-  nl_effects <- unlist(nl_effects, recursive = FALSE)
-  unique(c(covars_comb, nl_effects))
+  unique(out)
 }
 
 get_int_vars <- function(x, ...) {
@@ -619,7 +620,8 @@ marginal_effects_internal.brmsterms <- function(
     incl_autocor = FALSE, summary = FALSE, ...
   )
   out <- do.call(method, pred_args)
-  if (is_ordinal(x$family) && !ordinal && method == "fitted") {
+  if (is_ordinal(x$family) && !ordinal && 
+      method == "fitted" && is.null(dpar)) {
     for (k in seq_len(dim(out)[3])) {
       out[, , k] <- out[, , k] * k
     }

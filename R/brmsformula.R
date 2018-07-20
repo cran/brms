@@ -46,6 +46,10 @@
 #' @param nl Logical; Indicates whether \code{formula} should be
 #'   treated as specifying a non-linear model. By default, \code{formula} 
 #'   is treated as an ordinary linear model formula.
+#' @param loop Logical; Only used in non-linear models.
+#'   Indicates if the computation of the non-linear formula should be 
+#'   done inside (\code{TRUE}) or outside (\code{FALSE}) a loop
+#'   over observations. Defaults to \code{TRUE}.
 #' @param family Same argument as in \code{\link{brm}}.
 #'   If \code{family} is specified in \code{brmsformula}, it will 
 #'   overwrite the value specified in \code{\link{brm}}.
@@ -263,6 +267,9 @@
 #'   to \code{success | trials(n)} in \pkg{brms} syntax. If the number of trials
 #'   is constant across all observations, say \code{10}, 
 #'   we may also write \code{success | trials(10)}. 
+#'   \bold{Please note that the \code{cbind()} syntax will not work 
+#'   in brms in the expected way because this syntax is resevered
+#'   for use in multivariate models, only.}
 #'   
 #'   For all ordinal families, \code{aterms} may contain a term 
 #'   \code{cat(number)} to specify the number categories (e.g, \code{cat(7)}). 
@@ -543,7 +550,7 @@
 #' 
 #' @export
 brmsformula <- function(formula, ..., flist = NULL, family = NULL,
-                        autocor = NULL, nl = NULL) {
+                        autocor = NULL, nl = NULL, loop = NULL) {
   if (is.brmsformula(formula)) {
     out <- formula
   } else {
@@ -609,6 +616,12 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
   if (is.null(attr(out$formula, "nl"))) {
     attr(out$formula, "nl") <- FALSE
   }
+  if (!is.null(loop)) {
+    attr(out$formula, "loop") <- as_one_logical(loop)
+  }
+  if (is.null(attr(out$formula, "loop"))) {
+    attr(out$formula, "loop") <- TRUE
+  }
   if (!is.null(family)) {
     out$family <- check_family(family)
   }
@@ -619,36 +632,6 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
   if (!is.null(respform)) {
     respform <- formula(gsub("\\|+[^~]*~", "~", formula2str(respform)))
     out$resp <- parse_resp(respform)
-  }
-  if (!is.null(out$family)) {
-    # check for the presence of non-linear parameters
-    dpars <- names(out$pforms)
-    dpars <- dpars[is_dpar_name(dpars, out$family)]
-    for (dp in names(out$pforms)) {
-      if (!dp %in% dpars) {
-        # indicate the correspondence to distributional parameter 
-        if (is.null(attr(out$pforms[[dp]], "dpar"))) {
-          attr(out$pforms[[dp]], "dpar") <- "mu"
-        }
-        dpar <- attr(out$pforms[[dp]], "dpar")
-        if (!is.null(out$pforms[[dpar]])) {
-          nl_allowed <- get_nl(out, dpar = dpar)
-        } else {
-          if (dpar_class(dpar) == "mu") {
-            nl_allowed <- get_nl(out)
-          } else {
-            nl_allowed <- FALSE
-          }
-        }
-        if (!nl_allowed) {
-          stop2(
-            "The parameter '", dp, "' is not a valid ", 
-            "distributional or non-linear parameter. ",
-            "Did you forget to set 'nl = TRUE'?"
-          )
-        }
-      }
-    }
   }
   # add default values for unspecified elements
   defs <- list(
@@ -663,10 +646,10 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
 
 #' @export
 bf <- function(formula, ..., flist = NULL, family = NULL, 
-               autocor = NULL, nl = NULL) {
+               autocor = NULL, nl = NULL, loop = NULL) {
   # alias of brmsformula
   brmsformula(formula, ..., flist = flist, family = family,
-              autocor = autocor, nl = nl)
+              autocor = autocor, nl = nl, loop = loop)
 }
 
 #' Linear and Non-linear formulas in \pkg{brms}
@@ -705,8 +688,8 @@ bf <- function(formula, ..., flist = NULL, family = NULL,
 #' @examples
 #' # add more formulas to the model
 #' bf(y ~ 1) + 
-#'   nlf(sigma ~ a * exp(b * x), a ~ x) + 
-#'   lf(b ~ z + (1|g), dpar = "sigma") +
+#'   nlf(sigma ~ a * exp(b * x)) + 
+#'   lf(a ~ x, b ~ z + (1|g)) +
 #'   gaussian()
 #'
 #' # specify 'nl' later on
@@ -722,40 +705,44 @@ NULL
 
 #' @rdname brmsformula-helpers
 #' @export
-nlf <- function(formula, ..., flist = NULL, dpar = NULL, resp = NULL) {
+nlf <- function(formula, ..., flist = NULL, dpar = NULL, 
+                resp = NULL, loop = NULL) {
   formula <- as.formula(formula)
-  resp_pars <- all.vars(formula[[2]])
-  if (length(resp_pars) == 0L) {
-    if (is.null(dpar)) {
-      stop2("No parameter name passed via the LHS of ", 
-            "'formula' or argument 'dpar'.")
-    }
-  } else if (length(resp_pars) == 1L) {
-    dpar <- resp_pars
-  } else {
-    stop2("LHS of non-linear formula should contain only one variable.")
+  if (is.null(lhs(formula))) {
+    stop2("Argument 'formula' must be two-sided.")
+  }
+  if (length(c(list(...), flist))) {
+    warning2(
+      "Arguments '...' and 'flist' in nlf() will be reworked ",
+      "at some point. Please avoid using them if possible."
+    )
+  }
+  warn_dpar(dpar)
+  if (!is.null(resp)) {
+    resp <- as_one_character(resp)
+  }
+  if (!is.null(loop)) {
+    attr(formula, "loop") <- as_one_logical(loop)
+  }
+  if (is.null(attr(formula, "loop"))) {
+    attr(formula, "loop") <- TRUE
   }
   out <- c(
-    setNames(list(structure(formula, nl = TRUE)), dpar),
-    lf(..., flist = flist, dpar = dpar)
+    list(structure(formula, nl = TRUE)),
+    lf(..., flist = flist)
   )
-  structure(out, dpar = dpar, resp = resp)
+  structure(out, resp = resp)
 }
 
 #' @rdname brmsformula-helpers
 #' @export
 lf <- function(..., flist = NULL, dpar = NULL, resp = NULL) {
   out <- c(list(...), flist)
-  if (!is.null(dpar)) {
-    dpar <- as_one_character(dpar)
-    for (i in seq_along(out)) {
-      attr(out[[i]], "dpar") <- dpar
-    }
-  }
+  warn_dpar(dpar)
   if (!is.null(resp)) {
     resp <- as_one_character(resp)
   }
-  structure(out, dpar = dpar, resp = resp)
+  structure(out, resp = resp)
 }
 
 #' @rdname brmsformula-helpers
@@ -923,7 +910,7 @@ plus_brmsformula <- function(e1, e2) {
     e1 <- mvbf(e1, e2)
   } else if (inherits(e2, "setrescor")) {
     stop2("Setting 'rescor' is only possible in multivariate models.")
-  } else {
+  } else if (!is.null(e2)) {
     e1 <- bf(e1, e2)
   }
   e1
@@ -944,7 +931,7 @@ plus_mvbrmsformula <- function(e1, e2) {
     e1$mecor <- e2[1]
   } else if (is.brmsformula(e2)) {
     e1 <- mvbf(e1, e2)
-  } else {
+  } else if (!is.null(e2)) {
     resp <- attr(e2, "resp", TRUE)
     if (is.null(resp)) {
       stop2(
@@ -1065,7 +1052,7 @@ validate_formula.brmsformula <- function(
   if (is.null(out$family) && !is.null(family)) {
     out$family <- check_family(family)
   }
-  if (is.null(out$autocor) && !is.null(autocor)) {
+  if (is.null(out$autocor) || is.cor_empty(out$autocor)) {
     out$autocor <- check_autocor(autocor)
   }
   # allow the '.' symbol in the formulas
@@ -1091,9 +1078,8 @@ validate_formula.brmsformula <- function(
     respform <- formula(gsub("\\|+[^~]*~", "~", respform))
     model_response <- model.response(model.frame(respform, data))
     cats <- levels(factor(model_response))
-    if (length(cats) <= 2L) {
-      stop2("At least 3 response categories are required for family ", 
-            "'categorical'.\nPlease use family 'bernoulli' instead.")
+    if (length(cats) < 2L) {
+      stop2("At least 2 response categories are required.")
     }
     # the first level will serve as the reference category
     out$family$dpars <- make.names(paste0("mu", cats[-1]), unique = TRUE)
@@ -1262,4 +1248,12 @@ is.mvbrmsformula <- function(x) {
 is_nonlinear <- function(x) {
   stopifnot(is.brmsfit(x))
   get_nl(bf(x$formula))
+}
+
+warn_dpar <- function(dpar) {
+  # deprecated as of version 2.3.7
+  if (!is.null(dpar)) {
+    warning2("Argument 'dpar' is no longer necessary and ignored.")
+  }
+  NULL
 }

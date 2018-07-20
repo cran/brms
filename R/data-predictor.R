@@ -21,12 +21,15 @@ data_effects.brmsterms <- function(x, data, prior, ranef, meef,
   args_eff <- nlist(data, ranef, prior, knots, not4stan)
   for (dp in names(x$dpars)) {
     args_eff_spec <- list(x = x$dpars[[dp]], old_sdata = old_sdata[[dp]])
-    data_aux_eff <- do.call(data_effects, c(args_eff_spec, args_eff))
-    out <- c(out, data_aux_eff)
+    c(out) <- do.call(data_effects, c(args_eff_spec, args_eff))
   }
   for (dp in names(x$fdpars)) {
     resp <- usc(combine_prefix(x))
     out[[paste0(dp, resp)]] <- x$fdpars[[dp]]$value
+  }
+  for (nlp in names(x$nlpars)) {
+    args_eff_spec <- list(x = x$nlpars[[nlp]], old_sdata = old_sdata[[nlp]])
+    c(out) <- do.call(data_effects, c(args_eff_spec, args_eff))
   }
   c(out,
     data_gr(ranef, data, cov_ranef = cov_ranef),
@@ -72,10 +75,6 @@ data_effects.btnl <- function(x, data, ranef = empty_ranef(),
   # prepare data for non-linear parameters for use in Stan
   # matrix of covariates appearing in the non-linear formula
   out <- list()
-  if (is_nlpar(x)) {
-    # no data needs to be specified for nested nlpars
-    return(out)
-  }
   C <- get_model_matrix(x$covars, data = data)
   if (length(all.vars(x$covars)) != ncol(C)) {
     stop2("Factors with more than two levels are not allowed as covariates.")
@@ -91,15 +90,6 @@ data_effects.btnl <- function(x, data, ranef = empty_ranef(),
       Cnames <- paste0("C", p, "_", seq_len(ncol(C)))
       out <- c(out, setNames(as.list(as.data.frame(C)), Cnames))
     }
-  }
-  for (nlp in names(x$nlpars)) {
-    out <- c(out,
-      data_effects(
-        x$nlpars[[nlp]], data, ranef = ranef,
-        prior = prior, knots = knots, not4stan = not4stan,
-        old_sdata = old_sdata[[nlp]]
-      )
-    )
   }
   out
 }
@@ -461,7 +451,7 @@ data_gp <- function(bterms, data, gps = NULL) {
     Xgp <- do.call(cbind, Xgp)
     if (gpef$scale[i]) {
       # scale predictor for easier specification of priors
-      if (length(gps)) {
+      if (length(gps) > 0L) {
         # scale Xgp based on the original data
         Xgp <- Xgp / gps[[i]]$dmax
       } else {
@@ -469,22 +459,54 @@ data_gp <- function(bterms, data, gps = NULL) {
         Xgp <- Xgp / dmax
       }
     }
-    out[[paste0("Xgp", pi)]] <- Xgp
-    out[[paste0("Kgp", pi)]] <- 1L
+    gr <- gpef$gr[i]
     byvar <- gpef$byvars[[i]]
-    if (length(byvar)) {
-      Cgp <- get(byvar, data)
-      if (is.numeric(Cgp)) {
-        out[[paste0("Cgp", pi)]] <- Cgp
-      } else {
-        Cgp <- factor(Cgp)
-        lCgp <- levels(Cgp)
-        Jgp <- lapply(lCgp, function(x) which(Cgp == x))
-        out[[paste0("Kgp", pi)]] <- length(Jgp)
-        out[[paste0("Igp", pi)]] <- lengths(Jgp)
-        Jgp_names <- paste0("Jgp", pi, "_", seq_along(Jgp))
-        out <- c(out, setNames(Jgp, Jgp_names))
+    byfac <- length(gpef$bylevels[[i]]) > 0L
+    bynum <- !is.null(byvar) && !byfac
+    if (byfac) {
+      # for categorical 'by' variables prepare one GP per level
+      # as.factor will keep unused levels needed for new data
+      Cgp <- as.factor(get(byvar, data))
+      lvls <- levels(Cgp)
+      Ngp <- Nsubgp <- rep(NA, length(lvls))
+      out[[paste0("Kgp", pi)]] <- length(lvls)
+      for (j in seq_along(lvls)) {
+        # loop along levels of 'by'
+        Igp <- which(Cgp == lvls[j])
+        Ngp[j] <- length(Igp)
+        Xgp_sub <- Xgp[Igp, , drop = FALSE]
+        if (gr) {
+          groups <- factor(match_rows(Xgp_sub, Xgp_sub))
+          ilevels <- levels(groups)
+          Jgp <- match(groups, ilevels)
+          Nsubgp[j] <- length(ilevels)
+          out[[paste0("Jgp", pi, "_", j)]] <- Jgp
+          not_dupl_Jgp <- !duplicated(Jgp)
+          Xgp_sub <-  Xgp_sub[not_dupl_Jgp, , drop = FALSE]
+        }
+        out[[paste0("Igp", pi, "_", j)]] <- Igp
+        out[[paste0("Xgp", pi, "_", j)]] <- as.array(Xgp_sub)
       }
+      out[[paste0("Ngp", pi)]] <- Ngp
+      if (gr) {
+        out[[paste0("Nsubgp", pi)]] <- Nsubgp
+      }
+    } else {
+      out[[paste0("Kgp", pi)]] <- 1L
+      if (bynum) {
+        Cgp <- as.numeric(get(byvar, data))
+        out[[paste0("Cgp", pi)]] <- as.array(Cgp)
+      } 
+      if (gr) {
+        groups <- factor(match_rows(Xgp, Xgp))
+        ilevels <- levels(groups)
+        Jgp <- match(groups, ilevels)
+        out[[paste0("Nsubgp", pi)]] <- length(ilevels)
+        out[[paste0("Jgp", pi)]] <- Jgp
+        not_dupl_Jgp <- !duplicated(Jgp)
+        Xgp <- Xgp[not_dupl_Jgp, , drop = FALSE]
+      }
+      out[[paste0("Xgp", pi)]] <- as.array(Xgp)
     }
   }
   out
@@ -676,40 +698,35 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
   N <- nrow(data)
   Y <- model.response(model.frame(x$respform, data, na.action = na.pass))
   out <- list(Y = unname(Y))
-  families <- family_names(x$family)
-  if (is.mixfamily(x$family)) {
-    family4error <- paste0(families, collapse = ", ")
-    family4error <- paste0("mixture(", family4error, ")")
-  } else {
-    family4error <- families
+  if (is_binary(x$family) || is_categorical(x$family)) {
+    out$Y <- as_factor(out$Y, levels = old_sdata$resp_levels)
+    out$Y <- as.numeric(out$Y)
+    if (is_binary(x$family)) {
+      out$Y <- out$Y - 1
+    }
+  }
+  if (is_ordinal(x$family) && is.ordered(out$Y)) {
+    out$Y <- as.numeric(out$Y)
   }
   if (check_response) {
+    family4error <- family_names(x$family)
+    if (is.mixfamily(x$family)) {
+      family4error <- paste0(family4error, collapse = ", ")
+      family4error <- paste0("mixture(", family4error, ")")
+    }
     if (!allow_factors(x$family) && !is.numeric(out$Y)) {
       stop2("Family '", family4error, "' requires numeric responses.")
     }
     if (is_binary(x$family)) {
-      out$Y <- as.numeric(as.factor(out$Y)) - 1
       if (any(!out$Y %in% c(0, 1))) {
         stop2("Family '", family4error, "' requires responses ",
               "to contain only two different values.")
       }
     }
-    if (is_categorical(x$family)) { 
-      out$Y <- as.numeric(factor(out$Y))
-      if (length(unique(out$Y)) < 3L) {
-        stop2("At least three response categories are required.")
-      }
-    }
     if (is_ordinal(x$family)) {
-      if (is.ordered(out$Y)) {
-        out$Y <- as.numeric(out$Y)
-      }
       if (any(!is_wholenumber(out$Y)) || any(!out$Y > 0)) {
         stop2("Family '", family4error, "' requires either positive ",
               "integers or ordered factors as responses.")
-      }
-      if (length(unique(out$Y)) < 2L) {
-        stop2("At least two response categories are required.")
       }
     }
     if (use_int(x$family)) {
@@ -773,14 +790,17 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
       if (!is.null(old_sdata$ncat)) {
         out$ncat <- old_sdata$ncat
       } else {
-        out$ncat <- as.numeric(max(out$Y))
+        out$ncat <- max(out$Y)
       }
     } else if (is.formula(x$adforms$cat)) {
       out$ncat <- eval_rhs(x$adforms$cat, data = data)
     } else {
       stop2("Argument 'cat' is misspecified.")
     }
-    if (max(out$ncat) == 2L) {
+    if (out$ncat < 2L) {
+      stop2("At least two response categories are required.")
+    }
+    if (out$ncat == 2L && !not4stan) {
       message("Only 2 levels detected so that family 'bernoulli' ",
               "might be a more efficient choice.")
     }

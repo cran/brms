@@ -57,6 +57,9 @@ change_effects.brmsterms <- function(x, ...) {
   for (dp in names(x$dpars)) {
     c(out) <- change_effects(x$dpars[[dp]], ...)
   }
+  for (nlp in names(x$nlpars)) {
+    c(out) <- change_effects(x$nlpars[[nlp]], ...)
+  }
   if (is.formula(x$adforms$mi)) {
     c(out) <- change_Ymi(x, ...)
   }
@@ -68,24 +71,11 @@ change_effects.btl <- function(x, data, pars, scode = "", ...) {
   # helps in renaming various kinds of effects
   # Returns:
   #   a list whose elements can be interpreted by do_renaming
-  c(
-    change_fe(x, data, pars, scode = scode),
+  c(change_fe(x, data, pars, scode = scode),
     change_sm(x, data, pars),
     change_cs(x, data, pars),
     change_sp(x, data, pars),
-    change_gp(x, data, pars)
-  )
-}
-
-change_effects.btnl <- function(x, data, pars, ...) {
-  # helps in renaming effects for non-linear parameters
-  # Returns:
-  #   a list whose elements can be interpreted by do_renaming
-  out <- list()
-  for (nlp in names(x$nlpars)) {
-    c(out) <- change_effects(x$nlpars[[nlp]], data, pars, ...)
-  }
-  out
+    change_gp(x, data, pars))
 }
 
 change_fe <- function(bterms, data, pars, scode = "") {
@@ -231,7 +221,7 @@ change_gp <- function(bterms, data, pars) {
   gpef <- tidy_gpef(bterms, data)
   for (i in seq_len(nrow(gpef))) {
     # rename GP hyperparameters
-    gp_names <- paste0(gpef$label[i], usc(gpef$bylevels[[i]]))
+    gp_names <- paste0(gpef$label[i], gpef$bylevels[[i]])
     sdgp <- paste0("sdgp", p)
     sdgp_old <- paste0(sdgp, "_", i)
     sdgp_pos <- grepl(paste0("^", sdgp_old, "\\["), pars)
@@ -250,13 +240,27 @@ change_gp <- function(bterms, data, pars) {
     )
     zgp <- paste0("zgp", p)
     zgp_old <- paste0(zgp, "_", i)
-    zgp_pos <- grepl(paste0("^", zgp_old, "\\["), pars)
-    if (any(zgp_pos)) {
-      # users may choose not to save zgp
-      zgp_new <- paste0(zgp, "_", gpef$label[i])
-      fnames <- paste0(zgp_new, "[", seq_len(sum(zgp_pos)), "]")
-      lc(out) <- clist(zgp_pos, fnames)
+    lvls <- gpef$bylevels[[i]]
+    if (length(lvls) > 0L) {
+      # categorical 'by' variable
+      for (j in seq_along(lvls)) {
+        zgp_old_sub <- paste0(zgp_old, "_", j)
+        zgp_pos <- grepl(paste0("^", zgp_old_sub, "\\["), pars)
+        if (any(zgp_pos)) {
+          zgp_new <- paste0(zgp, "_", gpef$label[i], lvls[j])
+          fnames <- paste0(zgp_new, "[", seq_len(sum(zgp_pos)), "]")
+          lc(out) <- clist(zgp_pos, fnames)
+        }
+      }
+    } else {
+      zgp_pos <- grepl(paste0("^", zgp_old, "\\["), pars)
+      if (any(zgp_pos)) {
+        zgp_new <- paste0(zgp, "_", gpef$label[i])
+        fnames <- paste0(zgp_new, "[", seq_len(sum(zgp_pos)), "]")
+        lc(out) <- clist(zgp_pos, fnames)
+      }
     }
+    
   }
   out
 }
@@ -316,7 +320,7 @@ change_re <- function(ranef, pars) {
         type <- paste0("cor_", g)
         if (isTRUE(nzchar(r$by[1]))) {
           cor_names <- named_list(r$bylevels[[1]])
-          for (j in seq_len(nrow(rnames))) {
+          for (j in seq_along(cor_names)) {
             cor_names[[j]] <- get_cornames(
               rnames[, j], type, brackets = FALSE
             )

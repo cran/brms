@@ -12,7 +12,7 @@ brm(formula, data, family = gaussian(), prior = NULL, autocor = NULL,
   thin = 1, cores = getOption("mc.cores", 1L), control = NULL,
   algorithm = c("sampling", "meanfield", "fullrank"),
   future = getOption("future", FALSE), silent = TRUE, seed = NA,
-  save_model = NULL, save_dso = TRUE, ...)
+  save_model = NULL, save_dso = TRUE, file = NULL, ...)
 }
 \arguments{
 \item{formula}{An object of class 
@@ -81,11 +81,12 @@ See \code{\link[mgcv:gamm]{gamm}} for more details.}
 
 \item{stanvars}{An optional \code{stanvars} object generated
 by function \code{\link{stanvar}} to define additional variables
-in the data block of \pkg{Stan}.}
+for use in \pkg{Stan}'s program blocks.}
 
-\item{stan_funs}{An optional character string containing self-defined 
-\pkg{Stan} functions, which will be included in the functions block 
-of the generated \pkg{Stan} code.}
+\item{stan_funs}{(Deprecated) An optional character string containing 
+self-defined  \pkg{Stan} functions, which will be included in the functions 
+block of the generated \pkg{Stan} code. It is now recommended to use 
+the \code{stanvars} argument for this purpose, instead.}
 
 \item{fit}{An instance of S3 class \code{brmsfit} derived from a previous fit; 
 defaults to \code{NA}. 
@@ -171,16 +172,23 @@ reproducible. If \code{NA} (the default), \pkg{Stan} will set
 the seed randomly.}
 
 \item{save_model}{Either \code{NULL} or a character string. 
-In the latter case, the model code is
-saved in a file named after the string supplied in \code{save_model}, 
-which may also contain the full path where to save the file.
-If only a name is given, the file is saved in the current working directory.}
+In the latter case, the model's Stan code is saved via \code{\link{cat}} 
+in a text file named after the string supplied in \code{save_model}.}
 
 \item{save_dso}{Logical, defaulting to \code{TRUE}, indicating whether 
 the dynamic shared object (DSO) compiled from the C++ code for the model 
 will be saved or not. If \code{TRUE}, we can draw samples from the same 
 model in another \R session using the saved DSO 
 (i.e., without compiling the C++ code again).}
+
+\item{file}{Either \code{NULL} or a character string. In the latter case, 
+the fitted model object is saved via \code{\link{saveRDS}} in a file
+named after the string supplied in \code{file}. 
+The \code{.rds} extension is added automatically.
+If the file already exists, \code{brm} will load and return the saved
+model object instead of refitting the model. As existing files
+won't be overwritten, you have to manually remove the file in order
+to refit and save the model under an existing file name.}
 
 \item{...}{Further arguments to be passed to Stan.}
 }

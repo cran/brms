@@ -51,7 +51,7 @@ update_data <- function(data, bterms, na.action = na.omit2,
     stop2("Variable names may not contain double underscores ",
           "or underscores at the end.")
   }
-  groups <- get_groups(bterms)
+  groups <- get_group_vars(bterms)
   data <- combine_groups(data, groups)
   data <- fix_factor_contrasts(data, ignore = groups)
   attr(data, "knots") <- knots
@@ -60,7 +60,7 @@ update_data <- function(data, bterms, na.action = na.omit2,
 }
 
 data_rsv_intercept <- function(data, bterms) {
-  # add the resevered variable 'intercept' to the data
+  # add the resevered intercept variables to the data
   # Args:
   #   data: data.frame or list
   #   bterms: object of class brmsterms
@@ -71,7 +71,11 @@ data_rsv_intercept <- function(data, bterms) {
       stop2("Variable name 'intercept' is resevered in models ",
             "without a population-level intercept.")
     }
-    data$intercept <- rep(1, length(data[[1]]))
+    if (any(data[["Intercept"]] != 1)) {
+      stop2("Variable name 'Intercept' is resevered in models ",
+            "without a population-level intercept.")
+    }
+    data$intercept <- data$Intercept <- rep(1, length(data[[1]]))
   }
   data
 }
@@ -244,21 +248,15 @@ validate_newdata <- function(
   }
   # fixes issue #279
   newdata <- data_rsv_intercept(newdata, bterms)
-  new_ranef <- tidy_ranef(bterms, data = mf)
-  new_meef <- tidy_meef(bterms, data = mf)
-  group_vars <- unique(c(
-    get_group_vars(new_ranef),
-    get_group_vars(new_meef),
-    get_autocor_vars(bterms, "group")
-  ))
-  if (allow_new_levels && length(group_vars)) {
+  new_group_vars <- get_group_vars(bterms)
+  if (allow_new_levels && length(new_group_vars)) {
     # grouping factors do not need to be specified 
     # by the user if new levels are allowed
-    new_gf <- unique(unlist(strsplit(group_vars, split = ":")))
-    missing_gf <- setdiff(new_gf, names(newdata))
-    newdata[, missing_gf] <- NA
+    mis_group_vars <- new_group_vars[!grepl(":", new_group_vars)]
+    mis_group_vars <- setdiff(mis_group_vars, names(newdata))
+    newdata[, mis_group_vars] <- NA
   }
-  newdata <- combine_groups(newdata, group_vars)
+  newdata <- combine_groups(newdata, new_group_vars)
   # validate factor levels in newdata
   if (is.null(all_group_vars)) {
     all_group_vars <- get_group_vars(object) 
@@ -335,6 +333,8 @@ validate_newdata <- function(
     newdata[, unused_vars] <- NA
   }
   # validate grouping factors
+  new_ranef <- tidy_ranef(bterms, data = mf)
+  new_meef <- tidy_meef(bterms, data = mf)
   old_levels <- get_levels(new_ranef, new_meef)
   if (!allow_new_levels) {
     new_levels <- get_levels(
@@ -401,7 +401,8 @@ add_new_objects <- function(x, newdata, new_objects = list()) {
       x$formula$autocor <- x$autocor <- .update_autocor(autocor(x))
     }
   }
-  for (name in names(x$stanvars)) {
+  stanvars_data <- subset_stanvars(x$stanvars, block = "data")
+  for (name in names(stanvars_data)) {
     if (name %in% names(new_objects)) {
       x$stanvars[[name]]$sdata <- new_objects[[name]]
     }
@@ -434,11 +435,11 @@ get_model_matrix <- function(formula, data = environment(formula),
   }
   X <- stats::model.matrix(terms, data)
   cols2remove <- which(colnames(X) %in% cols2remove)
-  if (rename) {
-    colnames(X) <- rename(colnames(X), check_dup = TRUE) 
-  }
   if (length(cols2remove)) {
     X <- X[, -cols2remove, drop = FALSE]
+  }
+  if (rename) {
+    colnames(X) <- rename(colnames(X), check_dup = TRUE) 
   }
   X
 }
@@ -496,9 +497,12 @@ extract_old_standata.mvbrmsterms <- function(x, data, ...) {
 
 #' @export
 extract_old_standata.brmsterms <- function(x, data, ...) {
-  out <- named_list(names(x$dpars))
-  for (i in seq_along(out)) {
-    out[[i]] <- extract_old_standata(x$dpars[[i]], data, ...)
+  out <- named_list(c(names(x$dpars), names(x$nlpars)))
+  for (dp in names(x$dpars)) {
+    out[[dp]] <- extract_old_standata(x$dpars[[dp]], data, ...)
+  }
+  for (nlp in names(x$nlpars)) {
+    out[[nlp]] <- extract_old_standata(x$nlpars[[nlp]], data, ...)
   }
   if (has_trials(x$family) || has_cat(x$family)) {
     # trials and ncat should not be computed based on new data
@@ -506,6 +510,10 @@ extract_old_standata.brmsterms <- function(x, data, ...) {
     # partially match via $ to be independent of the response suffix
     out$trials <- data_response$trials
     out$ncat <- data_response$ncat
+  }
+  if (is_binary(x$family) || is_categorical(x$family)) {
+    Y <- model.response(model.frame(x$respform, data, na.action = na.pass))
+    out$resp_levels <- levels(as.factor(Y))
   }
   if (is.cor_car(x$autocor)) {
     if (isTRUE(nzchar(x$time$group))) {
@@ -517,11 +525,7 @@ extract_old_standata.brmsterms <- function(x, data, ...) {
 
 #' @export
 extract_old_standata.btnl <- function(x, data, ...) {
-  out <- named_list(names(x$nlpars))
-  for (i in seq_along(out)) {
-    out[[i]] <- extract_old_standata(x$nlpars[[i]], data, ...)
-  }
-  out
+  NULL
 }
 
 #' @export

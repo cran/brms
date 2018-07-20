@@ -595,7 +595,8 @@ prior_samples.brmsfit <- function(x, pars = NA, ...) {
     if (!anyNA(pars)) {
       .prior_samples <- function(par) {
         # get prior samples for parameter par 
-        matches <- lapply(paste0("^", names(samples)), regexpr, text = par)
+        matches <- paste0("^", escape_all(names(samples)))
+        matches <- lapply(matches, regexpr, text = par)
         matches <- ulapply(matches, attr, which = "match.length")
         if (max(matches) == -1) {
           out <- NULL
@@ -668,8 +669,7 @@ summary.brmsfit <- function(object, priors = FALSE, prob = 0.95,
     ngrps = ngrps(object), 
     autocor = object$autocor,
     prior = empty_brmsprior(),
-    algorithm = algorithm(object),
-    waic = NA, loo = NA, R2 = NA
+    algorithm = algorithm(object)
   )
   class(out) <- "brmssummary"
   if (!length(object$fit@sim)) {
@@ -739,18 +739,19 @@ summary.brmsfit <- function(object, priors = FALSE, prob = 0.95,
   rownames(out$fixed) <- gsub(fixef_pars(), "", fe_pars)
   
   # summary of family specific parameters
-  spec_pars <- c(dpars(), "delta", "theta", "rescor")
+  spec_pars <- c(dpars(), "delta", "theta")
   spec_pars <- paste0(spec_pars, collapse = "|")
   spec_pars <- paste0("^(", spec_pars, ")($|_|[[:digit:]])")
   spec_pars <- pars[grepl(spec_pars, pars)]
   out$spec_pars <- fit_summary[spec_pars, , drop = FALSE]
-  is_rescor <- grepl("^rescor_", spec_pars)
-  if (any(is_rescor)) {
-    rescor_pars <- spec_pars[is_rescor]
-    rescor_names <- sub("__", ",", sub("__", "(", rescor_pars))
-    spec_pars[is_rescor] <- paste0(rescor_names, ")")
-  }    
-  rownames(out$spec_pars) <- spec_pars
+  
+  # summary of residual correlations
+  rescor_pars <- pars[grepl("^rescor_", pars)]
+  if (length(rescor_pars)) {
+    out$rescor_pars <- fit_summary[rescor_pars, , drop = FALSE]
+    rescor_pars <- sub("__", ",", sub("__", "(", rescor_pars))
+    rownames(out$rescor_pars) <- paste0(rescor_pars, ")")
+  }
   
   # summary of autocorrelation effects
   cor_pars <- pars[grepl(regex_cor_pars(), pars)]
@@ -1302,11 +1303,6 @@ pp_check.brmsfit <- function(object, type, nsamples, group = NULL,
   pred_args <- move2start(pred_args, "object")
   names(pred_args)[1] <- ""
   yrep <- do.call(method, pred_args)
-  if (has_trials(family(object, resp = resp))) {
-    # use success proportions following Gelman and Hill (2006)
-    y <- y / sdata$trials
-    yrep <- yrep / as_draws_matrix(sdata$trials, dim = dim(yrep))
-  }
   ppc_args <- c(list(y, yrep), dots[!for_pred])
   if ("psis_object" %in% names(formals(ppc_fun)) && 
       !"psis_object" %in% names(ppc_args)) {
@@ -1708,8 +1704,8 @@ posterior_predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 
 #' Extract Model Fitted Values of \code{brmsfit} Objects
 #' 
-#' Predict fitted values (i.e., the 'regression line') of a fitted model.
-#' Can be performed for the data used to fit the model 
+#' Predict mean values of the response distribution (i.e., the 'regression line')
+#' for a fitted model. Can be performed for the data used to fit the model 
 #' (posterior predictive checks) or for new data.
 #' By definition, these predictions have smaller variance
 #' than the response predictions performed by
@@ -2117,6 +2113,9 @@ pp_average.brmsfit <- function(
 #' @aliases bayes_R2
 #' 
 #' @inheritParams predict.brmsfit
+#' @param ... Further arguments passed to 
+#'   \code{\link[brms:fitted.brmsfit]{fitted}},
+#'   which is used in the computation of the R-squared values.
 #' 
 #' @return If \code{summary = TRUE} a 1 x C matrix is returned
 #'  (\code{C = length(probs) + 2}) containing summary statistics
@@ -2142,19 +2141,13 @@ pp_average.brmsfit <- function(
 #' @importFrom rstantools bayes_R2
 #' @export bayes_R2
 #' @export
-bayes_R2.brmsfit <- function(object, newdata = NULL, re_formula = NULL, 
-                             allow_new_levels = FALSE, 
-                             sample_new_levels = "uncertainty",
-                             new_objects = list(), incl_autocor = TRUE, 
-                             subset = NULL, nsamples = NULL, resp = NULL,
-                             nug = NULL, summary = TRUE, robust = FALSE, 
-                             probs = c(0.025, 0.975), ...) {
-  # do it like residuals.brmsfit
+bayes_R2.brmsfit <- function(object, resp = NULL, summary = TRUE, 
+                             robust = FALSE, probs = c(0.025, 0.975), ...) {
   contains_samples(object)
   object <- restructure(object)
   family_names <- family_names(object)
   if (is_ordinal(family_names) || is_categorical(family_names)) {
-    stop2("Residuals are not defined for ordinal or categorical models.")
+    stop2("'bayes_R2' is not defined for ordinal or categorical models.")
   }
   use_stored_ic <- !length(
     intersect(names(match.call()), args_not_for_reloo())
@@ -2163,33 +2156,29 @@ bayes_R2.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     R2 <- object[["R2"]]
   } else {
     newd_args <- nlist(
-      object, newdata, re_formula, allow_new_levels,
-      new_objects, check_response = TRUE, internal = TRUE
+      object, resp, check_response = TRUE, internal = TRUE, ...
     )
     sdata <- do.call(standata, newd_args)
     if (any(grepl("^cens_", names(sdata)))) {
       warning2("'bayes_R2' may not be meaningful for censored models.")
     }
-    pred_args <- nlist(
-      object, newdata, re_formula, allow_new_levels,
-      sample_new_levels, new_objects, incl_autocor, resp,
-      subset, nsamples, nug, summary = FALSE, sort = TRUE
-    )
+    pred_args <- nlist(object, resp, summary = FALSE, sort = TRUE, ...)
     ypred <- do.call(fitted, pred_args)
     # see https://github.com/jgabry/bayes_R2/blob/master/bayes_R2.pdf
-    .bayes_R2 <- function(y, ypred) {
-      y <- as.numeric(y)
+    .bayes_R2 <- function(y, ypred, ...) {
       e <- - 1 * sweep(ypred, 2, y)
       var_ypred <- matrixStats::rowVars(ypred)
       var_e <- matrixStats::rowVars(e)
       return(as.matrix(var_ypred / (var_ypred + var_e)))
     }
     if (is.matrix(ypred)) {
+      # only one response variable
       if (!length(resp)) resp <- ""
       resp <- usc(resp)
-      y <- sdata[[paste0("Y", resp)]]
+      y <- as.numeric(sdata[[paste0("Y", resp)]])
       R2 <- .bayes_R2(y, ypred)
     } else {
+      # multiple response variables
       resp <- usc(dimnames(ypred)[[3]])
       R2 <- named_list(resp)
       for (i in seq_along(R2)) {
@@ -2203,6 +2192,79 @@ bayes_R2.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   if (summary) {
     R2 <- posterior_summary(R2, probs = probs, robust = robust)
   }
+  R2
+}
+
+#' Compute a LOO-adjusted R-squared for regression models
+#' 
+#' @aliases loo_R2
+#' 
+#' @inheritParams predict.brmsfit
+#' @param ... Further arguments passed to 
+#'   \code{\link[brms:fitted.brmsfit]{fitted}} and
+#'   \code{\link[brms:log_lik.brmsfit]{log_lik}},
+#'   which are used in the computation of the R-squared values.
+#' 
+#' @return A real value per response variable indicating 
+#' the LOO-adjusted R-squared.
+#'  
+#' @examples 
+#' \dontrun{
+#' fit <- brm(mpg ~ wt + cyl, data = mtcars)
+#' summary(fit)
+#' loo_R2(fit)
+#' 
+#' # compute R2 with new data
+#' nd <- data.frame(mpg = c(10, 20, 30), wt = c(4, 3, 2), cyl = c(8, 6, 4))
+#' loo_R2(fit, newdata = nd)
+#' }
+#' 
+#' @method loo_R2 brmsfit
+#' @export
+loo_R2.brmsfit <- function(object, resp = NULL, ...) {
+  contains_samples(object)
+  object <- restructure(object)
+  family_names <- family_names(object)
+  if (is_ordinal(family_names) || is_categorical(family_names)) {
+    stop2("'loo_R2' is not defined for ordinal or categorical models.")
+  }
+  newd_args <- nlist(object, resp, check_response = TRUE, internal = TRUE, ...)
+  sdata <- do.call(standata, newd_args)
+  if (any(grepl("^cens_", names(sdata)))) {
+    warning2("'loo_R2' may not be meaningful for censored models.")
+  }
+  pred_args <- nlist(object, resp, summary = FALSE, sort = TRUE, ...)
+  ypred <- do.call(fitted, pred_args)
+  ll <- do.call(log_lik, c(pred_args, combine = FALSE))
+  chains <- object$fit@sim$chains
+  # see http://discourse.mc-stan.org/t/stan-summary-r2-or-adjusted-r2/4308/4
+  .loo_R2 <- function(y, ypred, ll, chains) {
+    chain_id <- rep(seq_len(chains), each = nrow(ll) / chains)
+    r_eff <- loo::relative_eff(exp(ll), chain_id = chain_id)
+    psis_object <- loo::psis(log_ratios = -ll, r_eff = r_eff)
+    ypredloo <- loo::E_loo(ypred, psis_object, log_ratios = -ll)$value
+    eloo <- ypredloo - y
+    return(1 - var(eloo) / var(y))
+  }
+  if (is.matrix(ypred)) {
+    # only one response variable
+    if (!length(resp)) resp <- ""
+    resp <- usc(resp)
+    y <- as.numeric(sdata[[paste0("Y", resp)]])
+    R2 <- .loo_R2(y, ypred, ll = ll, chains = chains)
+  } else {
+    # multiple response variables
+    resp <- usc(dimnames(ypred)[[3]])
+    R2 <- named_list(resp)
+    for (i in seq_along(R2)) {
+      y <- as.numeric(sdata[[paste0("Y", resp[i])]])
+      R2[[i]] <- .loo_R2(
+        y, ypred[, , i], ll = ll[, , i], chains = chains
+      )
+    }
+    R2 <- unlist(R2)
+  }
+  names(R2) <- paste0("R2", resp)
   R2
 }
 
@@ -2256,14 +2318,20 @@ update.brmsfit <- function(object, formula., newdata = NULL,
   dots <- list(...)
   testmode <- isTRUE(dots[["testmode"]])
   dots$testmode <- NULL
-  if ("data" %in% names(dots)) {
-    # otherwise the data name cannot be found by substitute 
-    stop2("Please use argument 'newdata' to update the data.")
-  }
   object <- restructure(object)
   if (isTRUE(object$version$brms < "2.0.0")) {
     warning2("Updating models fitted with older versions of brms may fail.")
   }
+  if ("data" %in% names(dots)) {
+    # otherwise the data name cannot be found by substitute 
+    stop2("Please use argument 'newdata' to update the data.")
+  }
+  if (!is.null(newdata)) {
+    dots$data <- newdata
+  } else {
+    dots$data <- rm_attr(object$data, c("terms", "brmsframe"))
+  }
+
   if (missing(formula.)) {
     dots$formula <- object$formula
     if (!is.null(dots[["family"]])) {
@@ -2304,16 +2372,12 @@ update.brmsfit <- function(object, formula., newdata = NULL,
       dots$formula <- update(formula(object), dots$formula)
     }
   }
-  
-  arg_names <- c("prior", "cov_ranef", "stanvars", "stan_funs")
-  old_args <- setdiff(arg_names, names(dots))
-  dots[old_args] <- object[old_args]
-  if (!is.null(newdata)) {
-    dots$data <- newdata
+  dots$formula <- validate_formula(dots$formula, data = dots$data)
+
+  if (is.null(dots$prior)) {
+    dots$prior <- object$prior
   } else {
-    dots$data <- rm_attr(object$data, c("terms", "brmsframe"))
-  }
-  if (!is.null(dots$prior)) {
+    # update existing priors
     if (!is.brmsprior(dots$prior)) { 
       stop2("Invalid 'prior' argument.")
     }
@@ -2340,6 +2404,14 @@ update.brmsfit <- function(object, formula., newdata = NULL,
   if (is.null(dots$sparse)) {
     dots$sparse <- grepl("sparse matrix", stancode(object))
   }
+  if (is.null(dots$knots)) {
+    dots$knots <- attr(object$data, "knots")
+  }
+  arg_names <- c("cov_ranef", "stanvars", "stan_funs")
+  old_args <- setdiff(arg_names, names(dots))
+  dots[old_args] <- object[old_args]
+  
+  # update arguments controlling the sampling process
   dots$iter <- first_not_null(dots$iter, object$fit@sim$iter)
   # brm computes warmup automatically based on iter 
   dots$chains <- first_not_null(dots$chains, object$fit@sim$chains)
@@ -2995,9 +3067,18 @@ control_params.brmsfit <- function(x, pars = NULL, ...) {
 #'   to be saved. Otherwise \code{bridge_sampler} cannot be computed.
 #'   Thus, please set \code{save_all_pars = TRUE} in the call to \code{brm},
 #'   if you are planning to apply \code{bridge_sampler} to your models.
+#'   
+#'   The computation of marginal likelihoods based on bridge sampling requires
+#'   a lot more posterior samples than usual. A good conservative 
+#'   rule of thump is perhaps 10-fold more samples (read: the default of 4000 
+#'   samples may not be enough in many cases). If not enough posterior
+#'   samples are provided, the bridge sampling algorithm tends to be 
+#'   unstable leading to considerably different results each time it is run. 
+#'   We thus recommend running \code{bridge_sampler}
+#'   multiple times to check the stability of the results.
 #' 
 #'   More details are provided under
-#'   \code{\link[bridgesampling:bridge_sampler]{bridge_sampler}}.
+#'   \code{\link[bridgesampling:bridge_sampler]{bridgesampling:bridge_sampler}}.
 #'   
 #' @seealso \code{
 #'   \link[brms:bayes_factor]{bayes_factor},
@@ -3090,9 +3171,18 @@ bridge_sampler.brmsfit <- function(samples, ...) {
 #'   to be saved. Otherwise \code{bayes_factor} cannot be computed.
 #'   Thus, please set \code{save_all_pars = TRUE} in the call to \code{brm},
 #'   if you are planning to apply \code{bayes_factor} to your models.
+#'   
+#'   The computation of Bayes factors based on bridge sampling requires
+#'   a lot more posterior samples than usual. A good conservative 
+#'   rule of thump is perhaps 10-fold more samples (read: the default of 4000 
+#'   samples may not be enough in many cases). If not enough posterior
+#'   samples are provided, the bridge sampling algoritm tends to be unstable 
+#'   leading to considerably different results each time it is run. 
+#'   We thus recommend running \code{bayes_factor}
+#'   multiple times to check the stability of the results.
 #' 
 #'   More details are provided under 
-#'   \code{\link[bridgesampling:bayes_factor]{bayes_factor}}.
+#'   \code{\link[bridgesampling:bayes_factor]{bridgesampling:bayes_factor}}.
 #'  
 #' @seealso \code{
 #'   \link[brms:bridge_sampler]{bridge_sampler},
@@ -3153,9 +3243,18 @@ bayes_factor.brmsfit <- function(x1, x2, log = FALSE, ...) {
 #'   to be saved. Otherwise \code{post_prob} cannot be computed.
 #'   Thus, please set \code{save_all_pars = TRUE} in the call to \code{brm},
 #'   if you are planning to apply \code{post_prob} to your models.
+#'   
+#'   The computation of model probabilities based on bridge sampling requires
+#'   a lot more posterior samples than usual. A good conservative 
+#'   rule of thump is perhaps 10-fold more samples (read: the default of 4000 
+#'   samples may not be enough in many cases). If not enough posterior
+#'   samples are provided, the bridge sampling algorithm tends to be 
+#'   unstable leading to considerably different results each time it is run. 
+#'   We thus recommend running \code{post_prob}
+#'   multiple times to check the stability of the results.
 #' 
 #'   More details are provided under 
-#'   \code{\link[bridgesampling:post_prob]{post_prob}}. 
+#'   \code{\link[bridgesampling:post_prob]{bridgesampling:post_prob}}. 
 #'   
 #' @seealso \code{
 #'   \link[brms:bridge_sampler]{bridge_sampler},

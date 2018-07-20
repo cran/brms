@@ -37,8 +37,30 @@ match_rows <- function(x, y, ...) {
   match(x, y, ...)
 }
 
+find_elements <- function(x, ..., ls = list(), fun = '%in%') {
+  # find elements of x matching subelements passed via ls and ...
+  x <- as.list(x)
+  if (!length(x)) {
+    return(logical(0))
+  }
+  out <- rep(TRUE, length(x))
+  ls <- c(ls, list(...))
+  if (!length(ls)) {
+    return(out)
+  }
+  if (is.null(names(ls))) {
+    stop("Argument 'ls' must be named.")
+  }
+  for (name in names(ls)) {
+    tmp <- lapply(x, "[[", name)
+    out <- out & do.call(fun, list(tmp, ls[[name]]))
+  }
+  out
+}
+
 find_rows <- function(x, ..., ls = list(), fun = '%in%') {
-  # finding rows matching columns passed via ls and ...
+  # find rows of x matching columns passed via ls and ...
+  # similar to 'find_elements' but for matrix like objects
   x <- as.data.frame(x)
   if (!nrow(x)) {
     return(logical(0))
@@ -161,6 +183,16 @@ is_equal <- function(x, y, ...) {
 is_like_factor <- function(x) {
   # check if x behaves like a factor in design matrices
   is.factor(x) || is.character(x) || is.logical(x)
+}
+
+as_factor <- function(x, levels = NULL) {
+  # similar to as.factor but allows to pass levels
+  if (is.null(levels)) {
+    out <- as.factor(x)
+  } else {
+    out <- factor(x, levels = levels)
+  }
+  out
 }
 
 as_one_logical <- function(x, allow_na = FALSE) {
@@ -344,9 +376,16 @@ na.omit2 <- function (object, ...) {
   out
 }
 
-require_package <- function(package) {
+require_package <- function(package, version = NULL) {
   if (!requireNamespace(package, quietly = TRUE)) {
     stop2("Please install the '", package, "' package.")
+  }
+  if (!is.null(version)) {
+    version <- as.package_version(version)
+    if (utils::packageVersion(package) < version) {
+      stop2("Please install package '", package, 
+            "' version ", version, " or higher.")
+    }
   }
   invisible(TRUE)
 }
@@ -483,9 +522,12 @@ deparse_combine <- function(x, max_char = 100) {
   out
 }
 
-eval2 <- function(text, ...) {
-  # evaluate a string
-  eval(parse(text = text), ...)
+eval2 <- function(expr, envir = parent.frame(), ...) {
+  # like eval() but parses characters before evaluation
+  if (is.character(expr)) {
+    expr <- parse(text = expr)
+  }
+  eval(expr, envir, ...)
 }
 
 eval_silent <- function(expr, type = "output", silent = TRUE, ...) {
@@ -500,6 +542,39 @@ eval_silent <- function(expr, type = "output", silent = TRUE, ...) {
     utils::capture.output(out <- eval(expr, envir), type = type, ...)
   } else {
     out <- eval(expr, envir)
+  }
+  out
+}
+
+eval_NA <- function(expr, ...) {
+  # evaluate an expression for all variables set to NA
+  if (is.character(expr)) {
+    expr <- parse(text = expr)
+  }
+  data <- named_list(all.vars(expr), NA_real_)
+  eval(expr, envir = data, ...)
+}
+
+sort_dependencies <- function(x, sorted = NULL) {
+  # recursive sorting of dependencies
+  # Args:
+  #   x: named list of dependencies per element
+  #   sorted: already sorted element names
+  # Returns:
+  #   a vector of sorted element names
+  if (!length(x)) {
+    return(NULL)
+  }
+  if (length(names(x)) != length(x)) {
+    stop2("Argument 'x' must be named.")
+  }
+  take <- !ulapply(x, function(dep) any(!dep %in% sorted))
+  new <- setdiff(names(x)[take], sorted)
+  out <- union(sorted, new)
+  if (length(new)) {
+    out <- union(out, sort_dependencies(x, sorted = out))
+  } else if (!all(names(x) %in% out)) {
+    stop2("Cannot handle circular dependency structures.")
   }
   out
 }
@@ -560,7 +635,7 @@ get_matches_expr <- function(pattern, expr, ...) {
   for (i in seq_along(expr)) {
     sexpr <- try(expr[[i]], silent = TRUE)
     if (!is(sexpr, "try-error")) {
-      sexpr_char <- deparse(sexpr)
+      sexpr_char <- deparse_combine(sexpr)
       out <- c(out, get_matches(pattern, sexpr_char, ...))
     }
     if (is.call(sexpr) || is.expression(sexpr)) {

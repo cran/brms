@@ -761,6 +761,11 @@ mixture <- function(..., flist = NULL, nmix = 1, order = NULL) {
   if (any(is_ordinal) && any(!is_ordinal)) {
     stop2("Cannot mix ordinal and non-ordinal families.")
   }
+  for (fam in family$mix) {
+    if (is.customfamily(fam) && "theta" %in% fam$dpars) {
+      stop2("Parameter name 'theta' is reserved in mixture models.")
+    }
+  }
   if (is.null(order)) {
     if (any(is_ordinal)) {
       family$order <- "none"
@@ -1232,6 +1237,12 @@ allow_autocor <- function(family) {
 allow_cs <- function(family) {
   # checks if category specific effects are allowed
   "cs" %in% family_info(family, "specials")
+}
+
+has_logscale <- function(family) {
+  # indicate if the response is modeled on the log-scale
+  # even if formally the link function is not 'log'
+  "logscale" %in% family_info(family, "specials")
 }
 
 has_trials <- function(family) {

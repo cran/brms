@@ -72,17 +72,16 @@ all parameters must have proper priors.}
 
 \item{stanvars}{An optional \code{stanvars} object generated
 by function \code{\link{stanvar}} to define additional variables
-in the data block of \pkg{Stan}.}
+for use in \pkg{Stan}'s program blocks.}
 
-\item{stan_funs}{An optional character string containing self-defined 
-\pkg{Stan} functions, which will be included in the functions block 
-of the generated \pkg{Stan} code.}
+\item{stan_funs}{(Deprecated) An optional character string containing 
+self-defined  \pkg{Stan} functions, which will be included in the functions 
+block of the generated \pkg{Stan} code. It is now recommended to use 
+the \code{stanvars} argument for this purpose, instead.}
 
 \item{save_model}{Either \code{NULL} or a character string. 
-In the latter case, the model code is
-saved in a file named after the string supplied in \code{save_model}, 
-which may also contain the full path where to save the file.
-If only a name is given, the file is saved in the current working directory.}
+In the latter case, the model's Stan code is saved via \code{\link{cat}} 
+in a text file named after the string supplied in \code{save_model}.}
 
 \item{silent}{logical; If \code{TRUE}, warnings of
 the Stan parser will be suppressed.}

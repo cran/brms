@@ -21,16 +21,6 @@ stopif_illegal_group <- function(group) {
   invisible(NULL)
 }
 
-get_groups <- function(x) {
-  # TODO: merge with get_group_vars
-  if (!(is.brmsterms(x) || is.mvbrmsterms(x))) {
-    x <- parse_bf(x)
-  }
-  out <- ulapply(get_re(x)$gcall, "[[", "groups")
-  out <- c(out, get_autocor_vars(x, "group"))
-  unique(out[nzchar(out)])
-}
-
 re_lhs <- function(re_terms) {
   get_matches("^[^\\|]*", re_terms) 
 }
@@ -272,9 +262,12 @@ get_re.brmsterms <- function(x, all = TRUE, ...) {
   #   bterms: object of class brmsterms
   #   all: logical; include ranefs of nl and aux parameters?
   if (all) {
-    re <- named_list(names(x$dpars))
-    for (dp in names(re)) {
+    re <- named_list(c(names(x$dpars), names(x$nlpars)))
+    for (dp in names(x$dpars)) {
       re[[dp]] <- get_re(x$dpars[[dp]])
+    }
+    for (nlp in names(x$nlpars)) {
+      re[[nlp]] <- get_re(x$nlpars[[nlp]])
     }
     re <- do.call(rbind, re)
   } else {
@@ -298,15 +291,6 @@ get_re.btl <- function(x, ...) {
   re$dpar <- rep(px$dpar, nrow(re))
   re$nlpar <- rep(px$nlpar, nrow(re)) 
   re
-}
-
-#' @export
-get_re.btnl <- function(x, ...) {
-  re <- named_list(names(x$nlpars))
-  for (nlp in names(re)) {
-    re[[nlp]] <- get_re(x$nlpars[[nlp]])
-  }
-  do.call(rbind, re)
 }
 
 tidy_ranef <- function(bterms, data, all = TRUE, 
@@ -334,7 +318,7 @@ tidy_ranef <- function(bterms, data, all = TRUE,
   #     type: special effects type; can be 'sp' or 'cs'
   #     gcall: output of functions 'gr' or 'mm'
   #     form: formula used to compute the effects
-  data <- combine_groups(data, get_groups(bterms))
+  data <- combine_groups(data, get_group_vars(bterms))
   re <- get_re(bterms, all = all)
   ranef <- vector("list", nrow(re))
   used_ids <- new_ids <- NULL
@@ -495,33 +479,42 @@ is.ranef_frame <- function(x) {
 }
 
 get_group_vars <- function(x, ...) {
-  # extract names of grouping variables
+  # extract names of all grouping variables
   UseMethod("get_group_vars") 
 }
 
 #' @export
 get_group_vars.brmsfit <- function(x, ...) {
-  bterms <- parse_bf(x$formula)
-  unique(c(
-    get_group_vars(x$ranef),
-    get_group_vars(tidy_meef(bterms, x$data)),
-    get_autocor_vars(x, var = "group")
-  ))
+  get_group_vars(x$formula, ...)
 }
 
 #' @export
-get_group_vars.ranef_frame <- function(x, ...) {
-  unique(ulapply(x$gcall, "[[", "groups"))
+get_group_vars.default <- function(x, ...) {
+  get_group_vars(parse_bf(x), ...)
 }
 
 #' @export
-get_group_vars.meef_frame <- function(x, ...) {
-  if (nrow(x)) {
-    out <- unique(x$grname[!is.na(x$grname)])
-  } else {
-    out <- NULL
+get_group_vars.brmsterms <- function(x, ...) {
+  .get_group_vars(x, ...)
+}
+
+#' @export
+get_group_vars.mvbrmsterms <- function(x, ...) {
+  .get_group_vars(x, ...)
+}
+
+.get_group_vars <- function(x, ...) {
+  out <- c(get_re_groups(x), get_me_groups(x), get_ac_groups(x))
+  out <- out[nzchar(out)]
+  if (length(out)) {
+    c(out) <- unlist(strsplit(out, ":"))
   }
-  out
+  sort(unique(out))
+}
+
+get_re_groups <- function(x, ...) {
+  # get names of grouping variables of re terms
+  ulapply(get_re(x)$gcall, "[[", "groups")
 }
 
 get_dist_groups <- function(ranef, dist) {

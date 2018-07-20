@@ -6,7 +6,7 @@
 \title{Set up a model formula for use in \pkg{brms}}
 \usage{
 brmsformula(formula, ..., flist = NULL, family = NULL, autocor = NULL,
-  nl = NULL)
+  nl = NULL, loop = NULL)
 }
 \arguments{
 \item{formula}{An object of class \code{formula} 
@@ -60,6 +60,11 @@ overwrite the value specified in \code{\link{brm}}.}
 \item{nl}{Logical; Indicates whether \code{formula} should be
 treated as specifying a non-linear model. By default, \code{formula} 
 is treated as an ordinary linear model formula.}
+
+\item{loop}{Logical; Only used in non-linear models.
+Indicates if the computation of the non-linear formula should be 
+done inside (\code{TRUE}) or outside (\code{FALSE}) a loop
+over observations. Defaults to \code{TRUE}.}
 }
 \value{
 An object of class \code{brmsformula}, which
@@ -274,6 +279,9 @@ models for all parameters of the assumed response distribution.
   to \code{success | trials(n)} in \pkg{brms} syntax. If the number of trials
   is constant across all observations, say \code{10}, 
   we may also write \code{success | trials(10)}. 
+  \bold{Please note that the \code{cbind()} syntax will not work 
+  in brms in the expected way because this syntax is resevered
+  for use in multivariate models, only.}
   
   For all ordinal families, \code{aterms} may contain a term 
   \code{cat(number)} to specify the number categories (e.g, \code{cat(7)}). 

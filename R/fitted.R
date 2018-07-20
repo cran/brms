@@ -17,6 +17,9 @@ fitted_internal.brmsdraws <- function(draws, scale = "response",
   dpars <- names(draws$dpars)
   if (!length(dpar)) {
     if (scale == "response") {
+      for (nlp in names(draws$nlpars)) {
+        draws$nlpars[[nlp]] <- get_nlpar(draws, nlpar = nlp)
+      }
       for (dp in dpars) {
         draws$dpars[[dp]] <- get_dpar(draws, dpar = dp)
       }
@@ -42,6 +45,11 @@ fitted_internal.brmsdraws <- function(draws, scale = "response",
       # parameter varies across observations
       if (scale == "linear") {
         draws$dpars[[dpar]]$f$link <- "identity"
+      }
+      if (is_ordinal(draws$f)) {
+        draws$dpars[[dpar]]$cs <- NULL
+        draws$f <- draws$dpars[[dpar]]$f <- 
+          .dpar_family(link = draws$dpars[[dpar]]$f$link)
       }
       if (dpar_class(dpar) == "theta" && scale == "response") {
         ap_id <- as.numeric(dpar_id(dpar))
