@@ -51,10 +51,10 @@ predict_internal.brmsdraws <- function(draws, summary = TRUE, transform = NULL,
   if (!is.null(transform)) {
     out <- do.call(transform, list(out))
   }
+  attr(out, "levels") <- draws$data$cats
   if (summary) {
     if (is_ordinal(draws$f) || is_categorical(draws$f)) {
-      # compute frequencies of categories 
-      out <- posterior_table(out, levels = seq_len(max(draws$data$ncat)))
+      out <- posterior_table(out, levels = seq_len(draws$data$ncat))
     } else {
       out <- posterior_summary(out, probs = probs, robust = robust)
     }
@@ -555,8 +555,11 @@ predict_ordinal <- function(i, draws, family, ...) {
 }
 
 predict_custom <- function(i, draws, ...) {
-  predict_fun <- paste0("predict_", draws$f$name)
-  predict_fun <- get(predict_fun, draws$f$env)
+  predict_fun <- draws$f$predict
+  if (!is.function(predict_fun)) {
+    predict_fun <- paste0("predict_", draws$f$name)
+    predict_fun <- get(predict_fun, draws$f$env)
+  }
   predict_fun(i = i, draws = draws, ...)
 }
 
@@ -637,8 +640,8 @@ rng_discrete <- function(nrng, dist, args, lb = NULL, ub = NULL, ntrys = 5) {
 rng_mix <- function(theta) {
   # sample the ID of the mixture component
   stopifnot(is.matrix(theta))
-  mix_comp <- seq_len(ncol(theta))
-  ulapply(seq_len(nrow(theta)), function(s)
+  mix_comp <- seq_cols(theta)
+  ulapply(seq_rows(theta), function(s)
     sample(mix_comp, 1, prob = theta[s, ])
   )
 }

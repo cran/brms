@@ -75,13 +75,14 @@
 #'   should be saved (default is \code{FALSE}). Saving these samples 
 #'   is required in order to apply the methods \code{bridge_sampler},
 #'   \code{bayes_factor}, and \code{post_prob}.
-#' @param sample_prior Indicate if samples from all specified 
-#'   proper priors should be drawn additionally to the posterior samples
-#'   (defaults to \code{"no"}). Among others, these samples can be used 
-#'   to calculate Bayes factors for point hypotheses. 
+#' @param sample_prior Indicate if samples from all specified proper priors 
+#'   should be drawn additionally to the posterior samples (defaults to 
+#'   \code{"no"}). Among others, these samples can be used to calculate 
+#'   Bayes factors for point hypotheses via \code{\link{hypothesis}}.
 #'   If set to \code{"only"}, samples are drawn solely from
-#'   the priors ignoring the likelihood. In this case, 
-#'   all parameters must have proper priors.
+#'   the priors ignoring the likelihood, which allows among others
+#'   to generate samples from the prior predictive distribution.
+#'   In this case, all parameters must have proper priors.
 #' @param knots Optional list containing user specified knot values to be 
 #'   used for basis construction of smoothing terms. 
 #'   See \code{\link[mgcv:gamm]{gamm}} for more details.
@@ -141,6 +142,8 @@
 #'   informational messages of compiler and sampler are suppressed.
 #'   The actual sampling progress is still printed. 
 #'   Set \code{refresh = 0} to turn this off as well.
+#'   To stop Stan from opening additional progress bars,
+#'   set \code{open_progress = FALSE}.
 #' @param seed The seed for random number generation to make results
 #'   reproducible. If \code{NA} (the default), \pkg{Stan} will set
 #'   the seed randomly.
@@ -160,7 +163,8 @@
 #'   will be saved or not. If \code{TRUE}, we can draw samples from the same 
 #'   model in another \R session using the saved DSO 
 #'   (i.e., without compiling the C++ code again).
-#' @param ... Further arguments to be passed to Stan.
+#' @param ... Further arguments passed to Stan that is to
+#'   \code{\link[rstan:sampling]{sampling}} or \code{\link[rstan:vb]{vb}}.
 #' 
 #' @return An object of class \code{brmsfit}, which contains the posterior samples along 
 #'   with many other useful information about the model.
@@ -339,7 +343,6 @@
 #' fit7 <- update(fit7, future = TRUE)
 #' }
 #' 
-#' @import rstan
 #' @import Rcpp
 #' @import parallel
 #' @import methods
@@ -378,6 +381,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   if (is.brmsfit(fit)) {
     # re-use existing model
     x <- fit
+    icnames <- c("loo", "waic", "kfold", "R2", "marglik")
+    x[icnames] <- list(NULL)
     sdata <- standata(x)
     x$fit <- rstan::get_stanmodel(x$fit)
   } else {  
@@ -397,7 +402,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     data <- update_data(data, bterms = bterms)
     prior <- check_prior(
       prior, formula, data = data,  
-      sample_prior = sample_prior, warn = TRUE
+      sample_prior = sample_prior
     )
     # initialize S3 object
     x <- brmsfit(
@@ -418,7 +423,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       sparse = sparse, cov_ranef = cov_ranef,
       sample_prior = sample_prior, knots = knots, 
       stanvars = stanvars, stan_funs = stan_funs, 
-      save_model = save_model, brm_call = TRUE
+      save_model = save_model
     )
     # generate Stan data before compiling the model to avoid
     # unnecessary compilations in case of invalid data
@@ -428,10 +433,9 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       knots = knots, stanvars = stanvars
     )
     message("Compiling the C++ model")
-    x$fit <- eval_silent(
-      rstan::stan_model(stanc_ret = x$model, save_dso = save_dso)
-    )
-    x$model <- x$model$model_code
+    x$fit <- eval_silent(rstan::stan_model(
+      model_code = x$model, save_dso = save_dso
+    ))
   }
   
   # arguments to be passed to Stan

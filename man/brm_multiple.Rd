@@ -5,9 +5,9 @@
 \title{Run the same \pkg{brms} model on multiple datasets}
 \usage{
 brm_multiple(formula, data, family = gaussian(), prior = NULL,
-  autocor = NULL, cov_ranef = NULL, sample_prior = c("no", "yes", "only"),
-  sparse = FALSE, knots = NULL, stanvars = NULL, stan_funs = NULL,
-  combine = TRUE, seed = NA, ...)
+  autocor = NULL, cov_ranef = NULL, sample_prior = c("no", "yes",
+  "only"), sparse = FALSE, knots = NULL, stanvars = NULL,
+  stan_funs = NULL, combine = TRUE, seed = NA, file = NULL, ...)
 }
 \arguments{
 \item{formula}{An object of class 
@@ -56,13 +56,14 @@ of the corresponding matrix. This argument can be used,
 among others to model pedigrees and phylogenetic effects.
 See \code{vignette("brms_phylogenetics")} for more details.}
 
-\item{sample_prior}{Indicate if samples from all specified 
-proper priors should be drawn additionally to the posterior samples
-(defaults to \code{"no"}). Among others, these samples can be used 
-to calculate Bayes factors for point hypotheses. 
+\item{sample_prior}{Indicate if samples from all specified proper priors 
+should be drawn additionally to the posterior samples (defaults to 
+\code{"no"}). Among others, these samples can be used to calculate 
+Bayes factors for point hypotheses via \code{\link{hypothesis}}.
 If set to \code{"only"}, samples are drawn solely from
-the priors ignoring the likelihood. In this case, 
-all parameters must have proper priors.}
+the priors ignoring the likelihood, which allows among others
+to generate samples from the prior predictive distribution.
+In this case, all parameters must have proper priors.}
 
 \item{sparse}{Logical; indicates whether the population-level 
 design matrices should be treated as sparse (defaults to \code{FALSE}). 
@@ -90,6 +91,15 @@ via \code{\link{combine_models}}. Defaults to \code{TRUE}.}
 \item{seed}{The seed for random number generation to make results
 reproducible. If \code{NA} (the default), \pkg{Stan} will set
 the seed randomly.}
+
+\item{file}{Either \code{NULL} or a character string. In the latter case, 
+the fitted model object is saved via \code{\link{saveRDS}} in a file
+named after the string supplied in \code{file}. 
+The \code{.rds} extension is added automatically.
+If the file already exists, \code{brm} will load and return the saved
+model object instead of refitting the model. As existing files
+won't be overwritten, you have to manually remove the file in order
+to refit and save the model under an existing file name.}
 
 \item{...}{Further arguments passed to \code{\link{brm}}.}
 }

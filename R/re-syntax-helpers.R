@@ -324,7 +324,7 @@ tidy_ranef <- function(bterms, data, all = TRUE,
   used_ids <- new_ids <- NULL
   id_groups <- list()
   j <- 1
-  for (i in seq_len(nrow(re))) {
+  for (i in seq_rows(re)) {
     if (!nzchar(re$type[i])) {
       coef <- colnames(get_model_matrix(re$form[[i]], data)) 
     } else if (re$type[i] == "sp") {
@@ -508,8 +508,9 @@ get_group_vars.mvbrmsterms <- function(x, ...) {
   out <- out[nzchar(out)]
   if (length(out)) {
     c(out) <- unlist(strsplit(out, ":"))
+    out <- sort(unique(out))
   }
-  sort(unique(out))
+  out
 }
 
 get_re_groups <- function(x, ...) {

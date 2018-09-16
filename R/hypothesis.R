@@ -251,7 +251,10 @@ eval_hypothesis <- function(h, x, class, alpha, name = NULL) {
   } else if (sign == ">") {
     sm[1, 4] <- Inf
   }
-  sm$Post.Prob <- sm$Evid.Ratio / (1 + sm$Evid.Ratio)
+  sm$Post.Prob <- ifelse(
+    is.infinite(sm$Evid.Ratio), 1, 
+    sm$Evid.Ratio / (1 + sm$Evid.Ratio)
+  )
   sm$Star <- ifelse(!(sm[1, 3] <= 0 && 0 <= sm[1, 4]), '*', '')
   if (!length(name) || !nzchar(name)) {
     name <- paste(h, sign, "0")
@@ -264,25 +267,39 @@ eval_hypothesis <- function(h, x, class, alpha, name = NULL) {
   nlist(summary = sm, samples, prior_samples)
 }
 
-find_vars <- function(x) {
+find_vars <- function(x, dot = TRUE, brackets = TRUE) {
   # find all valid variable names in a string 
   # Args:
   #   x: a character string
+  #   dot: are dots allowed in variable names?
+  #   brackets: allow brackets at the end of variable names?
   # Notes:
   #   Does not use the R parser itself to allow for double points, 
   #   square brackets and commas at the end of names.
-  #   currently only used in 'hypothesis_internal'
   # Returns:
   #   all valid variable names within the string
   x <- gsub("[[:space:]]", "", as_one_character(x))
-  regex_all <- "([^([:digit:]|[:punct:])]|\\.)[[:alnum:]_\\.\\:]*"
-  regex_all <- paste0(regex_all, "(\\[[^],]+(,[^],]+)*\\])?")
+  dot <- as_one_logical(dot)
+  brackets <- as_one_logical(brackets)
+  regex_all <- paste0(
+    "([^([:digit:]|[:punct:])]", if (dot) "|\\.", ")",
+    "[[:alnum:]_\\:", if (dot) "\\.", "]*",
+    if (brackets) "(\\[[^],]+(,[^],]+)*\\])?"
+  )
   pos_all <- gregexpr(regex_all, x)[[1]]
-  regex_fun <- "([^([:digit:]|[:punct:])]|\\.)[[:alnum:]_\\.]*\\("
+  regex_fun <- paste0(
+    "([^([:digit:]|[:punct:])]", if (dot) "|\\.", ")", 
+    "[[:alnum:]_", if (dot) "\\.", "]*\\("
+  )
   pos_fun <- gregexpr(regex_fun, x)[[1]]
   pos_decnum <- gregexpr("\\.[[:digit:]]+", x)[[1]]
-  pos_var <- list(rmMatch(pos_all, pos_fun, pos_decnum))
-  unique(unlist(regmatches(x, pos_var)))
+  pos_var <- rmMatch(pos_all, pos_fun, pos_decnum)
+  if (length(pos_var)) {
+    out <- unique(unlist(regmatches(x, list(pos_var))))
+  } else {
+    out <- character(0)
+  }
+  out
 }
 
 evidence_ratio <- function(x, cut = 0, wsign = c("equal", "less", "greater"), 
@@ -399,9 +416,9 @@ plot.brmshypothesis <- function(x, N = 5, ignore_prior = FALSE,
   }
   hyps <- limit_chars(x$hypothesis$Hypothesis, chars = chars)
   names(samples)[seq_along(hyps)] <- hyps
-  n_plots <- ceiling(length(hyps) / N)
-  plots <- vector(mode = "list", length = n_plots)
-  for (i in seq_len(n_plots)) {
+  nplots <- ceiling(length(hyps) / N)
+  plots <- vector(mode = "list", length = nplots)
+  for (i in seq_len(nplots)) {
     rel_hyps <- hyps[((i - 1) * N + 1):min(i * N, length(hyps))]
     sub_samples <- cbind(
       utils::stack(samples[, rel_hyps, drop = FALSE]),

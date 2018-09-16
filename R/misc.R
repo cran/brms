@@ -28,6 +28,79 @@ p <- function(x, i = NULL, row = TRUE) {
   out
 }
 
+extract <- function(x, ..., drop = FALSE, drop_dim = NULL) {
+  # extract parts of an object with selective dropping of dimensions
+  # Args:
+  #   x, ..., drop: same as in x[..., drop]
+  #   drop_dim: Optional numeric or logical vector controlling 
+  #     which dimensions to drop. Will overwrite argument 'drop'.
+  if (!length(dim(x))) {
+    return(x[...])
+  }
+  if (length(drop_dim)) {
+    drop <- FALSE
+  } else {
+    drop <- as_one_logical(drop)
+  }
+  out <- x[..., drop = drop]
+  if (drop || !length(drop_dim) || any(dim(out) == 0L)) {
+    return(out)
+  }
+  if (is.numeric(drop_dim)) {
+    drop_dim <- seq_along(dim(x)) %in% drop_dim
+  }
+  if (!is.logical(drop_dim)) {
+    stop2("'drop_dim' needs to be logical or numeric.")
+  }
+  keep <- dim(out) > 1L | !drop_dim
+  new_dim <- dim(out)[keep]
+  if (length(new_dim) == 1L) {
+    # use vectors instead of 1D arrays
+    new_dim <- NULL  
+  }
+  dim(out) <- new_dim
+  out
+}
+
+extract_col <- function(x, i) {
+  # savely extract columns without dropping other dimensions
+  # Args:
+  #   x: an array
+  #   i: colum index
+  ldim <- length(dim(x))
+  if (ldim < 2L) {
+    return(x)
+  }
+  commas <- collapse(rep(", ", ldim - 2))
+  expr <- paste0("extract(x, , i", commas, ", drop_dim = 2)")
+  eval2(expr)
+}
+
+seq_rows <- function(x) {
+  seq_len(NROW(x))
+}
+
+seq_cols <- function(x) {
+  seq_len(NCOL(x))
+}
+
+seq_dim <- function(x, dim) {
+  dim <- as_one_numeric(dim)
+  if (dim == 1) {
+    len <- NROW(x)
+  } else if (dim == 2) {
+    len <- NCOL(x)
+  } else {
+    len <- dim(x)[dim]
+  }
+  if (length(len) == 1L && !isNA(len)) {
+    out <- seq_len(len) 
+  } else {
+    out <- integer(0)
+  }
+  out
+}
+
 match_rows <- function(x, y, ...) {
   # match rows in x with rows in y
   x <- as.data.frame(x)
@@ -613,13 +686,17 @@ SW <- function(expr) {
 get_matches <- function(pattern, text, simplify = TRUE, 
                         first = FALSE, ...) {
   # get pattern matches in text as vector
+  # Args:
+  #   simplify: return an atomic vector of matches?
+  #   first: only return the first match in each string?
+  x <- regmatches(text, gregexpr(pattern, text, ...))
   if (first) {
-    x <- regexpr(pattern, text, ...)
-  } else {
-    x <- gregexpr(pattern, text, ...)
+    x <- lapply(x, function(t) if (length(t)) t[1] else t)
   }
-  x <- regmatches(text, x)
   if (simplify) {
+    if (first) {
+      x <- lapply(x, function(t) if (length(t)) t else "")
+    }
     x <- unlist(x)
   }
   x
@@ -743,6 +820,10 @@ hypot <- function(x, y) {
 
 log1m <- function(x) {
   log(1 - x)
+}
+
+step <- function(x) {
+  ifelse(x > 0, 1, 0)
 }
 
 #' Logarithm with a minus one offset.

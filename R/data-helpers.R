@@ -65,7 +65,7 @@ data_rsv_intercept <- function(data, bterms) {
   #   data: data.frame or list
   #   bterms: object of class brmsterms
   fe_forms <- get_effect(bterms, "fe")
-  rsv_int <- any(ulapply(fe_forms, attr, "rsv_intercept"))
+  rsv_int <- any(ulapply(fe_forms, no_cmc))
   if (rsv_int) {
     if (any(data[["intercept"]] != 1)) {
       stop2("Variable name 'intercept' is resevered in models ",
@@ -202,6 +202,7 @@ validate_newdata <- function(
   }
   newdata <- rm_attr(newdata, c("terms", "brmsframe"))
   stopifnot(is.brmsfit(object))
+  resp <- validate_resp(resp, object)
   if (!incl_autocor) {
     object <- remove_autocor(object) 
   }
@@ -443,6 +444,17 @@ get_model_matrix <- function(formula, data = environment(formula),
   }
   X
 }
+
+PredictMat <- function(object, data, ...) {
+  # convenient wrapper around mgcv::PredictMat
+  data <- rm_attr(data, "terms")
+  out <- mgcv::PredictMat(object, data = data, ...)
+  if (length(dim(out)) < 2L) {
+    # fixes issue #494
+    out <- matrix(out, nrow = 1)
+  }
+  out
+} 
 
 arr_design_matrix <- function(Y, r, group)  { 
   # compute the design matrix for ARR effects

@@ -26,6 +26,7 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   if (!incl_autocor) {
     x <- remove_autocor(x) 
   }
+  resp <- validate_resp(resp, x)
   subset <- subset_samples(x, subset, nsamples)
   samples <- as.matrix(x, subset = subset)
   # prepare (new) data and stan data 
@@ -252,8 +253,8 @@ extract_draws_sp <- function(bterms, samples, sdata, data,
     warn_me <- warn_me || !new && !save_mevars
     draws$Xme <- named_list(meef$coef)
     Xme_pars <- paste0("Xme_", escape_all(meef$coef), "\\[")
-    Xn <- sdata[paste0("Xn_", seq_len(nrow(meef)))]
-    noise <- sdata[paste0("noise_", seq_len(nrow(meef)))]
+    Xn <- sdata[paste0("Xn_", seq_rows(meef))]
+    noise <- sdata[paste0("noise_", seq_rows(meef))]
     groups <- unique(meef$grname)
     for (i in seq_along(groups)) {
       g <- groups[i]
@@ -720,7 +721,7 @@ extract_draws_autocor <- function(bterms, samples, sdata, new = FALSE, ...) {
   draws
 }
 
-extract_draws_data <- function(bterms, sdata, stanvars = NULL, ...) {
+extract_draws_data <- function(bterms, sdata, data, stanvars = NULL, ...) {
   # extract data mainly related to the response variable
   # Args
   #   stanvars: *names* of variables stored in slot 'stanvars'
@@ -733,6 +734,9 @@ extract_draws_data <- function(bterms, sdata, stanvars = NULL, ...) {
   if (length(stanvars)) {
     stopifnot(is.character(stanvars))
     draws[stanvars] <- sdata[stanvars]
+  }
+  if (is_categorical(bterms) || is_ordinal(bterms)) {
+    draws$cats <- extract_cat_names(bterms, data)
   }
   draws
 }

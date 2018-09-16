@@ -10,34 +10,22 @@ fitted_internal.mvbrmsdraws <- function(draws, ...) {
 }
 
 #' @export
-fitted_internal.brmsdraws <- function(draws, scale = "response", 
-                                      dpar = NULL, summary = TRUE, 
-                                      sort = FALSE, robust = FALSE, 
-                                      probs = c(0.025, 0.975), ...) {
+fitted_internal.brmsdraws <- function(
+  draws, scale = "response", dpar = NULL, nlpar = NULL,
+  summary = TRUE, sort = FALSE, robust = FALSE, 
+  probs = c(0.025, 0.975), ...
+) {
   dpars <- names(draws$dpars)
-  if (!length(dpar)) {
-    if (scale == "response") {
-      for (nlp in names(draws$nlpars)) {
-        draws$nlpars[[nlp]] <- get_nlpar(draws, nlpar = nlp)
-      }
-      for (dp in dpars) {
-        draws$dpars[[dp]] <- get_dpar(draws, dpar = dp)
-      }
-      if (is_trunc(draws)) {
-        out <- fitted_trunc(draws)
-      } else {
-        fitted_fun <- paste0("fitted_", draws$f$family)
-        fitted_fun <- get(fitted_fun, asNamespace("brms"))
-        out <- fitted_fun(draws)
-      }
-    } else {
-      out <- get_dpar(draws, dpar = "mu", ilink = FALSE)
-    }
-  } else {
+  nlpars <- names(draws$nlpars)
+  if (length(dpar)) {
+    # predict a distributional parameter
     dpar <- as_one_character(dpar)
     if (!dpar %in% dpars) {
       stop2("Invalid argument 'dpar'. Valid distributional ",
             "parameters are: ", collapse_comma(dpars))
+    }
+    if (length(nlpar)) {
+      stop2("Cannot use 'dpar' and 'nlpar' at the same time.")
     }
     predicted <- is.bdrawsl(draws$dpars[[dpar]]) ||
       is.bdrawsnl(draws$dpars[[dpar]])
@@ -63,8 +51,34 @@ fitted_internal.brmsdraws <- function(draws, scale = "response",
       out <- draws$dpars[[dpar]]
       out <- matrix(out, nrow = draws$nsamples, ncol = draws$nobs)
     }
+  } else if (length(nlpar)) {
+    # predict a non-linear parameter
+    nlpar <- as_one_character(nlpar)
+    if (!nlpar %in% nlpars) {
+      stop2("Invalid argument 'nlpar'. Valid non-linear ",
+            "parameters are: ", collapse_comma(nlpars))
+    }
+    out <- get_nlpar(draws, nlpar = nlpar)
+  } else {
+    # predict the mean of the response distribution
+    if (scale == "response") {
+      for (nlp in nlpars) {
+        draws$nlpars[[nlp]] <- get_nlpar(draws, nlpar = nlp)
+      }
+      for (dp in dpars) {
+        draws$dpars[[dp]] <- get_dpar(draws, dpar = dp)
+      }
+      if (is_trunc(draws)) {
+        out <- fitted_trunc(draws)
+      } else {
+        fitted_fun <- paste0("fitted_", draws$f$family)
+        fitted_fun <- get(fitted_fun, asNamespace("brms"))
+        out <- fitted_fun(draws)
+      }
+    } else {
+      out <- get_dpar(draws, dpar = "mu", ilink = FALSE)
+    }
   }
-  draws$dpars <- NULL
   if (is.null(dim(out))) {
     out <- as.matrix(out)
   }
@@ -73,11 +87,11 @@ fitted_internal.brmsdraws <- function(draws, scale = "response",
     out <- posterior_summary(out, probs = probs, robust = robust)
     if (is_categorical(draws$f) || is_ordinal(draws$f)) {
       if (scale == "linear") {  
-        dimnames(out)[[3]] <- paste0("eta", seq_len(dim(out)[3]))
+        dimnames(out)[[3]] <- paste0("eta", seq_dim(out, 3))
       } else {
-        dimnames(out)[[3]] <- paste0("P(Y = ", seq_len(dim(out)[3]), ")")
+        dimnames(out)[[3]] <- paste0("P(Y = ", dimnames(out)[[3]], ")")
       }
-    } 
+    }
   }
   out
 }
@@ -225,12 +239,14 @@ fitted_zero_one_inflated_beta <- function(draws) {
 
 fitted_categorical <- function(draws) {
   get_probs <- function(i) {
-    dcategorical(cats, eta = eta[, i, ])
+    dcategorical(cats, eta = extract_col(eta, i))
   }
   eta <- abind(draws$dpars, along = 3)
   cats <- seq_len(draws$data$ncat)
-  out <- abind(lapply(seq_len(ncol(eta)), get_probs), along = 3)
-  aperm(out, perm = c(1, 3, 2))
+  out <- abind(lapply(seq_cols(eta), get_probs), along = 3)
+  out <- aperm(out, perm = c(1, 3, 2))
+  dimnames(out)[[3]] <- draws$data$cats
+  out
 }
 
 fitted_cumulative <- function(draws) {
@@ -250,8 +266,11 @@ fitted_acat <- function(draws) {
 }
 
 fitted_custom <- function(draws) {
-  fitted_fun <- paste0("fitted_", draws$f$name)
-  fitted_fun <- get(fitted_fun, draws$f$env)
+  fitted_fun <- draws$f$fitted
+  if (!is.function(fitted_fun)) {
+    fitted_fun <- paste0("fitted_", draws$f$name)
+    fitted_fun <- get(fitted_fun, draws$f$env)
+  }
   fitted_fun(draws)
 }
 
@@ -277,14 +296,16 @@ fitted_mixture <- function(draws) {
 
 fitted_ordinal <- function(draws) {
   get_probs <- function(i) {
-    do.call(dens, c(args, list(eta = eta[, i, ])))
+    do.call(dens, c(args, list(eta = extract_col(eta, i))))
   }
   eta <- draws$dpars$disc * draws$dpars$mu
   ncat <- draws$data$ncat
   args <- list(seq_len(ncat), ncat = ncat, link = draws$f$link)
   dens <- get(paste0("d", draws$f$family), mode = "function")
-  out <- abind(lapply(seq_len(ncol(eta)), get_probs), along = 3)
-  aperm(out, perm = c(1, 3, 2))
+  out <- abind(lapply(seq_cols(eta), get_probs), along = 3)
+  out <- aperm(out, perm = c(1, 3, 2))
+  dimnames(out)[[3]] <- draws$data$cats
+  out
 }
 
 fitted_lagsar <- function(draws) {

@@ -98,7 +98,7 @@ print_format <- function(x, digits = 2, no_digits = "Eff.Sample") {
   }
   out <- x
   fmt <- paste0("%.", digits, "f")
-  for (i in seq_len(ncol(x))) {
+  for (i in seq_cols(x)) {
     if (isTRUE(colnames(x)[i] %in% no_digits)) {
       out[, i] <- sprintf("%.0f", x[, i])
     } else {
@@ -173,9 +173,6 @@ posterior_summary.default <- function(x, probs = c(0.025, 0.975),
   } else {
     x <- as.array(x) 
   }
-  if (!length(dim(x)) %in% 2:3) {
-    stop("'x' must be of dimension 2 or 3.")
-  }
   if (length(dim(x)) == 2L) {
     out <- .posterior_summary(x)
     rownames(out) <- colnames(x)
@@ -183,6 +180,8 @@ posterior_summary.default <- function(x, probs = c(0.025, 0.975),
     out <- lapply(array2list(x), .posterior_summary)
     out <- abind(out, along = 3)
     dimnames(out)[c(1, 3)] <- dimnames(x)[c(2, 3)]
+  } else {
+    stop("'x' must be of dimension 2 or 3.")
   }
   colnames(out) <- c("Estimate", "Est.Error", paste0("Q", probs * 100))
   out  

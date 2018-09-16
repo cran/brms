@@ -223,6 +223,10 @@ posterior_table <- function(x, levels = NULL) {
   if (is.null(levels)) {
     levels <- sort(unique(as.vector(x)))
   }
+  xlevels <- attr(x, "levels")
+  if (length(xlevels) != length(levels)) {
+    xlevels <- levels
+  }
   out <- lapply(seq_len(ncol(x)), 
     function(n) table(factor(x[, n], levels = levels))
   )
@@ -230,7 +234,7 @@ posterior_table <- function(x, levels = NULL) {
   # compute relative frequencies
   out <- out / sum(out[1, ])
   rownames(out) <- colnames(x)
-  colnames(out) <- paste0("P(Y = ", seq_len(ncol(out)), ")")
+  colnames(out) <- paste0("P(Y = ", xlevels, ")")
   out
 }
 
@@ -444,10 +448,10 @@ get_dpar <- function(draws, dpar, i = NULL, ilink = NULL) {
       out <- ilink(out, x$f$link)
     }
     if (length(i) == 1L) {
-      out <- index_col(out, 1)
+      out <- extract_col(out, 1)
     }
   } else if (!is.null(i) && !is.null(dim(x))) {
-    out <- index_col(x, i)
+    out <- extract_col(x, i)
   } else {
     out <- x
   }
@@ -481,10 +485,10 @@ get_nlpar <- function(draws, nlpar, i = NULL) {
     # compute samples of a predicted parameter
     out <- predictor(x, i = i, fdraws = draws)
     if (length(i) == 1L) {
-      out <- index_col(out, 1)
+      out <- extract_col(out, 1)
     }
   } else if (!is.null(i) && !is.null(dim(x))) {
-    out <- index_col(x, i)
+    out <- extract_col(x, i)
   } else {
     out <- x
   }
@@ -531,7 +535,7 @@ get_Mu <- function(draws, i = NULL) {
     }
   } else {
     stopifnot(!is.null(i))
-    Mu <- index_col(Mu, i)
+    Mu <- extract_col(Mu, i)
   }
   Mu
 }
@@ -566,7 +570,7 @@ get_Sigma <- function(draws, i = NULL) {
     ldim <- length(dim(Sigma))
     stopifnot(ldim %in% 3:4)
     if (ldim == 4L) {
-      Sigma <- index_col(Sigma, i)
+      Sigma <- extract_col(Sigma, i)
     }
   }
   Sigma
@@ -589,28 +593,6 @@ get_se <- function(draws, i = NULL) {
     se <- 0
   }
   se
-}
-
-index_col <- function(x, i) {
-  # savely index columns without dropping other dimensions
-  # Args:
-  #   x: an array
-  #   i: colum index
-  ldim <- length(dim(x))
-  if (ldim < 2L) {
-    return(x)
-  }
-  if (ldim == 2L) {
-    out <- x[, i]
-  } else {
-    expr <- paste0("x[, i", collapse(rep(", ", ldim - 2)), "]")
-    out <- eval2(expr)
-    if (length(i) == 1L && dim(out) != dim(x)[-2]) {
-      # some non-column dims were unintentionally dropped
-      dim(out) <- dim(x)[-2]
-    }
-  }
-  out
 }
 
 apply_dpar_ilink <- function(dpar, family) {
@@ -650,18 +632,31 @@ prepare_family <- function(x) {
   family
 }
 
-validate_resp <- function(resp, valid_resps, multiple = TRUE) {
+validate_resp <- function(resp, x, multiple = TRUE) {
   # validate the 'resp' argument of 'predict' and related methods
+  # Args:
+  #   resp: response names to be validated
+  #   x: valid response names or brmsfit object to extract names from
+  #   multiple: allow multiple response variables?
+  if (is.brmsfit(x)) {
+    x <- parse_bf(x$formula)$responses
+  }
+  x <- as.character(x)
+  if (!length(x)) {
+    # resp is unused in univariate models
+    return(NULL)
+  }
   if (length(resp)) {
-    if (!all(resp %in% valid_resps)) {
+    resp <- as.character(resp)
+    if (!all(resp %in% x)) {
       stop2("Invalid argument 'resp'. Valid response ",
-            "variables are: ", collapse_comma(valid_resps))
+            "variables are: ", collapse_comma(x))
     }
     if (!multiple) {
       resp <- as_one_character(resp)
     }
   } else {
-    resp <- valid_resps
+    resp <- x
   }
   resp
 }
@@ -758,10 +753,10 @@ fixef_pars <- function() {
   "^b(|cs|sp|mo|me|mi|m)_"
 }
 
-default_plot_pars <- function() {
+default_plot_pars <- function(family) {
   # list all parameter classes to be included in plots by default
   c(fixef_pars(), "^sd_", "^cor_", "^sigma_", "^rescor_", 
-    paste0("^", dpars(), "[[:digit:]]*$"), "^delta$",
+    paste0("^", valid_dpars(family), "$"), "^delta$",
     "^theta", "^ar", "^ma", "^arr", "^lagsar", "^errorsar", 
     "^car", "^sdcar", "^sigmaLL", "^sds_", "^sdgp_", "^lscale_")
 }
