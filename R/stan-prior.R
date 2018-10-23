@@ -21,7 +21,7 @@ stan_prior <- function(prior, class, coef = "", group = "",
   wsp <- wsp(nsp = wsp)
   prior_only <- identical(attr(prior, "sample_prior"), "only")
   prior <- subset2(prior, 
-                   class = class, coef = c(coef, ""), group = c(group, "")
+    class = class, coef = c(coef, ""), group = c(group, "")
   )
   if (class %in% c("sd", "cor")) {
     # only sd and cor parameters have global priors
@@ -91,7 +91,7 @@ stan_prior <- function(prior, class, coef = "", group = "",
   
   # generate stan prior statements
   class <- paste0(prefix, class, suffix)
-  if (any(with(prior, nchar(coef) & nchar(prior)))) {
+  if (any(with(prior, nzchar(coef) & nzchar(prior)))) {
     # generate a prior for each coefficient
     out <- sapply(
       seq_along(coef), individual_prior, 
@@ -290,9 +290,8 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
   #     such as horseshoe or lasso
   # Returns:
   #   a character string containing the priors to be sampled from in stan code
-  out <- list()
   if (!sample_prior %in% "yes") {
-    return(out)
+    return(list())
   }
   prior <- strsplit(gsub(" |\\n", "", prior), ";")[[1]]
   # D will contain all relevant information about the priors
@@ -304,6 +303,10 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
   excl_regex <- paste0("(", excl_regex, ")", collapse = "|")
   excl_regex <- paste0("^(", excl_regex, ")(_|$)")
   D <- D[!grepl(excl_regex, D$par), ]
+  if (!NROW(D)) {
+    return(list())
+  }
+  
   class_old <- c("^L_", "^Lrescor")
   class_new <- c("cor_", "rescor")
   D$par <- rename(D$par, class_old, class_new, fixed = FALSE)
@@ -352,6 +355,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
   contains_other_pars <- ulapply(found_vars, function(x) any(x %in% all_pars))
   D <- D[!contains_other_pars, ]
   
+  out <- list()
   # sample priors in the generated quantities block
   D$lkj <- grepl("^lkj_corr$", D$dis)
   D$args <- paste0(ifelse(D$lkj, paste0(D$dim, ","), ""), D$args)
@@ -368,7 +372,7 @@ stan_rngprior <- function(sample_prior, prior, par_declars,
   D$ub <- stan_extract_bounds(D$bounds, bound = "upper")
   Ibounds <- which(nzchar(D$bounds))
   if (length(Ibounds)) {
-    str_add(out$genC) <- " // use rejection sampling for truncated priors\n"
+    str_add(out$genC) <- "  // use rejection sampling for truncated priors\n"
     for (i in Ibounds) {
       wl <- if (nzchar(D$lb[i])) paste0(D$prior_par[i], " < ", D$lb[i])
       wu <- if (nzchar(D$ub[i])) paste0(D$prior_par[i], " > ", D$ub[i])

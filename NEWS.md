@@ -1,3 +1,31 @@
+# brms 2.6.0
+
+### New features
+
+* Fit factor smooth interactions thanks to Simon Wood.
+* Specify separate priors for thresholds in ordinal models. (#524)
+* Pass additional arguments to `rstan::stan_model` via argument
+`stan_model_args` in `brm`. (#525)
+* Save model objects via argument `file` in `add_ic` 
+after adding model fit criteria. (#478) 
+* Compute density ratios based on MCMC samples via `density_ratio`.
+* Ignore offsets in various post-processing methods via
+argument `offset`.
+* Update addition terms in formulas via `update_adterms`.
+
+### Other changes
+
+* Improve internal modularization of smooth terms.
+* Reduce size of internal example models.
+
+### Bug fixes
+
+* Correctly plot splines with factorial covariates via `marginal_smooths`.
+* Allow sampling from priors in intercept only models
+thanks to Emmanuel Charpentier. (#529)
+* Allow logical operators in non-linear formulas.
+
+
 # brms 2.5.0
 
 ### New features

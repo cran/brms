@@ -403,7 +403,7 @@ get_cond__ <- function(x) {
 #' @return A character vector of the same length as the number
 #'   of rows of \code{x}.
 #'   
-#' @seealso \code{\link{make_conditions}}, code{\link{marginal_effects}}
+#' @seealso \code{\link{make_conditions}}, \code{\link{marginal_effects}}
 #' 
 #' @export
 rows2labels <- function(x, digits = 2, sep = " & ", incl_vars = TRUE, ...) {
@@ -751,8 +751,8 @@ make_point_frame <- function(bterms, mf, effects, conditions,
               unit_cond <- scale_unit(cond[, v], min, max)
               unit_diff <- abs(unit - unit_cond)
               close_enough <- unit_diff <= select_points
-              mf_tmp[close_enough, v] <- cond[, v]
-              mf_tmp[!close_enough, v] <- NA
+              mf_tmp[[v]][close_enough] <- cond[, v]
+              mf_tmp[[v]][!close_enough] <- NA
             }
           } else {
             # take all numeric values if select_points is zero

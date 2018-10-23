@@ -466,7 +466,7 @@ test_that("Stan code for multivariate models is correct", {
   expect_match2(scode, "target += skew_normal_lpdf(Y_y2 | mu_y2, omega_y2, alpha_y2)")
   expect_match2(scode, "ps[1] = log(theta1_x) + poisson_log_lpmf(Y_x[n] | mu1_x[n])")
   expect_match2(scode, "target += normal_lpdf(b_y1 | 0, 5)")
-  expect_match2(scode, "target += normal_lpdf(b_y2 | 0, 10)")
+  expect_match2(scode, "target += normal_lpdf(bs_y2 | 0, 10)")
   
   # multivariate binomial models
   bform <- bf(x ~ 1) + bf(g ~ 1) + binomial()
@@ -529,28 +529,30 @@ test_that("Stan code for intercept only models is correct", {
                "b_mu3_Intercept = temp_mu3_Intercept;")
 })
 
-test_that("Stan code for smooth only models is correct", {
-  expect_match2(make_stancode(count ~ s(log_Age_c), data = epilepsy),
-               "matrix[N, K - 1] Xc;")
-})
-
 test_that("Stan code of ordinal models is correct", {
   dat <- data.frame(y = c(rep(1:4, 2), 1, 1), x1 = rnorm(10), 
                     x2 = rnorm(10), g = rep(1:2, 5))
   
-  scode <- make_stancode(y ~ x1, dat, family = cumulative())
+  scode <- make_stancode(
+    y ~ x1, dat, family = cumulative(),
+    prior = prior(normal(0, 2), Intercept, coef = 2)
+  )
   expect_match2(scode, 
     "target += ordered_logistic_lpmf(Y[n] | mu[n], temp_Intercept);"
   )
+  expect_match2(scode, "target += student_t_lpdf(temp_Intercept[1] | 3, 0, 10);")
+  expect_match2(scode, "target += normal_lpdf(temp_Intercept[2] | 0, 2);")
   
   scode <- make_stancode(
-    y ~ x1, dat, cumulative("probit", threshold = "equidistant")
+    y ~ x1, dat, cumulative("probit", threshold = "equidistant"),
+    prior = prior(normal(0, 2), Intercept, coef = 1)
   )
   expect_match2(scode, "real cumulative_probit_lpmf(int y")
   expect_match2(scode, "p = Phi(disc * (thres[1] - mu));")
   expect_match2(scode, "real<lower=0> delta;")
   expect_match2(scode, "temp_Intercept[k] = temp_Intercept1 + (k - 1.0) * delta;")
   expect_match2(scode, "b_Intercept = temp_Intercept + dot_product(means_X, b);")
+  expect_match2(scode, "target += normal_lpdf(temp_Intercept1 | 0, 2);")
   
   scode <- make_stancode(y ~ x1, dat, family = cratio("probit_approx"))
   expect_match2(scode, "real cratio_probit_approx_lpmf(int y")
@@ -629,14 +631,20 @@ test_that("monotonic effects appear in the Stan code", {
 
 test_that("Stan code for non-linear models is correct", {
   flist <- list(a ~ x, b ~ z + (1|g))
-  data <- data.frame(y = rgamma(9, 1, 1), x = rnorm(9), z = rnorm(9), 
-                     g = rep(1:3, 3))
+  data <- data.frame(
+    y = rgamma(9, 1, 1), x = rnorm(9), 
+    z = rnorm(9), g = rep(1:3, 3)
+  )
   prior <- c(set_prior("normal(0,5)", nlpar = "a"),
              set_prior("normal(0,1)", nlpar = "b"))
   # syntactic validity is already checked within make_stancode
-  scode <- make_stancode(bf(y ~ a - exp(b^z), flist = flist, nl = TRUE), 
-                            data = data, prior = prior)
-  expect_match2(scode, "mu[n] = nlp_a[n] - exp(nlp_b[n] ^ C_1[n]);")
+  scode <- make_stancode(
+    bf(y ~ a - exp(b^z) * (z <= a), flist = flist, nl = TRUE), 
+    data = data, prior = prior
+  )
+  expect_match2(scode, 
+    "mu[n] = nlp_a[n] - exp(nlp_b[n] ^ C_1[n]) * (C_1[n] <= nlp_a[n]);"
+  )
   
   # non-linear predictor can be computed outside a loop
   scode <- make_stancode(bf(y ~ a - exp(b + z), flist = flist, 
@@ -825,8 +833,7 @@ test_that("Stan code of response times models is correct", {
 })
 
 test_that("Stan code of wiener diffusion models is correct", {
-  dat <- RWiener::rwiener(n=100, alpha=2, tau=.3, beta=.5, delta=.5)
-  dat$x <- rnorm(100)
+  dat <- data.frame(q = 1:10, resp = sample(0:1, 10, TRUE), x = rnorm(10))
   scode <- make_stancode(q | dec(resp) ~ x, data = dat, family = wiener())
   expect_match2(scode, 
     "target += wiener_diffusion_lpdf(Y[n] | dec[n], bs, ndt, bias, mu[n])"
@@ -1430,16 +1437,19 @@ test_that("Stan code for missing value terms works correctly", {
   
   bform <- bf(y ~ mi(x)*mo(g)) + bf(x | mi() ~ 1) + set_rescor(FALSE)
   scode <- make_stancode(bform, dat)
-  expect_match2(scode, "(bsp_y[3]) * mo(simo_y_2, Xmo_y_2[n]) * Yl_x[n];")
+  expect_match2(scode, "(bsp_y[3]) * Yl_x[n] * mo(simo_y_2, Xmo_y_2[n]);")
   
   bform <- bf(x | mi() ~ y, family = "lognormal")
   scode <- make_stancode(bform, dat)
   expect_match2(scode, "vector<lower=0>[Nmi] Ymi;")
   
-  bform <- bf(y ~ mi(x)*g) + 
+  bform <- bf(y ~ I(log(mi(x))) * g) + 
     bf(x | mi() + trunc(lb = 1) ~ y, family = "lognormal")
   scode <- make_stancode(bform, dat)
   expect_match2(scode, "vector<lower=1>[Nmi_x] Ymi_x;")
+  expect_match2(scode, 
+    "(bsp_y[1]) * (log(Yl_x[n])) + (bsp_y[2]) * (log(Yl_x[n])) * Csp_y_1[n]"              
+  )
   
   bform <- bf(y ~ mi(x)*g) + 
     bf(x | mi() + cens(z) ~ y, family = "beta")

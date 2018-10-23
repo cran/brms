@@ -1,27 +1,38 @@
-data_effects <- function(x, ...) {
-  # generate data for various kind of effects 
-  UseMethod("data_effects")
+#' Prepare Predictor Data
+#' 
+#' Prepare data related to predictor variables in \pkg{brms}. 
+#' Only exported for use in package development.
+#' 
+#' @param x An \R object.
+#' @param ... Further arguments passed to or from other methods.
+#' 
+#' @return A named list of data related to predictor variables.
+#' 
+#' @keywords internal
+#' @export
+data_predictor <- function(x, ...) {
+  UseMethod("data_predictor")
 }
 
 #' @export
-data_effects.mvbrmsterms <- function(x, old_sdata = NULL, ...) {
+data_predictor.mvbrmsterms <- function(x, old_sdata = NULL, ...) {
   out <- list()
   for (i in seq_along(x$terms)) {
     od <- old_sdata[[x$responses[i]]]
-    out <- c(out, data_effects(x$terms[[i]], old_sdata = od, ...))
+    out <- c(out, data_predictor(x$terms[[i]], old_sdata = od, ...))
   }
   out
 }
 
 #' @export
-data_effects.brmsterms <- function(x, data, prior, ranef, meef,
-                                   cov_ranef = NULL, knots = NULL, 
-                                   not4stan = FALSE, old_sdata = NULL) {
+data_predictor.brmsterms <- function(x, data, prior, ranef, meef, 
+                                     cov_ranef = NULL, knots = NULL, 
+                                     not4stan = FALSE, old_sdata = NULL, ...) {
   out <- list()
   args_eff <- nlist(data, ranef, prior, knots, not4stan)
   for (dp in names(x$dpars)) {
     args_eff_spec <- list(x = x$dpars[[dp]], old_sdata = old_sdata[[dp]])
-    c(out) <- do.call(data_effects, c(args_eff_spec, args_eff))
+    c(out) <- do.call(data_predictor, c(args_eff_spec, args_eff))
   }
   for (dp in names(x$fdpars)) {
     resp <- usc(combine_prefix(x))
@@ -29,7 +40,7 @@ data_effects.brmsterms <- function(x, data, prior, ranef, meef,
   }
   for (nlp in names(x$nlpars)) {
     args_eff_spec <- list(x = x$nlpars[[nlp]], old_sdata = old_sdata[[nlp]])
-    c(out) <- do.call(data_effects, c(args_eff_spec, args_eff))
+    c(out) <- do.call(data_predictor, c(args_eff_spec, args_eff))
   }
   c(out,
     data_gr(ranef, data, cov_ranef = cov_ranef),
@@ -39,9 +50,9 @@ data_effects.brmsterms <- function(x, data, prior, ranef, meef,
 }
 
 #' @export
-data_effects.btl <- function(x, data, ranef = empty_ranef(), 
-                             prior = brmsprior(), knots = NULL, 
-                             not4stan = FALSE, old_sdata = NULL) {
+data_predictor.btl <- function(x, data, ranef = empty_ranef(), 
+                               prior = brmsprior(), knots = NULL, 
+                               not4stan = FALSE, old_sdata = NULL, ...) {
   # prepare data for all types of effects for use in Stan
   # Args:
   #   data: the data passed by the user
@@ -55,13 +66,11 @@ data_effects.btl <- function(x, data, ranef = empty_ranef(),
   #   old_sdata: see 'extract_old_standata'
   # Returns:
   #   A named list of data to be passed to Stan
-  c(data_fe(
-      x, data, knots = knots, not4stan = not4stan, 
-      smooths = old_sdata$smooths
-    ),
+  c(data_fe(x, data, not4stan = not4stan),
     data_sp(x, data, prior = prior, Jmo = old_sdata$Jmo),
     data_re(x, data, ranef = ranef),
     data_cs(x, data),
+    data_sm(x, data, knots = knots, smooths = old_sdata$smooths),
     data_gp(x, data, gps = old_sdata$gps),
     data_offset(x, data),
     data_prior(x, data, prior = prior)
@@ -69,9 +78,9 @@ data_effects.btl <- function(x, data, ranef = empty_ranef(),
 }
 
 #' @export 
-data_effects.btnl <- function(x, data, ranef = empty_ranef(), 
-                              prior = brmsprior(), knots = NULL, 
-                              not4stan = FALSE, old_sdata = NULL) {
+data_predictor.btnl <- function(x, data, ranef = empty_ranef(), 
+                                prior = brmsprior(), knots = NULL, 
+                                not4stan = FALSE, old_sdata = NULL, ...) {
   # prepare data for non-linear parameters for use in Stan
   # matrix of covariates appearing in the non-linear formula
   out <- list()
@@ -98,7 +107,7 @@ data_fe <- function(bterms, data, knots = NULL,
                     not4stan = FALSE, smooths = NULL) {
   # prepare data of fixed effects and smooth terms for use in Stan
   # handle smooth terms here as they also affect the FE design matrix 
-  # Args: see data_effects
+  # Args: see data_predictor
   out <- list()
   p <- usc(combine_prefix(bterms))
   is_ordinal <- is_ordinal(bterms$family)
@@ -106,57 +115,71 @@ data_fe <- function(bterms, data, knots = NULL,
   # the intercept is removed inside the Stan code for ordinal models
   cols2remove <- if (is_ordinal && not4stan || is_bsts) "(Intercept)"
   X <- get_model_matrix(rhs(bterms$fe), data, cols2remove = cols2remove)
-  smterms <- all_terms(bterms[["sm"]])
-  if (length(smterms)) {
-    stopifnot(is.null(smooths) || length(smooths) == length(smterms))
-    Xs <- Zs <- list()
-    new_smooths <- !length(smooths)
-    if (new_smooths) {
-      smooths <- named_list(smterms)
-      for (i in seq_along(smterms)) {
-        smooths[[i]] <- mgcv::smoothCon(
-          eval2(smterms[i]), data = data, 
-          knots = knots, absorb.cons = TRUE
-        )
-      }
-    }
-    bylevels <- named_list(smterms)
-    ns <- 0
-    for (i in seq_along(smooths)) {
-      # may contain multiple terms when 'by' is a factor
-      for (j in seq_along(smooths[[i]])) {
-        ns <- ns + 1
-        sm <- smooths[[i]][[j]]
-        if (length(sm$by.level)) {
-          bylevels[[i]][j] <- sm$by.level
-        }
-        if (!new_smooths) {
-          sm$X <- PredictMat(sm, data = data)
-        }
-        rasm <- mgcv::smooth2random(sm, names(data), type = 2)
-        Xs[[ns]] <- rasm$Xf
-        if (ncol(Xs[[ns]])) {
-          colnames(Xs[[ns]]) <- paste0(sm$label, "_", seq_cols(Xs[[ns]]))
-        }
-        Zs <- rasm$rand
-        Zs <- setNames(Zs, paste0("Zs", p, "_", ns, "_", seq_along(Zs)))
-        knots <- list(length(Zs), as.array(ulapply(Zs, ncol)))
-        knots <- setNames(knots, paste0(c("nb", "knots"), p, "_", ns))
-        out <- c(out, knots, Zs)
-      }
-    }
-    X <- cbind(X, do.call(cbind, Xs))
-    smcols <- lapply(Xs, function(x) which(colnames(X) %in% colnames(x)))
-    X <- structure(X, smcols = smcols, bylevels = bylevels)
-    colnames(X) <- rename(colnames(X))
-  }
   avoid_dpars(colnames(X), bterms = bterms)
-  c(out, setNames(list(ncol(X), X), paste0(c("K", "X"), p)))
+  out[[paste0("K", p)]] <- ncol(X)
+  out[[paste0("X", p)]] <- X
+  out
+}
+
+data_sm <- function(bterms, data, knots = NULL, smooths = NULL) {
+  # data preparation for splines
+  out <- list()
+  smterms <- all_terms(bterms[["sm"]])
+  if (!length(smterms)) {
+    return(out)
+  }
+  p <- usc(combine_prefix(bterms))
+  new <- length(smooths) > 0L
+  if (!new) {
+    smooths <- named_list(smterms)
+    for (i in seq_along(smterms)) {
+      smooths[[i]] <- mgcv::smoothCon(
+        eval2(smterms[i]), data = data, 
+        knots = knots, absorb.cons = TRUE
+      )
+    }
+  }
+  bylevels <- named_list(smterms)
+  ns <- 0
+  lXs <- list()
+  for (i in seq_along(smooths)) {
+    # may contain multiple terms when 'by' is a factor
+    for (j in seq_along(smooths[[i]])) {
+      ns <- ns + 1
+      sm <- smooths[[i]][[j]]
+      if (length(sm$by.level)) {
+        bylevels[[i]][j] <- sm$by.level
+      }
+      if (new) {
+        # prepare rasm for use with new data
+        rasm <- s2rPred(sm, data)
+      } else {
+        rasm <- mgcv::smooth2random(sm, names(data), type = 2)
+      }
+      lXs[[ns]] <- rasm$Xf
+      if (NCOL(lXs[[ns]])) {
+        colnames(lXs[[ns]]) <- paste0(sm$label, "_", seq_cols(lXs[[ns]]))
+      }
+      Zs <- rasm$rand
+      Zs <- setNames(Zs, paste0("Zs", p, "_", ns, "_", seq_along(Zs)))
+      knots <- list(length(Zs), as.array(ulapply(Zs, ncol)))
+      knots <- setNames(knots, paste0(c("nb", "knots"), p, "_", ns))
+      c(out) <- c(knots, Zs)
+    }
+  }
+  Xs <- do.call(cbind, lXs)
+  avoid_dpars(colnames(Xs), bterms = bterms)
+  smcols <- lapply(lXs, function(x) which(colnames(Xs) %in% colnames(x)))
+  Xs <- structure(Xs, smcols = smcols, bylevels = bylevels)
+  colnames(Xs) <- rename(colnames(Xs))
+  out[[paste0("Ks", p)]] <- ncol(Xs)
+  out[[paste0("Xs", p)]] <- Xs
+  out
 }
 
 data_re <- function(bterms, data, ranef) {
   # prepare data for group-level effects for use in Stan
-  # Args: see data_effects
+  # Args: see data_predictor
   out <- list()
   px <- check_prefix(bterms)
   take <- find_rows(ranef, ls = px) & !find_rows(ranef, type = "sp")
@@ -311,7 +334,7 @@ data_gr <- function(ranef, data, cov_ranef = NULL) {
 
 data_sp <- function(bterms, data, prior = brmsprior(), Jmo = NULL) {
   # prepare data for special effects for use in Stan
-  # Args: see data_effects
+  # Args: see data_predictor
   out <- list()
   spef <- tidy_spef(bterms, data)
   if (!nrow(spef)) return(out)
@@ -319,7 +342,7 @@ data_sp <- function(bterms, data, prior = brmsprior(), Jmo = NULL) {
   p <- usc(combine_prefix(px))
   # prepare general data
   out[[paste0("Ksp", p)]] <- nrow(spef)
-  Csp <- get_model_matrix(bterms$sp, data)
+  Csp <- sp_model_matrix(bterms$sp, data)
   avoid_dpars(colnames(Csp), bterms = bterms)
   Csp <- Csp[, spef$Ic > 0, drop = FALSE]
   Csp <- lapply(seq_cols(Csp), function(i) as.array(Csp[, i]))
@@ -331,7 +354,7 @@ data_sp <- function(bterms, data, prior = brmsprior(), Jmo = NULL) {
     # prepare data specific to monotonic effects
     out[[paste0("Imo", p)]] <- max(unlist(spef$Imo))
     Xmo_fun <- function(x) as.array(attr(eval2(x, data), "var"))
-    Xmo <- lapply(unlist(spef$call_mo), Xmo_fun)
+    Xmo <- lapply(unlist(spef$calls_mo), Xmo_fun)
     Xmo_names <- paste0("Xmo", p, "_", seq_along(Xmo))
     out <- c(out, setNames(Xmo, Xmo_names))
     compute_Jmo <- is.null(Jmo)
@@ -363,7 +386,7 @@ data_sp <- function(bterms, data, prior = brmsprior(), Jmo = NULL) {
 
 data_cs <- function(bterms, data) {
   # prepare data for category specific effects
-  # Args: see data_effects
+  # Args: see data_predictor
   out <- list()
   if (length(all_terms(bterms[["cs"]]))) {
     p <- usc(combine_prefix(bterms))
@@ -433,7 +456,7 @@ data_Xme <- function(meef, data) {
 
 data_gp <- function(bterms, data, gps = NULL) {
   # prepare data for Gaussian process terms
-  # Args: see data_effects
+  # Args: see data_predictor
   out <- list()
   px <- check_prefix(bterms)
   p <- usc(combine_prefix(px))
@@ -514,7 +537,7 @@ data_gp <- function(bterms, data, gps = NULL) {
 
 data_offset <- function(bterms, data) {
   # prepare data of offsets for use in Stan
-  # Args: see data_effects
+  # Args: see data_predictor
   out <- list()
   px <- check_prefix(bterms)
   if (is.formula(bterms$offset)) {
@@ -669,10 +692,19 @@ data_autocor <- function(bterms, data, Y = NULL, new = FALSE,
   out
 }
 
+#' Prepare Response Data
+#' 
+#' Prepare data related to response variables in \pkg{brms}. 
+#' Only exported for use in package development.
+#' 
+#' @param x An \R object.
+#' @param ... Further arguments passed to or from other methods.
+#' 
+#' @return A named list of data related to response variables.
+#' 
+#' @keywords internal
+#' @export
 data_response <- function(x, ...) {
-  # prepare data for the response variable to be passed to Stan
-  # this shouldn't be part of stan_effects() to allow for
-  # preparation of response variables without anything else
   UseMethod("data_response")
 }
 
@@ -693,7 +725,7 @@ data_response.mvbrmsterms <- function(x, old_sdata = NULL, ...) {
 #' @export
 data_response.brmsterms <- function(x, data, check_response = TRUE,
                                     not4stan = FALSE, new = FALSE,
-                                    old_sdata = NULL) {
+                                    old_sdata = NULL, ...) {
   # prepare data for the response variable
   N <- nrow(data)
   Y <- model.response(model.frame(x$respform, data, na.action = na.pass))

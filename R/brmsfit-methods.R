@@ -46,7 +46,7 @@ fixef.brmsfit <-  function(object, summary = TRUE, robust = FALSE,
   fpars <- all_pars[grepl(fixef_pars(), all_pars)]
   if (!is.null(pars)) {
     pars <- as.character(pars)
-    fpars <- intersect(fpars, paste0("b_", pars))
+    fpars <- fpars[sub("^[^_]+_", "", fpars) %in% pars]
   }
   if (!length(fpars)) {
     return(NULL)
@@ -1537,11 +1537,6 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
   if (!length(out)) {
     stop2("No valid smooth terms found in the model.")
   }
-  too_many_covars <- any(ulapply(out, attr, "too_many_covars"))
-  if (too_many_covars) {
-    warning2("Smooth terms with more than two covariates ",
-             "are not yet supported by 'marginal_smooths'.")
-  }
   structure(out, class = "brmsMarginalEffects", smooths_only = TRUE)
 }
 
@@ -1556,50 +1551,17 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
 #' method. This is because the measurement error is incorporated.
 #' The estimated means of both methods should, however, be very similar.
 #' 
-#' @param object An object of class \code{brmsfit}
-#' @param newdata An optional data.frame for which to evaluate predictions.
-#'   If \code{NULL} (default), the original data of the model is used.
-#' @param re_formula formula containing group-level effects 
-#'   to be considered in the prediction. 
-#'   If \code{NULL} (default), include all group-level effects; 
-#'   if \code{NA}, include no group-level effects.
+#' @inheritParams extract_draws
+#' @param object An object of class \code{brmsfit}.
 #' @param re.form Alias of \code{re_formula}.
 #' @param transform A function or a character string naming 
 #'   a function to be applied on the predicted responses
 #'   before summary statistics are computed.
-#' @param allow_new_levels A flag indicating if new
-#'   levels of group-level effects are allowed 
-#'   (defaults to \code{FALSE}). 
-#'   Only relevant if \code{newdata} is provided.
-#' @param sample_new_levels Indicates how to sample new levels 
-#'   for grouping factors specified in \code{re_formula}.
-#'   This argument is only relevant if \code{newdata} is provided and 
-#'   \code{allow_new_levels} is set to \code{TRUE}.
-#'   If \code{"uncertainty"} (default), include group-level uncertainty
-#'   in the predictions based on the variation of the existing levels. 
-#'   If \code{"gaussian"}, sample new levels from the (multivariate) 
-#'   normal distribution implied by the group-level standard deviations 
-#'   and correlations. This options may be useful for conducting 
-#'   Bayesian power analysis. 
-#'   If \code{"old_levels"}, directly sample new levels from the
-#'   existing levels. 
-#' @param new_objects A named \code{list} of objects containing 
-#'   new data, which cannot be passed via argument \code{newdata}.
-#'   Currently, only required for objects passed to 
-#'   \code{\link[brms:cor_sar]{cor_sar}} and 
-#'   \code{\link[brms:cor_fixed]{cor_fixed}}. 
-#' @param incl_autocor A flag indicating if ARMA autocorrelation
-#'  parameters should be included in the predictions. Defaults to 
-#'  \code{TRUE}. Setting it to \code{FALSE} will not affect other 
-#'  correlation structures such as \code{\link[brms:cor_bsts]{cor_bsts}},
-#'  or \code{\link[brms:cor_fixed]{cor_fixed}}.
 #' @param negative_rt Only relevant for Wiener diffusion models. 
 #'   A flag indicating whether response times of responses
 #'   on the lower boundary should be returned as negative values.
 #'   This allows to distinguish responses on the upper and
 #'   lower boundary. Defaults to \code{FALSE}.
-#' @param resp Optional names of response variables.
-#'  If specified, fitted values of these response variables are returned.
 #' @param summary Should summary statistics 
 #'   (i.e. means, sds, and 95\% intervals) be returned
 #'  instead of the raw values? Default is \code{TRUE}.
@@ -1610,13 +1572,6 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
 #'  Only used if \code{summary} is \code{TRUE}.
 #' @param probs  The percentiles to be computed by the \code{quantile} 
 #'  function. Only used if \code{summary} is \code{TRUE}. 
-#' @param subset A numeric vector specifying
-#'  the posterior samples to be used. 
-#'  If \code{NULL} (the default), all samples are used.
-#' @param nsamples Positive integer indicating how many 
-#'  posterior samples should be used. 
-#'  If \code{NULL} (the default) all samples are used.
-#'  Ignored if \code{subset} is not \code{NULL}.
 #' @param sort Logical. Only relevant for time series models. 
 #'  Indicating whether to return predicted values in the original 
 #'  order (\code{FALSE}; default) or in the order of the 
@@ -1624,12 +1579,8 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
 #' @param ntrys Parameter used in rejection sampling 
 #'   for truncated discrete models only 
 #'   (defaults to \code{5}). See Details for more information.
-#' @param nug Small positive number for Gaussian process terms only. 
-#'   For numerical reasons, the covariance matrix of a Gaussian 
-#'   process might not be positive definite. Adding a very small 
-#'   number to the matrix's diagonal often solves this problem. 
-#'   If \code{NULL} (the default), \code{nug} is chosen internally.
-#' @param ... Currently ignored.
+#' @param ... Further arguments passed to \code{\link{extract_draws}}
+#'   that control several aspects of data validation and prediction.
 #' 
 #' @return Predicted values of the response variable. 
 #'   If \code{summary = TRUE} the output depends on the family:
@@ -1687,19 +1638,16 @@ marginal_smooths.brmsfit <- function(x, smooths = NULL,
 #' 
 #' @export 
 predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
-                            transform = NULL, allow_new_levels = FALSE,
-                            sample_new_levels = "uncertainty", 
-                            new_objects = list(), incl_autocor = TRUE, 
-                            resp = NULL, negative_rt = FALSE, subset = NULL, 
-                            nsamples = NULL, sort = FALSE, nug = NULL, 
-                            ntrys = 5, summary = TRUE, robust = FALSE,
+                            transform = NULL, resp = NULL, 
+                            negative_rt = FALSE, nsamples = NULL, 
+                            subset = NULL, sort = FALSE, ntrys = 5, 
+                            summary = TRUE, robust = FALSE,
                             probs = c(0.025, 0.975), ...) {
   contains_samples(object)
   object <- restructure(object)
   draws_args <- nlist(
-    x = object, newdata, re_formula, incl_autocor, allow_new_levels,
-    sample_new_levels, new_objects, resp, subset, nsamples, nug,
-    check_response = FALSE
+    x = object, newdata, re_formula, resp, 
+    nsamples, subset, check_response = FALSE, ...
   )
   draws <- do.call(extract_draws, draws_args)
   predict_args <- nlist(
@@ -1715,14 +1663,11 @@ predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' @export
 #' @export posterior_predict
 #' @importFrom rstantools posterior_predict
-posterior_predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
-                                      re.form = NULL, transform = NULL, 
-                                      allow_new_levels = FALSE,
-                                      sample_new_levels = "uncertainty", 
-                                      new_objects = list(), incl_autocor = TRUE, 
-                                      resp = NULL, negative_rt = FALSE, subset = NULL, 
-                                      nsamples = NULL, sort = FALSE, nug = NULL, 
-                                      ntrys = 5, ...) {
+posterior_predict.brmsfit <- function(
+  object, newdata = NULL, re_formula = NULL, re.form = NULL, 
+  transform = NULL, resp = NULL, negative_rt = FALSE, 
+  nsamples = NULL, subset = NULL, sort = FALSE, ntrys = 5, ...
+) {
   cl <- match.call()
   cl[[1]] <- quote(predict)
   cl$summary <- FALSE
@@ -1798,20 +1743,16 @@ posterior_predict.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' @export 
 fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
                            scale = c("response", "linear"),
-                           allow_new_levels = FALSE, 
-                           sample_new_levels = "uncertainty", 
-                           new_objects = list(), incl_autocor = TRUE, 
                            resp = NULL, dpar = NULL, nlpar = NULL,
-                           subset = NULL, nsamples = NULL, sort = FALSE, 
-                           nug = NULL, summary = TRUE, robust = FALSE, 
+                           nsamples = NULL, subset = NULL, 
+                           sort = FALSE, summary = TRUE, robust = FALSE, 
                            probs = c(0.025, 0.975), ...) {
   scale <- match.arg(scale)
   contains_samples(object)
   object <- restructure(object)
   draws_args <- nlist(
-    x = object, newdata, re_formula, incl_autocor, allow_new_levels, 
-    sample_new_levels, new_objects, resp, subset, nsamples, nug,
-    check_response = FALSE
+    x = object, newdata, re_formula, resp, 
+    nsamples, subset, check_response = FALSE, ...
   )
   draws <- do.call(extract_draws, draws_args)
   fitted_args <- nlist(
@@ -1828,10 +1769,8 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' @importFrom rstantools posterior_linpred
 posterior_linpred.brmsfit <- function(
   object, transform = FALSE, newdata = NULL, re_formula = NULL,
-  re.form = NULL, allow_new_levels = FALSE, sample_new_levels = "uncertainty",
-  new_objects = list(), incl_autocor = TRUE, resp = NULL, dpar = NULL, 
-  nlpar = NULL, subset = NULL, nsamples = NULL, sort = FALSE, nug = NULL, 
-  ...
+  re.form = NULL, resp = NULL, dpar = NULL, nlpar = NULL, 
+  nsamples = NULL, subset = NULL, sort = FALSE, ...
 ) {
   cl <- match.call()
   cl[[1]] <- quote(fitted)
@@ -1894,12 +1833,10 @@ posterior_linpred.brmsfit <- function(
 residuals.brmsfit <- function(object, newdata = NULL, re_formula = NULL, 
                               type = c("ordinary", "pearson"),
                               method = c("fitted", "predict"),
-                              allow_new_levels = FALSE, 
-                              sample_new_levels = "uncertainty",
-                              new_objects = list(), incl_autocor = TRUE, 
-                              resp = NULL, subset = NULL, nsamples = NULL, 
-                              sort = FALSE, nug = NULL, summary = TRUE, 
-                              robust = FALSE, probs = c(0.025, 0.975), ...) {
+                              resp = NULL, nsamples = NULL,
+                              subset = NULL, sort = FALSE, 
+                              summary = TRUE, robust = FALSE, 
+                              probs = c(0.025, 0.975), ...) {
   type <- match.arg(type)
   method <- match.arg(method)
   contains_samples(object)
@@ -1910,8 +1847,8 @@ residuals.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     stop2("Residuals are not defined for ordinal or categorical models.")
   }
   newd_args <- nlist(
-    object, newdata, re_formula, allow_new_levels,
-    new_objects, check_response = TRUE, internal = TRUE
+    object, newdata, re_formula, ...,
+    check_response = TRUE, internal = TRUE
   )
   sdata <- do.call(standata, newd_args)
   if (any(grepl("^cens_", names(sdata)))) {
@@ -1921,9 +1858,8 @@ residuals.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     subset <- sample(nsamples(object), nsamples)
   }
   pred_args <- nlist(
-    object, newdata, re_formula, allow_new_levels,
-    sample_new_levels, new_objects, incl_autocor, 
-    resp, subset, nug, summary = FALSE, sort = TRUE
+    object, newdata, re_formula, resp, subset, 
+    summary = FALSE, sort = TRUE, ...
   )
   mu <- do.call(method, pred_args)
   if (length(dim(mu)) == 3L) {
@@ -1964,13 +1900,11 @@ residuals.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' @export
 #' @export predictive_error
 #' @importFrom rstantools predictive_error
-predictive_error.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
-                                     re.form = NULL, allow_new_levels = FALSE, 
-                                     sample_new_levels = "uncertainty",
-                                     new_objects = list(), incl_autocor = TRUE, 
-                                     resp = NULL, subset = NULL, nsamples = NULL, 
-                                     sort = FALSE, nug = NULL, robust = FALSE, 
-                                     probs = c(0.025, 0.975), ...) {
+predictive_error.brmsfit <- function(
+  object, newdata = NULL, re_formula = NULL, re.form = NULL, 
+  resp = NULL, nsamples = NULL, subset = NULL, sort = FALSE, 
+  robust = FALSE, probs = c(0.025, 0.975), ...
+) {
   cl <- match.call()
   cl[[1]] <- quote(residuals)
   cl$method <- "predict"
@@ -1981,6 +1915,34 @@ predictive_error.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
     cl$re.form <- NULL
   }
   eval(cl, parent.frame())
+}
+
+#' Predictive Intervals
+#'
+#' Compute intervals from the posterior predictive distribution.
+#' 
+#' @aliases predictive_interval
+#' 
+#' @param object An \R object of class \code{brmsfit}.
+#' @param prob A number p (0 < p < 1) indicating the desired probability mass to
+#'   include in the intervals. Defaults to \code{0.9}.
+#' @param ... Further arguments passed to \code{\link{posterior_predict}}.
+#' 
+#' @return A matrix with 2 columns for the lower and upper bounds of the
+#'   intervals, respectively, and as many rows as observations being predicted.
+#' 
+#' @examples 
+#' \dontrun{
+#' fit <- brm(count ~ log_Base4_c, data = epilepsy, family = poisson())
+#' predictive_interval(fit)
+#' }
+#' 
+#' @importFrom rstantools predictive_interval
+#' @export predictive_interval
+#' @export
+predictive_interval.brmsfit <- function(object, prob = 0.9, ...) {
+  out <- posterior_predict(object, ...)
+  predictive_interval(out, prob = prob)
 }
 
 #' @rdname model_weights
@@ -2357,6 +2319,7 @@ update.brmsfit <- function(object, formula., newdata = NULL,
   testmode <- isTRUE(dots[["testmode"]])
   dots$testmode <- NULL
   object <- restructure(object)
+  object$file <- NULL
   if (isTRUE(object$version$brms < "2.0.0")) {
     warning2("Updating models fitted with older versions of brms may fail.")
   }
@@ -2590,7 +2553,7 @@ waic.brmsfit <- function(x, ..., compare = TRUE, resp = NULL,
 #' @export
 LOO.brmsfit <- function(x, ..., compare = TRUE, resp = NULL,
                         pointwise = FALSE, reloo = FALSE, k_threshold = 0.7,
-                        model_names = NULL) {
+                        reloo_args = list(), model_names = NULL) {
   cl <- match.call()
   cl[[1]] <- quote(loo)
   eval(cl, parent.frame())
@@ -2621,6 +2584,8 @@ LOO.brmsfit <- function(x, ..., compare = TRUE, resp = NULL,
 #'   estimates are treated as problematic. Defaults to \code{0.7}. 
 #'   Only used if argument \code{reloo} is \code{TRUE}.
 #'   See \code{\link[loo:pareto_k_ids]{pareto_k_ids}} for more details.
+#' @param reloo_args Optional \code{list} of additional arguments passed to
+#'   \code{\link{reloo}}.
 #' @param model_names If \code{NULL} (the default) will use model names 
 #'   derived from deparsing the call. Otherwise will use the passed 
 #'   values as model names.
@@ -2669,7 +2634,7 @@ LOO.brmsfit <- function(x, ..., compare = TRUE, resp = NULL,
 #' @export
 loo.brmsfit <-  function(x, ..., compare = TRUE, resp = NULL,
                          pointwise = FALSE, reloo = FALSE, k_threshold = 0.7,
-                         model_names = NULL) {
+                         reloo_args = list(), model_names = NULL) {
   args <- split_dots(x, ..., model_names = model_names)
   not_for_reloo <- intersect(names(args), args_not_for_reloo())
   if (reloo && length(not_for_reloo)) {
@@ -2677,12 +2642,15 @@ loo.brmsfit <-  function(x, ..., compare = TRUE, resp = NULL,
     stop2("Cannot use 'reloo' with arguments ", not_for_reloo, ".")
   }
   args$use_stored_ic <- !length(not_for_reloo)
-  c(args) <- nlist(ic = "loo", pointwise, compare, resp, k_threshold, reloo)
+  c(args) <- nlist(
+    ic = "loo", pointwise, compare, resp, 
+    k_threshold, reloo, reloo_args
+  )
   do.call(compute_ics, args)
 }
 
 #' @export
-#' @describeIn kfold \code{kfold} method for \code{brmsfit} objects
+#' @rdname kfold
 kfold.brmsfit <- function(x, ..., compare = TRUE, K = 10, Ksub = NULL, 
                           folds = NULL, group = NULL, exact_loo = NULL, 
                           resp = NULL, model_names = NULL, save_fits = FALSE) {
@@ -2876,7 +2844,6 @@ loo_model_weights.brmsfit <- function(x, ..., model_names = NULL) {
 #'   observation. The latter option is rarely useful when
 #'   calling \code{log_lik} directly, but rather when computing
 #'   \code{\link{waic}} or \code{\link{loo}}.
-#' @param ... Currently ignored
 #' 
 #' @return Usually, an S x N matrix containing the pointwise log-likelihood
 #'  samples, where S is the number of samples and N is the number 
@@ -2893,18 +2860,13 @@ loo_model_weights.brmsfit <- function(x, ..., model_names = NULL) {
 #' @export log_lik
 #' @importFrom rstantools log_lik
 log_lik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
-                            allow_new_levels = FALSE, 
-                            sample_new_levels = "uncertainty", 
-                            new_objects = list(), incl_autocor = TRUE, 
-                            resp = NULL, subset = NULL, nsamples = NULL, 
-                            pointwise = FALSE, nug = NULL, combine = TRUE, 
-                            ...) {
+                            resp = NULL, nsamples = NULL, subset = NULL, 
+                            pointwise = FALSE, combine = TRUE, ...) {
   contains_samples(object)
   object <- restructure(object)
   draws_args <- nlist(
-    x = object, newdata, re_formula, allow_new_levels, incl_autocor,
-    sample_new_levels, new_objects, resp, subset, nsamples, nug, 
-    check_response = TRUE
+    x = object, newdata, re_formula, resp, 
+    subset, nsamples, check_response = TRUE, ...
   )
   draws <- do.call(extract_draws, draws_args)
   if (pointwise) {
@@ -2927,11 +2889,8 @@ log_lik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 
 #' @export
 logLik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
-                           allow_new_levels = FALSE,
-                           sample_new_levels = "uncertainty",
-                           new_objects = list(), incl_autocor = TRUE, 
-                           resp = NULL, subset = NULL, nsamples = NULL, 
-                           pointwise = FALSE, nug = NULL, ...) {
+                           resp = NULL, nsamples = NULL, subset = NULL, 
+                           pointwise = FALSE, combine = TRUE, ...) {
   cl <- match.call()
   cl[[1]] <- quote(log_lik)
   eval(cl, parent.frame())
@@ -2940,13 +2899,9 @@ logLik.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 #' @rdname pp_mixture
 #' @export
 pp_mixture.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
-                               allow_new_levels = FALSE, 
-                               sample_new_levels = "uncertainty", 
-                               new_objects = list(), incl_autocor = TRUE, 
-                               resp = NULL, subset = NULL, nsamples = NULL, 
-                               nug = NULL, summary = TRUE, 
-                               robust = FALSE, probs = c(0.025, 0.975), 
-                               log = FALSE, ...) {
+                               resp = NULL, nsamples = NULL, subset = NULL, 
+                               log = FALSE, summary = TRUE, robust = FALSE, 
+                               probs = c(0.025, 0.975), ...) {
   stopifnot_resp(x, resp)
   contains_samples(x)
   x <- restructure(x)
@@ -2960,9 +2915,8 @@ pp_mixture.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
     stop2("Method 'pp_mixture' can only be applied on mixture models.")
   }
   draws_args <- nlist(
-    x, newdata, re_formula, allow_new_levels, incl_autocor, 
-    sample_new_levels, new_objects, subset, nsamples, nug,
-    resp, check_response = TRUE
+    x, newdata, re_formula, resp, subset, 
+    nsamples, check_response = TRUE, ...
   )
   draws <- do.call(extract_draws, draws_args)
   stopifnot(is.brmsdraws(draws))

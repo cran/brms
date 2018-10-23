@@ -1,10 +1,10 @@
-stan_effects <- function(x, ...) {
-  # generate stan code various kind of effects 
-  UseMethod("stan_effects")
+stan_predictor <- function(x, ...) {
+  # generate stan code for predictor terms
+  UseMethod("stan_predictor")
 }
 
 #' @export
-stan_effects.btl <- function(x, data, prior, ranef, ilink = rep("", 2), ...) {
+stan_predictor.btl <- function(x, data, prior, ranef, ilink = rep("", 2), ...) {
   # combine effects for the predictors of a single (non-linear) parameter
   # Args:
   #   ranef: output of tidy_ranef()
@@ -48,13 +48,13 @@ stan_effects.btl <- function(x, data, prior, ranef, ilink = rep("", 2), ...) {
 }
 
 #' @export
-stan_effects.btnl <- function(x, data, nlpars, ilink = rep("", 2), ...) {
+stan_predictor.btnl <- function(x, data, nlpars, ilink = rep("", 2), ...) {
   # prepare Stan code for non-linear models
   # Args:
   #   data: data.frame supplied by the user
   #   ilink: character vector of length 2 containing
   #     Stan code for the link function
-  #   ...: passed to stan_effects.btl
+  #   ...: passed to stan_predictor.btl
   stopifnot(length(ilink) == 2L)
   out <- list()
   par <- combine_prefix(x, keep_mu = TRUE, nlp = TRUE)
@@ -75,9 +75,15 @@ stan_effects.btnl <- function(x, data, nlpars, ilink = rep("", 2), ...) {
     )
   }
   # add whitespaces to be able to replace parameters and covariates
-  meta_sym <- c("+", "-", "*", "/", "^", ")", "(", ",")
+  syms <- c(
+    "+", "-", "*", "/", "%", "^", ".*", "./", "'", ")", "(", 
+    ",", "==", "!=", "<=", ">=", "<", ">", "!", "&&", "||" 
+  )
+  regex <- paste0("(?<!\\.)", escape_all(syms), "(?!=)")
   nlmodel <- rm_wsp(collapse(deparse(x$formula[[2]])))
-  nlmodel <- wsp(rename(nlmodel, meta_sym, wsp(meta_sym))) 
+  nlmodel <- wsp(rename(
+    nlmodel, regex, wsp(syms), fixed = FALSE, perl = TRUE
+  )) 
   nlmodel <- rename(nlmodel, 
     c(wsp(nlpars), covars, " ( ", " ) "), 
     c(new_nlpars, new_covars, "(", ")")
@@ -99,8 +105,8 @@ stan_effects.btnl <- function(x, data, nlpars, ilink = rep("", 2), ...) {
 }
 
 #' @export
-stan_effects.brmsterms <- function(x, data, prior, sparse = FALSE, 
-                                   rescor = FALSE, ...) {
+stan_predictor.brmsterms <- function(x, data, prior, sparse = FALSE, 
+                                     rescor = FALSE, ...) {
   # Stan code for distributional parameters
   # Args:
   #   rescor: indicate if this is part of an MV model estimating rescor
@@ -114,7 +120,7 @@ stan_effects.brmsterms <- function(x, data, prior, sparse = FALSE,
   )
   for (nlp in names(x$nlpars)) {
     nlp_args <- list(x$nlpars[[nlp]], center_X = FALSE)
-    out[[nlp]] <- do.call(stan_effects, c(nlp_args, args))
+    out[[nlp]] <- do.call(stan_predictor, c(nlp_args, args))
   }
   for (dp in valid_dpars) {
     dp_terms <- x$dpars[[dp]]
@@ -123,7 +129,7 @@ stan_effects.brmsterms <- function(x, data, prior, sparse = FALSE,
     if (is.btl(dp_terms) || is.btnl(dp_terms)) {
       ilink <- stan_eta_ilink(dp, bterms = x, resp = resp)
       dp_args <- list(dp_terms, ilink = ilink)
-      out[[dp]] <- do.call(stan_effects, c(dp_args, args))
+      out[[dp]] <- do.call(stan_predictor, c(dp_args, args))
     } else if (is.numeric(x$fdpars[[dp]]$value)) {
       out[[dp]] <- list(data = dp_def)
     } else if (is.character(x$fdpars[[dp]]$value)) {
@@ -153,10 +159,9 @@ stan_effects.brmsterms <- function(x, data, prior, sparse = FALSE,
 }
 
 #' @export
-stan_effects.mvbrmsterms <- function(x, prior, ...) {
-  out <- collapse_lists(
-    ls = lapply(x$terms, stan_effects, prior = prior, rescor = x$rescor, ...)
-  )
+stan_predictor.mvbrmsterms <- function(x, prior, ...) {
+  out <- lapply(x$terms, stan_predictor, prior = prior, rescor = x$rescor, ...)
+  out <- collapse_lists(ls = out)
   if (x$rescor) {
     # we already know at this point that all families are identical
     adforms <- lapply(x$terms, "[[", "adforms")
@@ -367,9 +372,7 @@ stan_fe <- function(bterms, data, prior, stanvars,
         "  ", type, "[ncat", resp, "-1] temp", p, "_Intercept;",
         "  // temporary thresholds \n"
       )
-      if (family$threshold == "flexible") {
-        str_add(out$par) <- intercept
-      } else if (family$threshold == "equidistant") {
+      if (family$threshold == "equidistant") {
         str_add(out$par) <- paste0(
           "  real temp", p, "_Intercept1;  // threshold 1 \n",
           "  real", subset2(prior, class = "delta", ls = px)$bound,
@@ -384,6 +387,8 @@ stan_fe <- function(bterms, data, prior, stanvars,
           "  } \n"
         )
         str_add(out$prior) <- stan_prior(prior, class = "delta", px = px)
+      } else {
+        str_add(out$par) <- intercept
       }
       str_add(out$genD) <- paste0(
         "  // compute actual thresholds \n",
@@ -413,10 +418,15 @@ stan_fe <- function(bterms, data, prior, stanvars,
     }
     # for equidistant thresholds only temp_Intercept1 is a parameter
     prefix <- paste0("temp", p, "_")
-    suffix <- ifelse(is_equal(family$threshold, "equidistant"), "1", "")
+    Icoefs <- suffix <- ""
+    if (is_ordinal(family)) {
+      Icoefs <- subset2(prior, class = "Intercept", ls = px)$coef
+      Icoefs <- Icoefs[nzchar(Icoefs)]
+      if (family$threshold == "equidistant") suffix <- "1"
+    }
     str_add(out$prior) <- stan_prior(
-      prior, class = "Intercept", px = px,
-      prefix = prefix, suffix = suffix
+      prior, class = "Intercept", coef = Icoefs, 
+      px = px, prefix = prefix, suffix = suffix
     )
   } else {
     if (identical(dpar_class(px$dpar), order_mixture)) {
@@ -651,9 +661,29 @@ stan_re <- function(ranef, prior, ...) {
 stan_sm <- function(bterms, data, prior, ...) {
   # Stan code of smooth terms
   out <- list()
+  smef <- tidy_smef(bterms, data)
+  if (!NROW(smef)) {
+    return(out)
+  }
   px <- check_prefix(bterms)
   p <- usc(combine_prefix(px))
-  smef <- tidy_smef(bterms, data)
+  Xs_names <- attr(smef, "Xs_names")
+  if (length(Xs_names)) {
+    str_add(out$data) <- paste0(
+      "  // data for smooth terms\n",
+      "  int Ks", p, ";\n",
+      "  matrix[N, Ks", p, "] Xs", p, ";\n"
+    )
+    str_add(out$pars) <- paste0(
+      "  // parameters for smooth terms\n",
+      "  vector[Ks", p, "] bs", p, ";\n"
+    )
+    str_add(out$eta) <- paste0(" + Xs", p, " * bs", p)
+    str_add(out$prior) <- stan_prior(
+      prior, class = "b", coef = Xs_names,
+      px = px, suffix = paste0("s", p)
+    )
+  }
   for (i in seq_rows(smef)) {
     pi <- paste0(p, "_", i)
     nb <- seq_len(smef$nbases[[i]])
@@ -772,24 +802,24 @@ stan_sp <- function(bterms, data, prior, stanvars, ranef, meef, ...) {
   }
   # prepare Stan code of the linear predictor component
   for (i in seq_rows(spef)) {
-    eta <- spef$call_prod[[i]]
-    if (!is.null(spef$call_mo[[i]])) {
+    eta <- spef$joint_call[[i]]
+    if (!is.null(spef$calls_mo[[i]])) {
       new_mo <- paste0(
         "mo(simo", p, "_", spef$Imo[[i]], 
         ", Xmo", p, "_", spef$Imo[[i]], "[n])"
       )
-      eta <- rename(eta, spef$call_mo[[i]], new_mo)
+      eta <- rename(eta, spef$calls_mo[[i]], new_mo)
     }
-    if (!is.null(spef$call_me[[i]])) {
+    if (!is.null(spef$calls_me[[i]])) {
       Kme <- seq_along(meef$term)
       Ime <- match(meef$grname, unique(meef$grname))
       nme <- ifelse(nzchar(meef$grname), paste0("Jme_", Ime, "[n]"), "n")
       new_me <- paste0("Xme_", Kme, "[", nme,"]")
       eta <- rename(eta, meef$term, new_me)
     }
-    if (!is.null(spef$call_mi[[i]])) {
+    if (!is.null(spef$calls_mi[[i]])) {
       new_mi <- paste0("Yl_", spef$vars_mi[[i]], "[n]")
-      eta <- rename(eta, spef$call_mi[[i]], new_mi)
+      eta <- rename(eta, spef$calls_mi[[i]], new_mi)
     }
     if (spef$Ic[i] > 0) {
       str_add(eta) <- paste0(" * Csp", p, "_", spef$Ic[i], "[n]")

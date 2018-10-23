@@ -1,25 +1,12 @@
-extract_draws <- function(x, ...) {
-  # extract data and posterior draws
-  UseMethod("extract_draws")
-}
-
 #' @export
-extract_draws.default <- function(x, ...) {
-  NULL
-}
-
-#' @export
+#' @rdname extract_draws
 extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL, 
+                                  allow_new_levels = FALSE,
                                   sample_new_levels = "uncertainty",
                                   incl_autocor = TRUE, resp = NULL,
-                                  subset = NULL, nsamples = NULL, nug = NULL, 
-                                  smooths_only = FALSE, ...) {
-  # extract all data and posterior draws required in (non)linear_predictor
-  # Args:
-  #   see doc of logLik.brmsfit
-  #   ...: passed to validate_newdata
-  # Returns:
-  #   A named list to be interpreted by linear_predictor
+                                  nsamples = NULL, subset = NULL, nug = NULL, 
+                                  smooths_only = FALSE, offset = TRUE, 
+                                  new_objects = list(), ...) {
   snl_options <- c("uncertainty", "gaussian", "old_levels")
   sample_new_levels <- match.arg(sample_new_levels, snl_options)
   x <- restructure(x)
@@ -31,7 +18,10 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   samples <- as.matrix(x, subset = subset)
   # prepare (new) data and stan data 
   new <- !is.null(newdata)
-  newd_args <- nlist(newdata, object = x, re_formula, resp, ...)
+  newd_args <- nlist(
+    newdata, object = x, re_formula, resp, 
+    allow_new_levels, new_objects, ...
+  )
   newdata <- do.call(validate_newdata, newd_args)
   newd_args$newdata <- newdata
   newd_args$internal <- TRUE
@@ -43,8 +33,8 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   args <- nlist(
     x = bterms, samples, sdata, data = x$data,
     ranef, old_ranef = x$ranef, meef, resp,
-    sample_new_levels, nug, smooths_only, new,
-    stanvars = names(x$stanvars)
+    sample_new_levels, nug, smooths_only, offset,
+    new, stanvars = names(x$stanvars)
   )
   if (new) {
     # extract_draws_re() also requires the new level names
@@ -168,22 +158,28 @@ extract_draws.btnl <- function(x, samples, sdata, ...) {
 }
 
 #' @export
-extract_draws.btl <- function(x, samples, sdata, smooths_only = FALSE, ...) {
+extract_draws.btl <- function(x, samples, sdata, smooths_only = FALSE, 
+                              offset = TRUE, ...) {
+  smooths_only <- as_one_logical(smooths_only)
+  offset <- as_one_logical(offset)
   nsamples <- nrow(samples)
   draws <- nlist(f = x$family, nsamples, nobs = sdata$N)
   class(draws) <- "bdrawsl"
   args <- nlist(bterms = x, samples, sdata, ...)
-  draws$fe <- do.call(extract_draws_fe, args)
-  draws$sm <- do.call(extract_draws_sm, args)
   if (smooths_only) {
     # make sure only smooth terms will be included in draws
+    draws$sm <- do.call(extract_draws_sm, args)
     return(draws)
   }
+  draws$fe <- do.call(extract_draws_fe, args)
   draws$sp <- do.call(extract_draws_sp, args)
   draws$cs <- do.call(extract_draws_cs, args)
+  draws$sm <- do.call(extract_draws_sm, args)
   draws$gp <- do.call(extract_draws_gp, args)
   draws$re <- do.call(extract_draws_re, args)
-  draws$offset <- do.call(extract_draws_offset, args)
+  if (offset) {
+    draws$offset <- do.call(extract_draws_offset, args) 
+  }
   if (!(use_cov(x$autocor) || is.cor_sar(x$autocor))) {
     draws$ac <- do.call(extract_draws_autocor, args)
   }
@@ -214,20 +210,20 @@ extract_draws_sp <- function(bterms, samples, sdata, data,
   # prepare calls evaluated in sp_predictor
   draws$calls <- vector("list", nrow(spef))
   for (i in seq_along(draws$calls)) {
-    call <- spef$call_prod[[i]]
-    if (!is.null(spef$call_mo[[i]])) {
+    call <- spef$joint_call[[i]]
+    if (!is.null(spef$calls_mo[[i]])) {
       new_mo <- paste0(
         ".mo(simo_", spef$Imo[[i]], ", Xmo_", spef$Imo[[i]], ")"
       )
-      call <- rename(call, spef$call_mo[[i]], new_mo)
+      call <- rename(call, spef$calls_mo[[i]], new_mo)
     }
-    if (!is.null(spef$call_me[[i]])) {
+    if (!is.null(spef$calls_me[[i]])) {
       new_me <- paste0("Xme_", seq_along(meef$term))
       call <- rename(call, meef$term, new_me)
     }
-    if (!is.null(spef$call_mi[[i]])) {
+    if (!is.null(spef$calls_mi[[i]])) {
       new_mi <- paste0("Yl_", spef$vars_mi[[i]])
-      call <- rename(call, spef$call_mi[[i]], new_mi)
+      call <- rename(call, spef$calls_mi[[i]], new_mi)
     }
     if (spef$Ic[i] > 0) {
       str_add(call) <- paste0(" * Csp_", spef$Ic[i])
@@ -357,17 +353,28 @@ extract_draws_cs <- function(bterms, samples, sdata, data, ...) {
 
 extract_draws_sm <- function(bterms, samples, sdata, data, ...) {
   # extract draws of smooth terms
+  draws <- list()
   smef <- tidy_smef(bterms, data)
+  if (!NROW(smef)) {
+    return(draws)
+  }
   p <- usc(combine_prefix(bterms))
-  draws <- named_list(smef$label)
-  for (i in seq_along(draws)) {
+  Xs_names <- attr(smef, "Xs_names")
+  if (length(Xs_names)) {
+    draws$fe$Xs <- sdata[[paste0("Xs", p)]]
+    # allow for "b_" prefix for compatibility with version <= 2.5.0
+    bspars <- paste0("^bs?", p, "_", escape_all(Xs_names), "$")
+    draws$fe$bs <- get_samples(samples, bspars)
+  }
+  draws$re <- named_list(smef$label)
+  for (i in seq_rows(smef)) {
     sm <- list()
     for (j in seq_len(smef$nbases[i])) {
       sm$Zs[[j]] <- sdata[[paste0("Zs", p, "_", i, "_", j)]]
       spars <- paste0("^s", p, "_", smef$label[i], "_", j, "\\[")
       sm$s[[j]] <- get_samples(samples, spars)
     }
-    draws[[i]] <- sm
+    draws$re[[i]] <- sm
   }
   draws
 }
@@ -856,4 +863,71 @@ is.bdrawsnl <- function(x) {
   inherits(x, "bdrawsnl")
 }
 
+#' Extract Data and Posterior Draws
+#' 
+#' This method helps in preparing \pkg{brms} models for certin post-processing
+#' tasks most notably various forms of predictions. Unless you are a package
+#' developer, you will rarely need to call \code{extract_draws} directly.
+#' 
+#' @name extract_draws
+#' @aliases extract_draws.brmsfit
+#'
+#' @param x An \R object typically of class \code{'brmsfit'}.
+#' @param newdata An optional data.frame for which to evaluate predictions. If
+#'   \code{NULL} (default), the original data of the model is used.
+#' @param re_formula formula containing group-level effects to be considered in
+#'   the prediction. If \code{NULL} (default), include all group-level effects;
+#'   if \code{NA}, include no group-level effects.
+#' @param allow_new_levels A flag indicating if new levels of group-level
+#'   effects are allowed (defaults to \code{FALSE}). Only relevant if
+#'   \code{newdata} is provided.
+#' @param sample_new_levels Indicates how to sample new levels for grouping
+#'   factors specified in \code{re_formula}. This argument is only relevant if
+#'   \code{newdata} is provided and \code{allow_new_levels} is set to
+#'   \code{TRUE}. If \code{"uncertainty"} (default), include group-level
+#'   uncertainty in the predictions based on the variation of the existing
+#'   levels. If \code{"gaussian"}, sample new levels from the (multivariate)
+#'   normal distribution implied by the group-level standard deviations and
+#'   correlations. This options may be useful for conducting Bayesian power
+#'   analysis. If \code{"old_levels"}, directly sample new levels from the
+#'   existing levels.
+#' @param new_objects A named \code{list} of objects containing new data, which
+#'   cannot be passed via argument \code{newdata}. Currently, only required for
+#'   objects passed to \code{\link[brms:cor_sar]{cor_sar}} and
+#'   \code{\link[brms:cor_fixed]{cor_fixed}}.
+#' @param incl_autocor A flag indicating if ARMA autocorrelation parameters
+#'   should be included in the predictions. Defaults to \code{TRUE}. Setting it
+#'   to \code{FALSE} will not affect other correlation structures such as
+#'   \code{\link[brms:cor_bsts]{cor_bsts}}, or
+#'   \code{\link[brms:cor_fixed]{cor_fixed}}.
+#' @param offset Logical; Indicates if offsets should be included in the
+#'   predictions. Defaults to \code{TRUE}.
+#' @param smooths_only Logical; If \code{TRUE} only draws related to the
+#'   computation of smooth terms will be extracted.
+#' @param resp Optional names of response variables. If specified, predictions
+#'   are performed only for the specified response variables.
+#' @param subset A numeric vector specifying the posterior samples to be used.
+#'   If \code{NULL} (the default), all samples are used.
+#' @param nsamples Positive integer indicating how many posterior samples should
+#'   be used. If \code{NULL} (the default) all samples are used. Ignored if
+#'   \code{subset} is not \code{NULL}.
+#' @param nug Small positive number for Gaussian process terms only. For
+#'   numerical reasons, the covariance matrix of a Gaussian process might not be
+#'   positive definite. Adding a very small number to the matrix's diagonal
+#'   often solves this problem. If \code{NULL} (the default), \code{nug} is
+#'   chosen internally.
+#' @param ... Further arguments passed to \code{\link{validate_newdata}}.
+#'
+#' @return An object of class \code{'brmsdraws'} or \code{'mvbrmsdraws'},
+#'   depending on whether a univariate or multivariate model is passed.
+#'   
+#' @export
+extract_draws <- function(x, ...) {
+  # extract data and posterior draws
+  UseMethod("extract_draws")
+}
 
+#' @export
+extract_draws.default <- function(x, ...) {
+  NULL
+}

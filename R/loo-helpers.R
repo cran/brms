@@ -159,14 +159,15 @@ compute_ics <- function(models, ic = c("loo", "waic", "psis", "psislw", "kfold")
 }
 
 compute_ic <- function(x, ic = c("loo", "waic", "psis", "kfold"),
-                       reloo = FALSE, k_threshold = 0.7, pointwise = FALSE,
-                       model_name = "", ...) {
+                       reloo = FALSE, k_threshold = 0.7, reloo_args = list(),
+                       pointwise = FALSE, model_name = "", ...) {
   # compute information criteria using the 'loo' package
   # Args:
   #   x: an object of class brmsfit
   #   ic: the information criterion to be computed
   #   model_name: original variable name of object 'x'
   #   reloo: call 'reloo' after computing 'loo'?
+  #   reloo_args: list of arguments passed to 'reloo'
   #   pointwise: compute log-likelihood point-by-point?
   #   ...: passed to other post-processing methods
   # Returns:
@@ -197,8 +198,8 @@ compute_ic <- function(x, ic = c("loo", "waic", "psis", "kfold"),
   attr(out, "yhash") <- hash_response(x)
   if (ic == "loo") {
     if (reloo) {
-      reloo_args <- nlist(x = out, fit = x, k_threshold, check = FALSE)
-      out <- do.call(reloo.loo, c(reloo_args, ...))
+      c(reloo_args) <- nlist(x = out, fit = x, k_threshold, check = FALSE)
+      out <- do.call(reloo.loo, reloo_args)
     } else {
       n_bad_obs <- length(loo::pareto_k_ids(out, threshold = k_threshold))
       recommend_loo_options(n_bad_obs, k_threshold, model_name) 
@@ -325,6 +326,17 @@ compare_ic <- function(..., x = NULL, ic = c("loo", "waic", "kfold")) {
 #'   (the default) the name is taken from the call to \code{x}.
 #' @param overwrite Logical; Indicates if already stored fit 
 #'   indices should be overwritten. Defaults to \code{FALSE}.
+#' @param file Either \code{NULL} or a character string. In the latter case, the
+#'   fitted model object including the newly added criterion values is saved via
+#'   \code{\link{saveRDS}} in a file named after the string supplied in
+#'   \code{file}. The \code{.rds} extension is added automatically. If \code{x}
+#'   was already stored in a file before, the file name will be reused
+#'   automatically (with a message) unless overwritten by \code{file}. In any
+#'   case, \code{file} only applies if new criteria were actually added via
+#'   \code{add_ic} or if \code{force_save} was set to \code{TRUE}.
+#' @param force_save Logical; only relevant if \code{file} is specified and
+#'   ignored otherwise. If \code{TRUE}, the fitted model object will be saved
+#'   regardless of whether new criteria were added via \code{add_ic}.
 #' @param ... Further arguments passed to the underlying 
 #'   functions computing the information criteria or fit indices.
 #'   
@@ -351,7 +363,8 @@ add_ic <- function(x, ...) {
 #' @rdname add_ic
 #' @export
 add_ic.brmsfit <- function(x, ic = "loo", model_name = NULL, 
-                           overwrite = FALSE, ...) {
+                           overwrite = FALSE, file = NULL,
+                           force_save = FALSE, ...) {
   unused_args <- intersect(names(list(...)), args_not_for_reloo())
   if (length(unused_args)) {
     unused_args <- collapse_comma(unused_args)
@@ -362,28 +375,44 @@ add_ic.brmsfit <- function(x, ic = "loo", model_name = NULL,
   } else {
     model_name <- deparse_combine(substitute(x)) 
   }
-  ic <- unique(tolower(as.character(ic)))
-  valid_ics <- c("loo", "waic", "kfold", "r2", "marglik")
+  ic <- unique(as.character(ic))
+  valid_ics <- c("loo", "waic", "kfold", "R2", "marglik")
   if (!length(ic) || !all(ic %in% valid_ics)) {
     stop2("Argument 'ic' should be a subset of ",
           collapse_comma(valid_ics))
   }
+  auto_save <- FALSE
+  if (!is.null(file)) {
+    file <- paste0(as_one_character(file), ".rds")
+  } else {
+    file <- x$file
+    if (!is.null(file)) auto_save <- TRUE
+  }
+  force_save <- as_one_logical(force_save)
   overwrite <- as_one_logical(overwrite)
   if (overwrite) {
     x[ic] <- list(NULL)
   }
+  new_ic <- ic[ulapply(x[ic], is.null)]
   args <- list(x, ...)
   for (fun in intersect(ic, c("loo", "waic", "kfold"))) {
     x[[fun]] <- do.call(fun, args)
     x[[fun]]$model_name <- model_name
   }
-  if ("r2" %in% ic) {
+  if ("R2" %in% ic) {
     args$summary <- FALSE
     x$R2 <- do.call(bayes_R2, args)
   }
   if ("marglik" %in% ic) {
     x$marglik <- do.call(bridge_sampler, args)
   }
+  if (!is.null(file) && (force_save || length(new_ic))) {
+    if (auto_save) {
+      message("Automatically saving the model object in '", file, "'")
+    }
+    x$file <- file
+    saveRDS(x, file = file)
+  } 
   x
 }
 
@@ -408,8 +437,8 @@ add_waic <- function(x, ...) {
 args_not_for_reloo <- function() {
   # arguments not usable with 'reloo'
   # the same arguments cannot be used in add_ic
-  c("newdata", "re_formula", "subset", "nsamples",
-    "allow_new_levels", "sample_new_levels", "new_objects")
+  c("newdata", "re_formula", "allow_new_levels", 
+    "sample_new_levels", "new_objects")
 }
 
 hash_response <- function(x, ...) {

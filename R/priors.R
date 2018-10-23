@@ -487,7 +487,7 @@ get_prior <- function(formula, data, family = gaussian(),
   # initialize output
   prior <- empty_brmsprior()
   # priors for distributional parameters
-  prior <- prior + prior_effects(
+  prior <- prior + prior_predictor(
     bterms, data = data, internal = internal
   )
   # priors of group-level parameters
@@ -505,20 +505,20 @@ get_prior <- function(formula, data, family = gaussian(),
   structure(prior, class = c("brmsprior", "data.frame"))
 }
 
-prior_effects <- function(x, ...) {
-  # generate priors various kind of effects 
-  UseMethod("prior_effects")
+prior_predictor <- function(x, ...) {
+  # generate priors for predictor terms
+  UseMethod("prior_predictor")
 }
 
 #' @export
-prior_effects.default <- function(x, ...) {
+prior_predictor.default <- function(x, ...) {
   empty_brmsprior()
 }
 
-prior_effects.mvbrmsterms <- function(x, internal = FALSE, ...) {
+prior_predictor.mvbrmsterms <- function(x, internal = FALSE, ...) {
   prior <- empty_brmsprior()
   for (i in seq_along(x$terms)) {
-    prior <- prior + prior_effects(x$terms[[i]], ...) 
+    prior <- prior + prior_predictor(x$terms[[i]], ...) 
   }
   # add "global" priors for population-level effects
   # in 1.8.0 as users keep asking about this
@@ -541,20 +541,21 @@ prior_effects.mvbrmsterms <- function(x, internal = FALSE, ...) {
   prior
 }
 
-prior_effects.brmsterms <- function(x, data, ...) {
+prior_predictor.brmsterms <- function(x, data, ...) {
   def_scale_prior <- def_scale_prior(x, data)
   valid_dpars <- valid_dpars(x$family, bterms = x)
   prior <- empty_brmsprior()
+  cats <- if (is_ordinal(x)) extract_cat_names(x, data)
   for (dp in valid_dpars) {
     def_dprior <- def_dprior(x, dp, data = data)
     if (!is.null(x$dpars[[dp]])) {
       # parameter is predicted
-      dp_prior <- prior_effects(
+      dp_prior <- prior_predictor(
         x$dpars[[dp]], data = data,
         def_scale_prior = def_scale_prior,
-        def_dprior = def_dprior
+        def_dprior = def_dprior, cats = cats
       )
-    } else if (!is.null(x$fdpars[[dp]])){
+    } else if (!is.null(x$fdpars[[dp]])) {
       # parameter is fixed
       dp_prior <- empty_brmsprior()
     } else {
@@ -564,7 +565,7 @@ prior_effects.brmsterms <- function(x, data, ...) {
     prior <- prior + dp_prior
   }
   for (nlp in names(x$nlpars)) {
-    nlp_prior <- prior_effects(
+    nlp_prior <- prior_predictor(
       x$nlpars[[nlp]], data = data,
       def_scale_prior = def_scale_prior,
       def_dprior = def_dprior, 
@@ -603,28 +604,27 @@ prior_effects.brmsterms <- function(x, data, ...) {
 }
 
 #' @export
-prior_effects.btl <- function(x, data, spec_intercept = TRUE,
-                              def_scale_prior = "", def_dprior = "", 
-                              ...) {
+prior_predictor.btl <- function(x, data, ...) {
   # collect default priors for various kinds of effects
   # Args:
   #   spec_intercept: special parameter class for the Intercept?
   #   def_scale_prior: default prior for SD parameters
   # Return:
   #   An object of class brmsprior
-  prior_fe(x, data, def_dprior = def_dprior, spec_intercept = spec_intercept) +
-    prior_sp(x, data) +
-    prior_cs(x, data) +
-    prior_sm(x, data, def_scale_prior = def_scale_prior) + 
-    prior_gp(x, data, def_scale_prior = def_scale_prior)
+  prior_fe(x, data, ...) +
+    prior_sp(x, data, ...) +
+    prior_cs(x, data, ...) +
+    prior_sm(x, data, ...) + 
+    prior_gp(x, data, ...)
 }
 
 #' @export
-prior_effects.btnl <- function(x, data, ...) {
+prior_predictor.btnl <- function(x, data, ...) {
   empty_brmsprior()
 }
 
-prior_fe <- function(bterms, data, spec_intercept = TRUE, def_dprior = "") {
+prior_fe <- function(bterms, data, spec_intercept = TRUE, 
+                     def_dprior = "", cats = NULL, ...) {
   # priors for population-level parameters
   # Args:
   #   spec_intercept: special parameter class for the Intercept? 
@@ -634,8 +634,20 @@ prior_fe <- function(bterms, data, spec_intercept = TRUE, def_dprior = "") {
   fixef <- colnames(data_fe(bterms, data)$X)
   px <- check_prefix(bterms)
   if (has_intercept(bterms$fe) && spec_intercept) {
-    prior <- prior + 
-      brmsprior(def_dprior, class = "Intercept", coef = "", ls = px)
+    coefs <- NULL
+    if (is_ordinal(bterms)) {
+      threshold <- bterms$family$threshold
+      if (isTRUE(threshold == "equidistant")) {
+        coefs <- "1"
+      } else {
+        stopifnot(!is.null(cats))
+        coefs <- cats[-length(cats)]
+      }
+    }
+    prior <- prior + brmsprior(
+      c(def_dprior, rep("", length(coefs))), 
+      class = "Intercept", coef = c("", coefs), ls = px
+    )
     fixef <- setdiff(fixef, "Intercept")
   }
   if (length(fixef)) {
@@ -645,7 +657,7 @@ prior_fe <- function(bterms, data, spec_intercept = TRUE, def_dprior = "") {
   prior
 }
 
-prior_sp <- function(bterms, data) {
+prior_sp <- function(bterms, data, ...) {
   # priors for special effects parameters
   # Returns:
   #   an object of class brmsprior
@@ -666,7 +678,7 @@ prior_sp <- function(bterms, data) {
   prior
 }
 
-prior_cs <- function(bterms, data) {
+prior_cs <- function(bterms, data, ...) {
   # priors for category spcific effects parameters
   # Returns:
   #   an object of class brmsprior
@@ -680,7 +692,7 @@ prior_cs <- function(bterms, data) {
   prior
 }
 
-prior_Xme <- function(meef, internal = FALSE) {
+prior_Xme <- function(meef, internal = FALSE, ...) {
   # default priors for hyper-parameters of noise-free variables
   # Returns:
   #   an object of class brmsprior
@@ -713,7 +725,7 @@ prior_Xme <- function(meef, internal = FALSE) {
   prior
 }
 
-prior_gp <- function(bterms, data, def_scale_prior) {
+prior_gp <- function(bterms, data, def_scale_prior, ...) {
   # default priors of gaussian processes
   # Returns:
   #   an object of class brmsprior
@@ -771,12 +783,12 @@ def_lscale_prior <- function(bterms, data, plb = 0.01, pub = 0.01) {
   out
 }
 
-prior_re <- function(ranef, def_scale_prior, internal = FALSE) {
+prior_re <- function(ranef, def_scale_prior, internal = FALSE, ...) {
   # priors for random effects parameters
   # Args:
   #   ranef: a list returned by tidy_ranef
   #   def_scale_prior: a character string defining the default
-  #                    prior for random effects SDs
+  #     prior for random effects SDs
   #   internal: see get_prior
   # Returns:
   #   an object of class brmsprior
@@ -834,15 +846,24 @@ prior_re <- function(ranef, def_scale_prior, internal = FALSE) {
   prior
 }
 
-prior_sm <- function(bterms, data, def_scale_prior) {
+prior_sm <- function(bterms, data, def_scale_prior, ...) {
   # priors for smooth terms
   # Args:
   #   def_scale_prior: a character string defining 
   #     the default prior for smooth SDs
   prior <- empty_brmsprior()
-  smterms <- all_terms(bterms[["sm"]])
-  if (length(smterms)) {
+  smef <- tidy_smef(bterms, data)
+  if (NROW(smef)) {
     px <- check_prefix(bterms)
+    # prior for the FE coefficients
+    Xs_names <- attr(smef, "Xs_names")
+    if (length(Xs_names)) {
+      prior <- prior + brmsprior(
+        class = "b", coef = c("", Xs_names), ls = px
+      )
+    }
+    # prior for SD parameters of the RE coefficients
+    smterms <- unique(smef$term)
     prior_strings <- c(def_scale_prior, rep("", length(smterms)))
     prior <- prior + brmsprior(
       class = "sds", coef = c("", smterms), 
@@ -1279,7 +1300,7 @@ check_prior_special.btl <- function(x, prior, data,
   }
   # prepare priors of monotonic effects
   spef <- tidy_spef(x, data)
-  monef <- spef[lengths(spef$call_mo) > 0, "coef"]
+  monef <- spef[lengths(spef$calls_mo) > 0, "coef"]
   for (mo in monef) {
     take <- find_rows(prior, class = "simo", coef = mo, ls = px)
     simo_prior <- prior$prior[take]

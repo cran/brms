@@ -168,28 +168,29 @@ order_data <- function(data, bterms) {
   data
 }
 
+#' Validate New Data
+#' 
+#' Validate new data passed to post-processing methods of \pkg{brms}. Unless you
+#' are a package developer, you will rarely need to call \code{validate_newdata}
+#' directly.
+#' 
+#' @inheritParams extract_draws
+#' @param newdata A \code{data.frame} containing new data to be validated.
+#' @param object A \code{brmsfit} object.
+#' @param check_response Logical; Indicates if response variables should
+#'   be checked as well. Defaults to \code{TRUE}.
+#' @param all_group_vars Optional names of grouping variables to be validated.
+#'   Defaults to all grouping variables in the model.
+#' @param ... Currently ignored.
+#' 
+#' @return A validated \code{'data.frame'} based on \code{newdata}.
+#' 
+#' @export
 validate_newdata <- function(
   newdata, object, re_formula = NULL, allow_new_levels = FALSE,
   resp = NULL, check_response = TRUE, incl_autocor = TRUE,
   all_group_vars = NULL, ...
 ) {
-  # validate newdata passed to post-processing methods
-  # Args:
-  #   newdata: a data.frame containing new data for prediction 
-  #   object: an object of class brmsfit
-  #   re_formula: a group-level formula
-  #   allow_new_levels: Are new group-levels allowed?
-  #   resp: optional name of response variables whose 
-  #     variables should be checked
-  #   check_response: Should response variables be checked
-  #     for existence and validity?
-  #   incl_autocor: Check data of autocorrelation terms?
-  #   all_group_vars: optional names of all grouping 
-  #     variables in the model
-  #   ...: currently ignored
-  # Returns:
-  #   validated data.frame being compatible with formula(object)
-  #   if newdata is NULL, the original data.frame is returned
   if (is.null(newdata)) {
     newdata <- structure(object$data, valid = TRUE, original = TRUE)
   }
@@ -454,7 +455,38 @@ PredictMat <- function(object, data, ...) {
     out <- matrix(out, nrow = 1)
   }
   out
-} 
+}
+
+s2rPred <- function(sm, data) {
+  # Aid prediction from smooths represented as type == 2
+  # originally provided by Simon Wood 
+  # Params:
+  #   sm: output of mgcv::smoothCon
+  #   data: new data supplied for prediction
+  re <- mgcv::smooth2random(sm, names(data), type = 2)
+  # prediction matrix for new data
+  X <- PredictMat(sm, data)   
+  # transform to RE parameterization
+  if (!is.null(re$trans.U)) {
+    X <- X %*% re$trans.U
+  }
+  X <- t(t(X) * re$trans.D)
+  # re-order columns according to random effect re-ordering
+  X[, re$rind] <- X[, re$pen.ind != 0] 
+  # re-order penalization index in same way  
+  pen.ind <- re$pen.ind
+  pen.ind[re$rind] <- pen.ind[pen.ind > 0]
+  # start returning the object
+  Xf <-  X[, which(re$pen.ind == 0), drop = FALSE]
+  out <- list(rand = list(), Xf = Xf)
+  for (i in seq_along(re$rand)) { 
+    # loop over random effect matrices
+    out$rand[[i]] <- X[, which(pen.ind == i), drop = FALSE]
+    attr(out$rand[[i]], "s.label") <- attr(re$rand[[i]], "s.label")
+  }
+  names(out$rand) <- names(re$rand)
+  out
+}
 
 arr_design_matrix <- function(Y, r, group)  { 
   # compute the design matrix for ARR effects
@@ -518,7 +550,9 @@ extract_old_standata.brmsterms <- function(x, data, ...) {
   }
   if (has_trials(x$family) || has_cat(x$family)) {
     # trials and ncat should not be computed based on new data
-    data_response <- data_response(x, data)
+    data_response <- data_response(
+      x, data, check_response = FALSE, not4stan = TRUE
+    )
     # partially match via $ to be independent of the response suffix
     out$trials <- data_response$trials
     out$ncat <- data_response$ncat
@@ -593,7 +627,7 @@ make_Jmo_list <- function(x, data, ...) {
     # do it like data_sp()
     spef <- tidy_spef(x, data)
     Xmo_fun <- function(x) attr(eval2(x, data), "var")
-    Xmo <- lapply(unlist(spef$call_mo), Xmo_fun)
+    Xmo <- lapply(unlist(spef$calls_mo), Xmo_fun)
     out <- as.array(ulapply(Xmo, max))
   }
   out
