@@ -227,7 +227,7 @@ test_that("make_standata handles multivariate models", {
 })
 
 test_that("make_standata returns correct data for autocor structures", {
-  dat <- data.frame(y=1:10, x=rep(0,10), tim=10:1, g = rep(3:4,5))
+  dat <- data.frame(y = 1:10, x = rep(0, 10), tim = 10:1, g = rep(3:4, 5))
   sdata <- make_standata(y ~ x, data = dat, autocor = cor_arr(~tim|g))
   expect_equal(sdata$Yarr, cbind(c(0,9,7,5,3,0,10,8,6,4)))
   
@@ -399,6 +399,11 @@ test_that("make_standata returns data for GAMMs", {
   expect_equal(dim(sdata$Zs_lp_1_1), c(10, 8))
   expect_equal(dim(sdata$Zs_lp_2_1), c(10, 8))
   
+  sdata <- make_standata(y ~ g + s(x2, by = g), data = dat)
+  expect_true(all(c("knots_1", "knots_2") %in% names(sdata)))
+  
+  # test issue #562
+  dat$g <- as.character(dat$g)
   sdata <- make_standata(y ~ g + s(x2, by = g), data = dat)
   expect_true(all(c("knots_1", "knots_2") %in% names(sdata)))
   
@@ -612,10 +617,10 @@ test_that("Cell-mean coding can be disabled", {
 test_that("make_standata correctly includes offsets", {
   data <- data.frame(y = rnorm(10), x = rnorm(10), c = 1)
   sdata <- make_standata(bf(y ~ x + offset(c), sigma ~ offset(c + 1)), data)
-  expect_equal(sdata$offset, data$c)
-  expect_equal(sdata$offset_sigma, data$c + 1)
+  expect_equal(sdata$offset, as.array(data$c))
+  expect_equal(sdata$offset_sigma, as.array(data$c + 1))
   sdata <- make_standata(y ~ x + offset(c) + offset(x), data)
-  expect_equal(sdata$offset, data$c + data$x)
+  expect_equal(sdata$offset, as.array(data$c + data$x))
 })
 
 test_that("make_standata includes data for mixture models", {
@@ -645,12 +650,27 @@ test_that("make_standata includes data for Gaussian processes", {
   expect_equal(max(sdata$Xgp_1) - min(sdata$Xgp_1), 9)
   
   sdata <- make_standata(y ~ gp(x1, by = z, gr = TRUE), dat)
-  expect_equal(sdata$Igp_1_2, 4)
-  expect_equal(sdata$Jgp_1_4, 1:5)
-  expect_equal(sdata$Igp_1_4, 6:10)
+  expect_equal(sdata$Igp_1_2, as.array(4))
+  expect_equal(sdata$Jgp_1_4, as.array(1:5))
+  expect_equal(sdata$Igp_1_4, as.array(6:10))
   
   sdata <- make_standata(y ~ gp(x1, by = y, gr = TRUE), dat)
   expect_equal(sdata$Cgp_1, as.array(dat$y))
+})
+
+test_that("make_standata includes data for approximate Gaussian processes", {
+  dat <- data.frame(y = rnorm(10), x1 = sample(1:10, 10),
+                    z = factor(c(2, 2, 2, 3, 4, rep(5, 5))))
+  
+  sdata <- make_standata(y ~ gp(x1, k = 5, c = 5/4), dat)
+  expect_equal(sdata$NBgp_1, 5)
+  expect_equal(dim(sdata$Xgp_1), c(10, 5))
+  expect_equal(dim(sdata$slambda_1), c(5, 1))
+  
+  sdata <- make_standata(y ~ gp(x1, by = z, k = 5, c = 5/4), dat)
+  expect_equal(sdata$Igp_1_2, as.array(4))
+  expect_equal(sdata$Cgp_1_2, as.array(1))
+  expect_equal(sdata$Igp_1_4, as.array(6:10))
 })
 
 test_that("make_standata includes data for SAR models", {
@@ -699,7 +719,7 @@ test_that("make_standata includes data for CAR models", {
                "'W' must be symmetric")
   W[10, 1] <- 0
   expect_error(make_standata(y ~ x, dat, autocor = cor_car(W)),
-               "All locations should have at least one neighbor")
+               "all locations should have at least one neighbor")
 })
 
 test_that("make_standata incldudes data of special priors", {

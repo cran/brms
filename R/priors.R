@@ -343,7 +343,7 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
   }
   out <- vector("list", nrow(input))
   for (i in seq_along(out)) {
-    out[[i]] <- do.call(.set_prior, input[i, ])
+    out[[i]] <- run(.set_prior, input[i, ])
   }
   Reduce("+", out)
 }
@@ -389,7 +389,7 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
     # prior will be added to the log-posterior as is
     class <- coef <- group <- resp <- dpar <- nlpar <- bound <- ""
   }
-  do.call(brmsprior, 
+  run(brmsprior, 
     nlist(prior, class, coef, group, resp, dpar, nlpar, bound)
   )
 }
@@ -402,7 +402,7 @@ prior <- function(prior, ...) {
   seval <- rmNULL(call[prior_seval_args()])
   call[prior_seval_args()] <- NULL
   call <- lapply(call, deparse_no_string)
-  do.call(set_prior, c(call, seval))
+  run(set_prior, c(call, seval))
 }
 
 #' @describeIn set_prior Alias of \code{set_prior} allowing to specify 
@@ -422,7 +422,7 @@ prior_ <- function(prior, ...) {
     }
   }
   call <- lapply(call, as_string)
-  do.call(set_prior, c(call, seval))
+  run(set_prior, c(call, seval))
 }
 
 prior_seval_args <- function() {
@@ -471,12 +471,14 @@ prior_string <- function(prior, ...) {
 #'               prior = prior)
 #' 
 #' @export
-get_prior <- function(formula, data, family = gaussian(), 
-                      autocor = NULL, internal = FALSE) {
+get_prior <- function(formula, data, family = gaussian(), autocor = NULL, 
+                      sparse = FALSE, internal = FALSE) {
   # note that default priors are stored in this function
   if (is.brmsfit(formula)) {
     stop2("Use 'prior_summary' to extract priors from 'brmsfit' objects.")
   }
+  sparse <- as_one_logical(sparse)
+  internal <- as_one_logical(internal)
   formula <- validate_formula(
     formula, data = data, family = family, autocor = autocor
   )
@@ -488,7 +490,7 @@ get_prior <- function(formula, data, family = gaussian(),
   prior <- empty_brmsprior()
   # priors for distributional parameters
   prior <- prior + prior_predictor(
-    bterms, data = data, internal = internal
+    bterms, data = data, sparse = sparse, internal = internal
   )
   # priors of group-level parameters
   def_scale_prior <- def_scale_prior(bterms, data)
@@ -541,7 +543,7 @@ prior_predictor.mvbrmsterms <- function(x, internal = FALSE, ...) {
   prior
 }
 
-prior_predictor.brmsterms <- function(x, data, ...) {
+prior_predictor.brmsterms <- function(x, data, sparse = FALSE, ...) {
   def_scale_prior <- def_scale_prior(x, data)
   valid_dpars <- valid_dpars(x$family, bterms = x)
   prior <- empty_brmsprior()
@@ -553,7 +555,8 @@ prior_predictor.brmsterms <- function(x, data, ...) {
       dp_prior <- prior_predictor(
         x$dpars[[dp]], data = data,
         def_scale_prior = def_scale_prior,
-        def_dprior = def_dprior, cats = cats
+        def_dprior = def_dprior, cats = cats,
+        spec_intercept = !sparse
       )
     } else if (!is.null(x$fdpars[[dp]])) {
       # parameter is fixed
@@ -736,16 +739,12 @@ prior_gp <- function(bterms, data, def_scale_prior, ...) {
   if (nrow(gpef)) {
     px <- check_prefix(bterms)
     lscale_prior <- def_lscale_prior(bterms, data)
-    # GPs of each 'by' level get their own 'lscale' prior
-    all_gpterms <- ulapply(seq_rows(gpef), 
-      function(i) paste0(gpef$term[i], gpef$bylevels[[i]])
-    )
     prior <- prior +
       brmsprior(class = "sdgp", prior = def_scale_prior, ls = px) +
-      brmsprior(class = "sdgp", coef = gpef$term, ls = px) +
+      brmsprior(class = "sdgp", coef = unlist(gpef$sfx1), ls = px) +
       brmsprior(class = "lscale", prior = "normal(0, 0.5)", ls = px) +
       brmsprior(class = "lscale", prior = lscale_prior, 
-                coef = all_gpterms, ls = px)
+                coef = names(lscale_prior), ls = px)
   }
   prior
 }
@@ -763,24 +762,51 @@ def_lscale_prior <- function(bterms, data, plb = 0.01, pub = 0.01) {
     y2 <- pinvgamma(ub, x[1], x[2], lower.tail = FALSE, log.p = TRUE)
     c(y1 - log(plb), y2 - log(pub))
   }
-  gp_dat <- data_gp(bterms, data)
-  Xgp_names <- names(gp_dat)[grepl("Xgp_", names(gp_dat))]
-  out <- rep("", length(Xgp_names))
-  for (i in seq_along(out)) {
-    dq <- diff_quad(gp_dat[[Xgp_names[i]]])
+  .def_lscale_prior <- function(X) {
+    dq <- diff_quad(X)
     lb <- sqrt(min(dq[dq > 0]))
     ub <- sqrt(max(dq))
     opt_res <- nleqslv::nleqslv(
       c(0, 0), .opt_fun, lb = lb, ub = ub,
       control = list(allowSingular = TRUE)
     )
+    str <- ""
     if (opt_res$termcd %in% 1:2) {
       # use the inverse-gamma prior only in case of convergence
       pars <- exp(opt_res$x)
-      out[i] <- paste0("inv_gamma(", sargs(round(pars, 6)), ")") 
+      str <- paste0("inv_gamma(", sargs(round(pars, 6)), ")") 
     }
+    return(str)
   }
-  out
+  p <- usc(combine_prefix(bterms))
+  gpef <- tidy_gpef(bterms, data)
+  gp_dat <- data_gp(bterms, data, raw = TRUE)
+  out <- vector("list", NROW(gpef))
+  for (i in seq_along(out)) {
+    pi <- paste0(p, "_", i)
+    iso <- gpef$iso[i]
+    cons <- gpef$cons[[i]]
+    if (length(cons) > 0L) {
+      for (j in seq_along(cons)) {
+        Xgp <- gp_dat[[paste0("Xgp", pi, "_", j)]]
+        if (iso) {
+          c(out[[i]]) <- .def_lscale_prior(Xgp)
+        } else {
+          c(out[[i]]) <- apply(Xgp, 2, .def_lscale_prior)
+        }
+      }
+    } else {
+      Xgp <- gp_dat[[paste0("Xgp", pi)]]
+      if (iso) {
+        out[[i]] <- .def_lscale_prior(Xgp)
+      } else {
+        out[[i]] <- apply(Xgp, 2, .def_lscale_prior)
+      }
+    }
+    # transpose so that by-levels vary last
+    names(out[[i]]) <- as.vector(t(gpef$sfx2[[i]]))
+  }
+  unlist(out)
 }
 
 prior_re <- function(ranef, def_scale_prior, internal = FALSE, ...) {
@@ -1014,13 +1040,12 @@ def_scale_prior.brmsterms <- function(x, data, center = TRUE, ...) {
   paste0("student_t(", sargs("3", prior_location, prior_scale), ")")
 }
 
-check_prior <- function(prior, formula, data = NULL, 
+check_prior <- function(prior, formula, data, sparse = FALSE, 
                         sample_prior = c("no", "yes", "only"),
-                        check_rows = NULL, warn = FALSE) {
+                        warn = FALSE) {
   # check prior input and amend it if needed
   # Args:
   #   same as the respective parameters in brm
-  #   check_rows: if not NULL, check only the rows given in check_rows
   #   warn: passed to check_prior_content
   # Returns:
   #   a data.frame of prior specifications to be used in stan_prior
@@ -1032,7 +1057,7 @@ check_prior <- function(prior, formula, data = NULL,
     return(prior)
   }
   bterms <- parse_bf(formula)
-  all_priors <- get_prior(formula = formula, data = data, internal = TRUE)
+  all_priors <- get_prior(formula, data, sparse = sparse, internal = TRUE)
   if (is.null(prior)) {
     prior <- all_priors  
   } else if (!is.brmsprior(prior)) {
@@ -1207,12 +1232,14 @@ check_prior_special.brmsprior <- function(x, bterms, ...) {
 check_prior_special.mvbrmsterms <- function(x, prior = NULL, ...) {
   for (cl in c("b", "Intercept")) {
     # copy over the global population-level prior in MV models
-    gi <- find_rows(prior, class = cl, coef = "", resp = "")
+    gi <- which(find_rows(prior, class = cl, coef = "", resp = ""))
     prior$remove[gi] <- TRUE
     for (r in x$responses) {
-      ri <- find_rows(prior, class = cl, coef = "", resp = r)
-      if (isTRUE(!prior$new[ri] || !nzchar(prior$prior[ri]))) {
-        prior$prior[ri] <- prior$prior[gi]
+      rows <- which(find_rows(prior, class = cl, coef = "", resp = r))
+      for (ri in rows) {
+        if (isTRUE(!prior$new[ri] || !nzchar(prior$prior[ri]))) {
+          prior$prior[ri] <- prior$prior[gi]
+        } 
       }
     }
   }
@@ -1244,16 +1271,18 @@ check_prior_special.brmsterms <- function(x, prior = NULL, ...) {
   # copy over the global population-level prior in categorical models
   if (is_categorical(x$family)) {
     for (cl in c("b", "Intercept")) {
-      gi <- find_rows(
+      gi <- which(find_rows(
         prior, class = cl, coef = "", dpar = "", resp = x$resp
-      )
+      ))
       prior$remove[gi] <- TRUE
       for (dp in names(x$dpars)) {
-        dpi <- find_rows(
+        rows <- which(find_rows(
           prior, class = cl, coef = "", dpar = dp, resp = x$resp
-        )
-        if (isTRUE(!prior$new[dpi] || !nzchar(prior$prior[dpi]))) {
-          prior$prior[dpi] <- prior$prior[gi]
+        ))
+        for (dpi in rows) {
+          if (isTRUE(!prior$new[dpi] || !nzchar(prior$prior[dpi]))) {
+            prior$prior[dpi] <- prior$prior[gi]
+          }
         }
       }
     }
@@ -1561,7 +1590,7 @@ print.brmsprior <- function(x, show_df, ...) {
 c.brmsprior <- function(x, ...) {
   # combine multiple brmsprior objects into one brmsprior
   if (all(sapply(list(...), is.brmsprior))) {
-    out <- do.call(rbind, list(x, ...)) 
+    out <- run(rbind, list(x, ...)) 
   } else {
     out <- c(as.data.frame(x), ...)
   }

@@ -160,7 +160,7 @@ order_data <- function(data, bterms) {
     if (any(duplicated(data.frame(gv, tv)))) {
       stop2("Time points within groups must be unique.")
     }
-    new_order <- do.call(order, list(gv, tv))
+    new_order <- run(order, list(gv, tv))
     data <- data[new_order, , drop = FALSE]
     # old_order will allow to retrieve the initial order of the data
     attr(data, "old_order") <- order(new_order)
@@ -457,6 +457,19 @@ PredictMat <- function(object, data, ...) {
   out
 }
 
+smoothCon <- function(object, data, ...) {
+  # convenient wrapper around mgcv::smoothCon
+  data <- rm_attr(data, "terms")
+  vars <- setdiff(c(object$term, object$by), "NA")
+  for (v in vars) {
+    # allow factor-like variables #562
+    if (is_like_factor(data[[v]])) {
+      data[[v]] <- as.factor(data[[v]])
+    }
+  }
+  mgcv::smoothCon(object, data = data, ...)
+}
+
 s2rPred <- function(sm, data) {
   # Aid prediction from smooths represented as type == 2
   # originally provided by Simon Wood 
@@ -519,6 +532,30 @@ arr_design_matrix <- function(Y, r, group)  {
   out
 }
 
+get_y <- function(x, resp = NULL, warn = FALSE, ...) {
+  # safely extract response values from a brmsfit object
+  stopifnot(is.brmsfit(x))
+  resp <- validate_resp(resp, x)
+  warn <- as_one_logical(warn)
+  sdata <- standata(
+    x, resp = resp, re_formula = NA, check_response = TRUE, 
+    internal = TRUE, only_response = TRUE, ...
+  )
+  if (warn) {
+    if (any(paste0("cens", usc(resp)) %in% names(sdata))) {
+      warning2("Results may not be meaningful for censored models.")
+    }
+  }
+  Ynames <- paste0("Y", usc(resp))
+  if (length(Ynames) > 1L) {
+    out <- run(cbind, sdata[Ynames])
+    colnames(out) <- resp
+  } else {
+    out <- sdata[[Ynames]]
+  }
+  structure(out, old_order = attr(sdata, "old_order"))
+}
+
 extract_old_standata <- function(x, data, ...) {
   # helper function for validate_newdata to extract
   # old standata required for the computation of new standata
@@ -577,13 +614,13 @@ extract_old_standata.btnl <- function(x, data, ...) {
 #' @export
 extract_old_standata.btl <- function(x, data, ...) {
   list(
-    smooths = make_smooth_list(x, data, ...),
+    smooths = make_sm_list(x, data, ...),
     gps = make_gp_list(x, data, ...),
     Jmo = make_Jmo_list(x, data, ...)
   )
 }
 
-make_smooth_list <- function(x, data, ...) {
+make_sm_list <- function(x, data, ...) {
   # extract data related to smooth terms
   # for use in extract_old_standata
   stopifnot(is.btl(x))
@@ -598,7 +635,7 @@ make_smooth_list <- function(x, data, ...) {
     )
     for (i in seq_along(smterms)) {
       sc_args <- c(list(eval2(smterms[i])), gam_args)
-      out[[i]] <- do.call(mgcv::smoothCon, sc_args)
+      out[[i]] <- run(smoothCon, sc_args)
     }
   }
   out
@@ -608,13 +645,8 @@ make_gp_list <- function(x, data, ...) {
   # extract data related to gaussian processes
   # for use in extract_old_standata
   stopifnot(is.btl(x))
-  gpterms <- all_terms(x[["gp"]])
-  out <- named_list(gpterms)
-  for (i in seq_along(gpterms)) {
-    gp <- eval2(gpterms[i])
-    Xgp <- do.call(cbind, lapply(gp$term, eval2, data))
-    out[[i]] <- list(dmax = sqrt(max(diff_quad(Xgp))))
-  }
+  out <- data_gp(x, data, raw = TRUE)
+  out <- out[grepl("^(dmax)|(cmeans)", names(out))]
   out
 }
 
