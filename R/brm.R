@@ -216,12 +216,14 @@
 #'   usually be larger than the current default of \code{10}. For more details
 #'   on the \code{control} argument see \code{\link[rstan:stan]{stan}}.
 #'
-#' @references Paul-Christian Buerkner (2017). brms: An R Package for Bayesian
-#' Multilevel Models Using Stan. Journal of Statistical Software, 80(1), 1-28.
-#' doi:10.18637/jss.v080.i01
-#'
-#' Paul-Christian Buerkner (in review). Advanced Bayesian Multilevel Modeling
-#' with the R Package brms. arXiv preprint.
+#' @references 
+#' Paul-Christian Buerkner (2017). brms: An R Package for Bayesian Multilevel 
+#' Models Using Stan. \emph{Journal of Statistical Software}, 80(1), 1-28. 
+#' \code{doi:10.18637/jss.v080.i01}
+#' 
+#' Paul-Christian Buerkner (2018). Advanced Bayesian Multilevel Modeling 
+#' with the R Package brms. \emph{The R Journal}. 10(1), 395–411. 
+#' \code{doi:10.32614/RJ-2018-017}
 #'
 #' @seealso \code{\link{brms}}, \code{\link{brmsformula}},
 #' \code{\link{brmsfamily}}, \code{\link{brmsfit}}
@@ -233,7 +235,7 @@
 #' # and half cauchy priors for standard deviations of group-level effects
 #' bprior1 <- prior(student_t(5,0,10), class = b) +
 #'   prior(cauchy(0,2), class = sd)
-#' fit1 <- brm(count ~ log_Age_c + log_Base4_c * Trt + (1|patient),
+#' fit1 <- brm(count ~ zAge + zBase * Trt + (1|patient),
 #'             data = epilepsy, family = poisson(), prior = bprior1)
 #'
 #' # generate a summary of the results
@@ -355,10 +357,23 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     }
   }
   
+  # validate arguments later passed to Stan
   dots <- list(...)
-  algorithm <- match.arg(algorithm)
   testmode <- isTRUE(dots$testmode)
   dots$testmode <- NULL
+  algorithm <- match.arg(algorithm)
+  silent <- as_one_logical(silent)
+  iter <- as_one_numeric(iter)
+  warmup <- as_one_numeric(warmup)
+  thin <- as_one_numeric(thin)
+  chains <- as_one_numeric(chains)
+  cores <- as_one_numeric(cores)
+  future <- as_one_logical(future) && chains > 0L
+  seed <- as_one_numeric(seed, allow_na = TRUE)
+  if (is.character(inits) && !inits %in% c("random", "0")) {
+    inits <- get(inits, mode = "function", envir = parent.frame())
+  }
+  
   if (is.brmsfit(fit)) {
     # re-use existing model
     x <- fit
@@ -374,12 +389,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     family <- get_element(formula, "family")
     autocor <- get_element(formula, "autocor")
     bterms <- parse_bf(formula)
-    if (is.null(dots$data.name)) {
-      data.name <- substr(collapse(deparse(substitute(data))), 1, 50)
-    } else {
-      data.name <- dots$data.name
-      dots$data.name <- NULL
-    }
+    data.name <- substitute_name(data)
     data <- update_data(data, bterms = bterms)
     prior <- check_prior(
       prior, formula, data = data, sparse = sparse,
@@ -422,29 +432,24 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     }
     message("Compiling the C++ model")
     x$fit <- eval_silent(
-      run(rstan::stan_model, stan_model_args),
+      do_call(rstan::stan_model, stan_model_args),
       silent = silence_stan_model, type = "message"
     )
   }
   
-  # arguments to be passed to Stan
-  if (is.character(inits) && !inits %in% c("random", "0")) {
-    inits <- get(inits, mode = "function", envir = parent.frame())
-  }
   args <- nlist(
     object = x$fit, data = sdata, pars = x$exclude, 
     include = FALSE, algorithm, iter, seed
   )
   args[names(dots)] <- dots
-  
   message("Start sampling")
   if (args$algorithm == "sampling") {
     args$algorithm <- NULL
-    args <- c(args,
-      nlist(init = inits, warmup, thin, control, show_messages = !silent)
+    c(args) <- nlist(
+      init = inits, warmup, thin, control, 
+      show_messages = !silent
     )
     if (future) {
-      require_package("future")
       if (cores > 1L) {
         warning2("Argument 'cores' is ignored when using 'future'.")
       }
@@ -456,7 +461,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
           args$init <- inits[i]
         }
         futures[[i]] <- future::future(
-          run(rstan::sampling, args), packages = "rstan"
+          brms::do_call(rstan::sampling, args), 
+          packages = "rstan"
         )
       }
       for (i in seq_len(chains)) {
@@ -465,12 +471,12 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       x$fit <- rstan::sflist2stanfit(fits)
       rm(futures, fits)
     } else {
-      args <- c(args, nlist(chains, cores))
-      x$fit <- run(rstan::sampling, args) 
+      c(args) <- nlist(chains, cores)
+      x$fit <- do_call(rstan::sampling, args) 
     }
   } else {
     # vb does not support parallel execution
-    x$fit <- run(rstan::vb, args)
+    x$fit <- do_call(rstan::vb, args)
   }
   if (!testmode) {
     x <- rename_pars(x)

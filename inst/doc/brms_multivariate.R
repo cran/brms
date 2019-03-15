@@ -1,5 +1,5 @@
 params <-
-list(EVAL = FALSE)
+list(EVAL = TRUE)
 
 ## ---- SETTINGS-knitr, include=FALSE-----------------------------------------------------
 stopifnot(require(knitr))
@@ -17,56 +17,56 @@ opts_chunk$set(
   fig.align = "center"
 )
 library(brms)
-theme_set(theme_default())
+ggplot2::theme_set(theme_default())
 
 ## ----data-------------------------------------------------------------------------------
-#  data("BTdata", package = "MCMCglmm")
-#  head(BTdata)
+data("BTdata", package = "MCMCglmm")
+head(BTdata)
 
 ## ----fit1, message=FALSE, warning=FALSE, results='hide'---------------------------------
-#  fit1 <- brm(
-#    cbind(tarsus, back) ~ sex + hatchdate + (1|p|fosternest) + (1|q|dam),
-#    data = BTdata, chains = 2, cores = 2
-#  )
+fit1 <- brm(
+  mvbind(tarsus, back) ~ sex + hatchdate + (1|p|fosternest) + (1|q|dam),
+  data = BTdata, chains = 2, cores = 2
+)
 
 ## ----summary1, warning=FALSE------------------------------------------------------------
-#  add_ic(fit1) <- "loo"
-#  summary(fit1)
+add_ic(fit1) <- "loo"
+summary(fit1)
 
 ## ----pp_check1, message=FALSE-----------------------------------------------------------
-#  pp_check(fit1, resp = "tarsus")
-#  pp_check(fit1, resp = "back")
+pp_check(fit1, resp = "tarsus")
+pp_check(fit1, resp = "back")
 
 ## ----R2_1-------------------------------------------------------------------------------
-#  bayes_R2(fit1)
+bayes_R2(fit1)
 
 ## ----fit2, message=FALSE, warning=FALSE, results='hide'---------------------------------
-#  bf_tarsus <- bf(tarsus ~ sex + (1|p|fosternest) + (1|q|dam))
-#  bf_back <- bf(back ~ hatchdate + (1|p|fosternest) + (1|q|dam))
-#  fit2 <- brm(bf_tarsus + bf_back, data = BTdata, chains = 2, cores = 2)
+bf_tarsus <- bf(tarsus ~ sex + (1|p|fosternest) + (1|q|dam))
+bf_back <- bf(back ~ hatchdate + (1|p|fosternest) + (1|q|dam))
+fit2 <- brm(bf_tarsus + bf_back, data = BTdata, chains = 2, cores = 2)
 
 ## ----summary2, warning=FALSE------------------------------------------------------------
-#  add_ic(fit2) <- "loo"
-#  summary(fit2)
+add_ic(fit2) <- "loo"
+summary(fit2)
 
 ## ----loo12------------------------------------------------------------------------------
-#  loo(fit1, fit2)
+loo(fit1, fit2)
 
 ## ----fit3, message=FALSE, warning=FALSE, results='hide'---------------------------------
-#  bf_tarsus <- bf(tarsus ~ sex + (1|p|fosternest) + (1|q|dam)) +
-#    lf(sigma ~ 0 + sex) + skew_normal()
-#  bf_back <- bf(back ~ s(hatchdate) + (1|p|fosternest) + (1|q|dam)) +
-#    gaussian()
-#  fit3 <- brm(
-#    bf_tarsus + bf_back + set_rescor(FALSE),
-#    data = BTdata, chains = 2, cores = 2,
-#    control = list(adapt_delta = 0.95)
-#  )
+bf_tarsus <- bf(tarsus ~ sex + (1|p|fosternest) + (1|q|dam)) +
+  lf(sigma ~ 0 + sex) + skew_normal()
+bf_back <- bf(back ~ s(hatchdate) + (1|p|fosternest) + (1|q|dam)) +
+  gaussian()
+fit3 <- brm(
+  bf_tarsus + bf_back + set_rescor(FALSE), 
+  data = BTdata, chains = 2, cores = 2,
+  control = list(adapt_delta = 0.95)
+)
 
 ## ----summary3, warning=FALSE------------------------------------------------------------
-#  add_ic(fit3) <- "loo"
-#  summary(fit3)
+add_ic(fit3) <- "loo"
+summary(fit3)
 
 ## ----me3--------------------------------------------------------------------------------
-#  marginal_effects(fit3, "hatchdate", resp = "back")
+marginal_effects(fit3, "hatchdate", resp = "back")
 

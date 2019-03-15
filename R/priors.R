@@ -319,18 +319,18 @@
 #'               prior = prior)
 #'               
 #' ## use the horseshoe prior to model sparsity in population-level effects
-#' make_stancode(count ~ log_Age_c + log_Base4_c * Trt_c,
+#' make_stancode(count ~ zAge + zBase * Trt,
 #'               data = epilepsy, family = poisson(),
 #'               prior = set_prior("horseshoe(3)"))
 #'               
 #' ## alternatively use the lasso prior
-#' make_stancode(count ~ log_Age_c + log_Base4_c * Trt_c,
+#' make_stancode(count ~ zAge + zBase * Trt,
 #'               data = epilepsy, family = poisson(),
 #'               prior = set_prior("lasso(1)"))
 #' 
 #' ## pass priors to Stan without checking
 #' prior <- prior_string("target += normal_lpdf(b[1] | 0, 1)", check = FALSE)
-#' make_stancode(count ~ Trt_c, data = epilepsy, prior = prior)
+#' make_stancode(count ~ Trt, data = epilepsy, prior = prior)
 #'
 #' @export
 set_prior <- function(prior, class = "b", coef = "", group = "",
@@ -343,7 +343,7 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
   }
   out <- vector("list", nrow(input))
   for (i in seq_along(out)) {
-    out[[i]] <- run(.set_prior, input[i, ])
+    out[[i]] <- do_call(.set_prior, input[i, ])
   }
   Reduce("+", out)
 }
@@ -389,7 +389,7 @@ set_prior <- function(prior, class = "b", coef = "", group = "",
     # prior will be added to the log-posterior as is
     class <- coef <- group <- resp <- dpar <- nlpar <- bound <- ""
   }
-  run(brmsprior, 
+  do_call(brmsprior, 
     nlist(prior, class, coef, group, resp, dpar, nlpar, bound)
   )
 }
@@ -402,7 +402,7 @@ prior <- function(prior, ...) {
   seval <- rmNULL(call[prior_seval_args()])
   call[prior_seval_args()] <- NULL
   call <- lapply(call, deparse_no_string)
-  run(set_prior, c(call, seval))
+  do_call(set_prior, c(call, seval))
 }
 
 #' @describeIn set_prior Alias of \code{set_prior} allowing to specify 
@@ -422,7 +422,7 @@ prior_ <- function(prior, ...) {
     }
   }
   call <- lapply(call, as_string)
-  run(set_prior, c(call, seval))
+  do_call(set_prior, c(call, seval))
 }
 
 prior_seval_args <- function() {
@@ -454,19 +454,17 @@ prior_string <- function(prior, ...) {
 #' 
 #' @examples 
 #' ## get all parameters and parameters classes to define priors on
-#' (prior <- get_prior(count ~ log_Age_c + log_Base4_c * Trt_c
-#'                     + (1|patient) + (1|visit),
+#' (prior <- get_prior(count ~ zAge + zBase * Trt + (1|patient) + (1|obs),
 #'                     data = epilepsy, family = poisson()))   
 #'          
 #' ## define a prior on all population-level effects a once
 #' prior$prior[1] <- "normal(0,10)"
 #' 
-#' ## define a specific prior on the population-level effect of Trt_c
+#' ## define a specific prior on the population-level effect of Trt
 #' prior$prior[5] <- "student_t(10, 0, 5)"       
 #' 
 #' ## verify that the priors indeed found their way into Stan's model code
-#' make_stancode(count ~ log_Age_c + log_Base4_c * Trt_c 
-#'               + (1|patient) + (1|visit),
+#' make_stancode(count ~ zAge + zBase * Trt + (1|patient) + (1|obs),
 #'               data = epilepsy, family = poisson(), 
 #'               prior = prior)
 #' 
@@ -544,6 +542,7 @@ prior_predictor.mvbrmsterms <- function(x, internal = FALSE, ...) {
 }
 
 prior_predictor.brmsterms <- function(x, data, sparse = FALSE, ...) {
+  data <- subset_data(data, x)
   def_scale_prior <- def_scale_prior(x, data)
   valid_dpars <- valid_dpars(x$family, bterms = x)
   prior <- empty_brmsprior()
@@ -556,7 +555,7 @@ prior_predictor.brmsterms <- function(x, data, sparse = FALSE, ...) {
         x$dpars[[dp]], data = data,
         def_scale_prior = def_scale_prior,
         def_dprior = def_dprior, cats = cats,
-        spec_intercept = !sparse
+        sparse = sparse
       )
     } else if (!is.null(x$fdpars[[dp]])) {
       # parameter is fixed
@@ -572,12 +571,12 @@ prior_predictor.brmsterms <- function(x, data, sparse = FALSE, ...) {
       x$nlpars[[nlp]], data = data,
       def_scale_prior = def_scale_prior,
       def_dprior = def_dprior, 
-      spec_intercept = FALSE
+      sparse = sparse
     )
     prior <- prior + nlp_prior
   }
   # global population-level priors for categorical models
-  if (is_categorical(x$family)) {
+  if (conv_cats_dpars(x$family)) {
     for (cl in c("b", "Intercept")) {
       if (any(find_rows(prior, class = cl, coef = "", resp = x$resp))) {
         prior <- prior + brmsprior(class = cl, resp  = x$resp)
@@ -626,16 +625,16 @@ prior_predictor.btnl <- function(x, data, ...) {
   empty_brmsprior()
 }
 
-prior_fe <- function(bterms, data, spec_intercept = TRUE, 
+prior_fe <- function(bterms, data, sparse = FALSE, 
                      def_dprior = "", cats = NULL, ...) {
   # priors for population-level parameters
-  # Args:
-  #   spec_intercept: special parameter class for the Intercept? 
   # Returns:
   #   an object of class brmsprior
   prior <- empty_brmsprior()
   fixef <- colnames(data_fe(bterms, data)$X)
   px <- check_prefix(bterms)
+  # shell the intercept get its own prior class?
+  spec_intercept <- !no_center(bterms$fe) && !sparse
   if (has_intercept(bterms$fe) && spec_intercept) {
     coefs <- NULL
     if (is_ordinal(bterms)) {
@@ -1250,7 +1249,8 @@ check_prior_special.mvbrmsterms <- function(x, prior = NULL, ...) {
 }
 
 #' @export
-check_prior_special.brmsterms <- function(x, prior = NULL, ...) {
+check_prior_special.brmsterms <- function(x, data, prior = NULL, ...) {
+  data <- subset_data(data, x)
   if (is.null(prior)) {
     prior <- empty_brmsprior()
   }
@@ -1258,18 +1258,18 @@ check_prior_special.brmsterms <- function(x, prior = NULL, ...) {
   for (dp in names(x$dpars)) {
     allow_as <- simple_sigma && identical(dp, "mu") 
     prior <- check_prior_special(
-      x$dpars[[dp]], prior = prior, 
+      x$dpars[[dp]], prior = prior, data = data,
       allow_autoscale = allow_as, ...
     )
   }
   for (nlp in names(x$nlpars)) {
     prior <- check_prior_special(
-      x$nlpars[[nlp]], prior = prior,
+      x$nlpars[[nlp]], prior = prior, data = data,
       allow_autoscale = simple_sigma, ...
     )
   }
   # copy over the global population-level prior in categorical models
-  if (is_categorical(x$family)) {
+  if (conv_cats_dpars(x$family)) {
     for (cl in c("b", "Intercept")) {
       gi <- which(find_rows(
         prior, class = cl, coef = "", dpar = "", resp = x$resp
@@ -1293,7 +1293,7 @@ check_prior_special.brmsterms <- function(x, prior = NULL, ...) {
     theta_prior <- prior$prior[take]
     if (isTRUE(nzchar(theta_prior))) {
       # hard code prior concentration
-      theta_prior <- paste0(eval2(theta_prior), collapse = ", ")
+      theta_prior <- paste0(eval_dirichlet(theta_prior), collapse = ", ")
       prior$prior[take] <- paste0("dirichlet(c(", theta_prior, "))")
     }
   }
@@ -1307,17 +1307,15 @@ check_prior_special.btnl <- function(x, prior, ...) {
 
 #' @export
 check_prior_special.btl <- function(x, prior, data,
-                                    check_nlpar_prior = TRUE,
                                     allow_autoscale = TRUE, ...) {
   # prepare special priors that cannot be passed to Stan as is
   # Args:
   #   prior: an object of class brmsprior
   #   allow_autoscale: allow autoscaling using sigma?
-  #   check_nlpar_prior: check for priors on non-linear parameters?
   # Returns:
   #   a possibly amended brmsprior object with additional attributes
   px <- check_prefix(x)
-  if (is_nlpar(x) && check_nlpar_prior) {
+  if (is_nlpar(x) && no_center(x$fe)) {
     nlp_prior <- subset2(prior, ls = px)
     if (!any(nzchar(nlp_prior$prior))) {
       stop2(
@@ -1336,7 +1334,7 @@ check_prior_special.btl <- function(x, prior, data,
     if (isTRUE(nzchar(simo_prior))) {
       # hard code prior concentration 
       # in order not to depend on external objects
-      simo_prior <- paste0(eval2(simo_prior), collapse = ", ")
+      simo_prior <- paste0(eval_dirichlet(simo_prior), collapse = ", ")
       prior$prior[take] <- paste0("dirichlet(c(", simo_prior, "))")
     }
   }
@@ -1415,16 +1413,18 @@ check_sample_prior <- function(sample_prior) {
 
 get_bound <- function(prior, class = "b", coef = "", 
                       group = "", px = list()) {
-  # extract the boundaries of a parameter described by class etc.
+  # extract prior boundaries of a parameter
   # Args:
   #   prior: object of class brmsprior
-  #   class, coef, group, nlpar: strings of length 1
-  stopifnot(length(class) == 1L)
+  #   class, coef, group, px: passed to subset2
+  stopifnot(is.brmsprior(prior))
+  class <- as_one_character(class)
   if (!length(coef)) coef <- ""
   if (!length(group)) group <- ""
   bound <- subset2(prior, ls = c(nlist(class, coef, group), px))$bound
-  if (length(bound) > 1L) {
-    stop("extracted more than one boundary at once")
+  if (!length(bound)) bound <- ""
+  if (length(bound) != 1L) {
+    stop("Extracting parameter boundaries failed. Please report a bug.")
   }
   bound
 }
@@ -1590,7 +1590,7 @@ print.brmsprior <- function(x, show_df, ...) {
 c.brmsprior <- function(x, ...) {
   # combine multiple brmsprior objects into one brmsprior
   if (all(sapply(list(...), is.brmsprior))) {
-    out <- run(rbind, list(x, ...)) 
+    out <- do_call(rbind, list(x, ...)) 
   } else {
     out <- c(as.data.frame(x), ...)
   }
@@ -1602,13 +1602,17 @@ c.brmsprior <- function(x, ...) {
   c(e1, e2)
 }
 
-dirichlet <- function(...) {
-  # dirichlet prior of simplex parameters
-  out <- as.numeric(c(...))
-  if (anyNA(out) || any(out <= 0)) {
-    stop2("The dirichlet prior expects positive values.")
+eval_dirichlet <- function(prior) {
+  # evaluate the dirichlet prior of simplex parameters
+  # avoid name clashing with the dirichlet family
+  dirichlet <- function(...) {
+    out <- as.numeric(c(...))
+    if (anyNA(out) || any(out <= 0)) {
+      stop2("The dirichlet prior expects positive values.")
+    }
+    out
   }
-  out
+  eval2(prior)
 }
 
 #' Set up a horseshoe prior in \pkg{brms}
