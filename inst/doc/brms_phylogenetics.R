@@ -28,9 +28,7 @@ data_simple <- read.table(
 head(data_simple)
 
 ## ---------------------------------------------------------------------------------------
-inv.phylo <- MCMCglmm::inverseA(phylo, nodes = "TIPS", scale = TRUE)
-A <- solve(inv.phylo$Ainv)
-rownames(A) <- rownames(inv.phylo$Ainv)
+A <- ape::vcv.phylo(phylo)
 
 ## ---- results='hide'--------------------------------------------------------------------
 model_simple <- brm(
