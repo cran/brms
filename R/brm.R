@@ -43,7 +43,8 @@
 #'   design matrices should be treated as sparse (defaults to \code{FALSE}). For
 #'   design matrices with many zeros, this can considerably reduce required
 #'   memory. Sampling speed is currently not improved or even slightly
-#'   decreased.
+#'   decreased. It is now recommended to use the \code{sparse} argument of
+#'   \code{\link{brmsformula}} and related functions.
 #' @param cov_ranef A list of matrices that are proportional to the (within)
 #'   covariance structure of the group-level effects. The names of the matrices
 #'   should correspond to columns in \code{data} that are used as grouping
@@ -64,14 +65,18 @@
 #'   in Stan's \code{parameters} block should be saved (default is
 #'   \code{FALSE}). Saving these samples is required in order to apply the
 #'   methods \code{bridge_sampler}, \code{bayes_factor}, and \code{post_prob}.
-#' @param sample_prior Indicate if samples from all specified proper priors
-#'   should be drawn additionally to the posterior samples (defaults to
-#'   \code{"no"}). Among others, these samples can be used to calculate Bayes
-#'   factors for point hypotheses via \code{\link{hypothesis}}. If set to
-#'   \code{"only"}, samples are drawn solely from the priors ignoring the
-#'   likelihood, which allows among others to generate samples from the prior
-#'   predictive distribution. In this case, all parameters must have proper
-#'   priors.
+#' @param sample_prior Indicate if samples from priors should be drawn 
+#'   additionally to the posterior samples (defaults to \code{"no"}). Among 
+#'   others, these samples can be used to calculate Bayes factors for point 
+#'   hypotheses via \code{\link{hypothesis}}. Please note that improper priors 
+#'   are not sampled, including the default improper priors used by \code{brm}. 
+#'   See \code{\link{set_prior}} on how to set (proper) priors. Please also note
+#'   that prior samples for the overall intercept are not obtained by default for 
+#'   technical reasons. See \code{\link{brmsformula}} how to obtain prior samples 
+#'   for the intercept. If \code{sample_prior} is set to \code{"only"}, samples 
+#'   are drawn solely from the priors ignoring the likelihood, which allows among 
+#'   others to generate samples from the prior predictive distribution. In this 
+#'   case, all parameters must have proper priors.
 #' @param knots Optional list containing user specified knot values to be used
 #'   for basis construction of smoothing terms. See
 #'   \code{\link[mgcv:gamm]{gamm}} for more details.
@@ -326,10 +331,10 @@
 #' fit7 <- update(fit7, future = TRUE)
 #' }
 #'
-#' @import Rcpp
 #' @import parallel
 #' @import methods
 #' @import stats
+#' @import Rcpp
 #' @export
 brm <- function(formula, data, family = gaussian(), prior = NULL, 
                 autocor = NULL, cov_ranef = NULL, 

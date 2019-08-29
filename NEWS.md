@@ -1,3 +1,51 @@
+# brms 2.10.0
+
+### New Features
+
+* Improve convergence diagnostics in the `summary` output. (#712)
+* Use primitive Stan GLM functions whenever possible. (#703)
+* Pass real and integer data vectors to custom families via
+the addition arguments `vreal` and `vint`. (#707)
+* Model compound symmetry correlations via `cor_cosy`. (#403)
+* Predict `sigma` in combination with several 
+autocorrelation structures. (#403)
+* Use addition term `rate` to conveniently handle
+denominators of rate responses in log-linear models.
+* Fit BYM2 CAR models via `cor_car` thanks to the case study 
+and help of Mitzi Morris.
+
+### Other Changes
+
+* Substantially improve the sampling efficiency of SAR models
+thanks to the GitHub user aslez. (#680)
+* No longer allow changing the boundaries
+of autocorrelation parameters.
+* Set the number of trials to 1 by default in 
+`marginal_effects` if not specified otherwise. (#718)
+* Use non-standard evaluation for addition terms.
+* Name temporary intercept parameters more consistently 
+in the Stan code.
+
+### Bug Fixes
+
+* Fix problems in the post-processing of `me` terms with
+grouping factors thanks to the GitHub user tatters. (#706)
+* Allow grouping variables to start with a dot
+thanks to Bruno Nicenboim. (#679)
+* Allow the `horseshoe` prior in categorical and
+related models thanks to the Github user tatters. (#678)
+* Fix extraction of prior samples for overall intercepts in
+`prior_samples` thanks to Jonas Kristoffer Lindelov. (#696)
+* Allow underscores to be used in category names
+of categorical responses thanks to Emmanuel Charpentier. (#672)
+* Fix Stan code of multivariate models with multi-membership
+terms thanks to the Stan discourse user Pia.
+* Improve checks for non-standard variable names 
+thanks to Ryan Holbrook. (#721) 
+* Fix problems when plotting facetted spaghetti plots
+via `marginal_smooths` thanks to Gavin Simpson. (#740)
+
+
 # brms 2.9.0
 
 ### New Features

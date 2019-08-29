@@ -107,11 +107,19 @@ predictor_re <- function(draws, i) {
   re <- draws[["re"]]
   group <- names(re[["r"]])
   for (g in group) {
-    eta <- eta + 
-      .predictor_re(
-        Z = p(re[["Z"]][[g]], i),
-        r = re[["r"]][[g]]
+    eta_g <- try(.predictor_re(Z = p(re[["Z"]][[g]], i), r = re[["r"]][[g]]))
+    if (is(eta_g, "try-error")) {
+      stop2(
+        "Something went wrong (see the error message above). ", 
+        "Perhaps you transformed numeric variables ", 
+        "to factors or vice versa within the model formula? ",
+        "If yes, please convert your variables beforehand. ",
+        "Or did you use a grouping factor also for a different purpose? ",
+        "If yes, please make sure that its factor levels are correct ",
+        "also in the new data you may have provided."
       )
+    }  
+    eta <- eta + eta_g
   }
   eta
 }
@@ -341,7 +349,7 @@ predictor_gp <- function(draws, i) {
 predictor_cs <- function(eta, draws, i) {
   cs <- draws[["cs"]]
   re <- draws[["re"]]
-  if (!length(cs) && !length(re[["rcs"]])) {
+  if (!length(cs[["bcs"]]) && !length(re[["rcs"]])) {
     return(eta)
   }
   ncat <- cs[["ncat"]]
@@ -412,7 +420,7 @@ predictor_offset <- function(draws, i, nobs) {
 # @note eta has to be passed to this function in 
 #   order for ARMA structures to work correctly
 predictor_autocor <- function(eta, draws, i, fdraws = NULL) {
-  if (any(c("ar", "ma") %in% names(draws$ac))) {
+  if (is.cor_arma(draws$ac$autocor)) {
     if (!is.null(draws$ac$err)) {
       # ARMA correlations via latent residuals
       eta <- eta + p(draws$ac$err, i, row = FALSE)
@@ -428,7 +436,7 @@ predictor_autocor <- function(eta, draws, i, fdraws = NULL) {
       ) 
     }
   }
-  if (!is.null(draws$ac$rcar)) {
+  if (is.cor_car(draws$ac$autocor)) {
     eta <- eta + .predictor_re(Z = p(draws$ac$Zcar, i), r = draws$ac$rcar)
   }
   eta
