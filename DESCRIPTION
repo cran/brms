@@ -2,8 +2,8 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using 'Stan'
-Version: 2.10.0
-Date: 2019-08-27
+Version: 2.11.0
+Date: 2020-01-10
 Authors@R: person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
 Depends: R (>= 3.5.0), Rcpp (>= 0.12.0), methods
@@ -32,14 +32,14 @@ Description: Fit Bayesian generalized (non-)linear multivariate multilevel model
     Carpenter et al. (2017) <doi:10.18637/jss.v076.i01>.
 LazyData: true
 NeedsCompilation: no
-License: GPL (>= 3)
+License: GPL-2
 URL: https://github.com/paul-buerkner/brms,
         http://discourse.mc-stan.org
 BugReports: https://github.com/paul-buerkner/brms/issues
 VignetteBuilder: knitr, R.rsp
-RoxygenNote: 6.1.1
-Packaged: 2019-08-29 10:29:25 UTC; paulb
+RoxygenNote: 7.0.2
+Packaged: 2020-01-12 11:36:28 UTC; paulb
 Author: Paul-Christian Bürkner [aut, cre]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2019-08-29 15:50:07 UTC
+Date/Publication: 2020-01-12 14:50:05 UTC

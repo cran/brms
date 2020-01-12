@@ -306,9 +306,19 @@
 #'   in \pkg{brms} in the expected way because this syntax is reserved
 #'   for other purposes.}
 #'   
-#'   For all ordinal families, \code{aterms} may contain a term 
-#'   \code{cat(number)} to specify the number categories (e.g, \code{cat(7)}). 
-#'   If not given, the number of categories is calculated from the data.
+#'   For all ordinal families, \code{aterms} may contain a term
+#'   \code{thres(number)} to specify the number thresholds (e.g,
+#'   \code{thres(6)}), which should be equal to the total number of response
+#'   categories - 1. If not given, the number of thresholds is calculated from
+#'   the data. If different threshold vectors should be used for different
+#'   subsets of the data, the \code{gr} argument can be used to provide the
+#'   grouping variable (e.g, \code{thres(6, gr = item)}, if \code{item} is the
+#'   grouping variable). In this case, the number of thresholds can also be a
+#'   variable in the data with different values per group.
+#'   
+#'   A deprecated quasi alias of \code{thres()} is \code{cat()} with which the
+#'   total number of response categories (i.e., number of thresholds + 1) can be
+#'   specified.
 #'   
 #'   In Wiener diffusion models (family \code{wiener}) the addition term
 #'   \code{dec} is mandatory to specify the (vector of) binary decisions 
@@ -602,7 +612,7 @@ brmsformula <- function(formula, ..., flist = NULL, family = NULL,
   if (is.brmsformula(formula)) {
     out <- formula
   } else {
-    out <- list(formula = as.formula(formula))
+    out <- list(formula = as_formula(formula))
     class(out) <- "brmsformula"
   }
   # parse and validate dots arguments
@@ -769,7 +779,7 @@ NULL
 #' @export
 nlf <- function(formula, ..., flist = NULL, dpar = NULL, 
                 resp = NULL, loop = NULL) {
-  formula <- as.formula(formula)
+  formula <- as_formula(formula)
   if (is.null(lhs(formula))) {
     stop2("Argument 'formula' must be two-sided.")
   }
@@ -1090,7 +1100,7 @@ decomp_opts <- function() {
 # @return a named list of length one containing the formula
 validate_par_formula <- function(formula, par = NULL, rsv_pars = NULL) {
   stopifnot(length(par) <= 1L)
-  try_formula <- try(as.formula(formula), silent = TRUE)
+  try_formula <- try(as_formula(formula), silent = TRUE)
   if (is(try_formula, "try-error")) {
     if (length(formula) != 1L) {
       stop2("Expecting a single value when fixing parameter '", par, "'.")
@@ -1135,7 +1145,7 @@ validate_par_formula <- function(formula, par = NULL, rsv_pars = NULL) {
 # @param empty_ok is an empty left-hand-side ok?
 # @return a formula of the form <response> ~ 1
 validate_resp_formula <- function(x, empty_ok = TRUE) {
-  out <- lhs(as.formula(x))
+  out <- lhs(as_formula(x))
   if (is.null(out)) {
     if (empty_ok) {
       out <- ~ 1
@@ -1219,10 +1229,14 @@ validate_formula.brmsformula <- function(
     if (!is(try_terms, "try-error") && isTRUE(intercept == 0)) {
       stop2("Cannot remove the intercept in an ordinal model.")
     }
+    if (is.null(get_thres(out)) && !is.null(data)) {
+      # for easy access of thresholds
+      out$family$thres <- extract_thres_names(out, data)  
+    }
     if (is.mixfamily(out$family)) {
       # every mixture family needs to know about response categories
       for (i in seq_along(out$family$mix)) {
-        out$family$mix[[i]]$cats <- out$family$cats
+        out$family$mix[[i]]$thres <- out$family$thres
       }
     }
   }
@@ -1385,8 +1399,8 @@ update.mvbrmsformula <- function(object, formula., ...) {
 #'
 #' @export
 update_adterms <- function(formula, adform, action = c("update", "replace")) {
-  formula <- as.formula(formula)
-  adform <- as.formula(adform)
+  formula <- as_formula(formula)
+  adform <- as_formula(adform)
   action <- match.arg(action)
   if (is.null(lhs(formula))) {
     stop2("Can't update a ond-sided formula.")

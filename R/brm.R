@@ -253,8 +253,8 @@
 #' # predict responses based on the fitted model
 #' head(predict(fit1))
 #'
-#' # plot marginal effects for each predictor
-#' plot(marginal_effects(fit1), ask = FALSE)
+#' # plot conditional effects for each predictor
+#' plot(conditional_effects(fit1), ask = FALSE)
 #'
 #' # investigate model fit
 #' loo(fit1)
@@ -277,7 +277,7 @@
 #'             data = kidney, family = lognormal())
 #' summary(fit3)
 #' plot(fit3, ask = FALSE)
-#' plot(marginal_effects(fit3), ask = FALSE)
+#' plot(conditional_effects(fit3), ask = FALSE)
 #'
 #'
 #' # Probit regression using the binomial family
@@ -299,7 +299,7 @@
 #' fit5 <- brm(bf(y ~ a1 - a2^x, a1 + a2 ~ 1, nl = TRUE),
 #'             data = data5, prior = bprior5)
 #' summary(fit5)
-#' plot(marginal_effects(fit5), ask = FALSE)
+#' plot(conditional_effects(fit5), ask = FALSE)
 #'
 #'
 #' # Normal model with heterogeneous variances
@@ -310,7 +310,7 @@
 #' fit6 <- brm(bf(y ~ x, sigma ~ 0 + x), data = data_het)
 #' summary(fit6)
 #' plot(fit6)
-#' marginal_effects(fit6)
+#' conditional_effects(fit6)
 #'
 #' # extract estimated residual SDs of both groups
 #' sigmas <- exp(posterior_samples(fit6, "^b_sigma_"))
@@ -322,7 +322,7 @@
 #' fit7 <- brm(bf(y ~ x, quantile = 0.25), data = data_het,
 #'             family = asym_laplace())
 #' summary(fit7)
-#' marginal_effects(fit7)
+#' conditional_effects(fit7)
 #'
 #'
 #' # use the future package for more flexible parallelization
@@ -351,14 +351,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
                 save_dso = TRUE, file = NULL, ...) {
   
   if (!is.null(file)) {
-    # optionally load saved model object
-    file <- paste0(as_one_character(file), ".rds")
-    x <- suppressWarnings(try(readRDS(file), silent = TRUE))
-    if (!is(x, "try-error")) {
-      if (!is.brmsfit(x)) {
-        stop2("Object loaded via 'file' is not of class 'brmsfit'.")
-      }
-      x$file <- file
+    x <- read_brmsfit(file)
+    if (!is.null(x)) {
       return(x)
     }
   }
@@ -489,8 +483,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     x <- rename_pars(x)
   }
   if (!is.null(file)) {
-    x$file <- file
-    saveRDS(x, file = file)
+    write_brmsfit(x, file)
   }
   x
 }
