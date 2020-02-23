@@ -6,14 +6,17 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
                                   incl_autocor = TRUE, oos = NULL, resp = NULL,
                                   nsamples = NULL, subset = NULL, nug = NULL, 
                                   smooths_only = FALSE, offset = TRUE, 
-                                  new_objects = list(), point = NULL, ...) {
+                                  newdata2 = NULL, new_objects = NULL,
+                                  point = NULL, ...) {
   snl_options <- c("uncertainty", "gaussian", "old_levels")
   sample_new_levels <- match.arg(sample_new_levels, snl_options)
   warn_brmsfit_multiple(x, newdata = newdata)
+  newdata2 <- use_alias(newdata2, new_objects)
   x <- restructure(x)
-  if (!incl_autocor) {
-    x <- remove_autocor(x) 
-  }
+  x <- exclude_terms(
+    x, incl_autocor = incl_autocor, 
+    offset = offset, smooths_only = smooths_only
+  )
   resp <- validate_resp(resp, x)
   subset <- subset_samples(x, subset, nsamples)
   samples <- as.matrix(x, subset = subset)
@@ -23,13 +26,14 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
   newdata <- validate_newdata(
     newdata, object = x, re_formula = re_formula, 
     resp = resp, allow_new_levels = allow_new_levels, 
-    new_objects = new_objects, ...
+    newdata2 = newdata2, ...
   )
   new <- !isTRUE(attr(newdata, "old"))
   sdata <- standata(
     x, newdata = newdata, re_formula = re_formula, 
-    resp = resp, allow_new_levels = allow_new_levels, 
-    new_objects = new_objects, internal = TRUE, ...
+    newdata2 = newdata2, resp = resp, 
+    allow_new_levels = allow_new_levels, 
+    internal = TRUE, ...
   )
   new_formula <- update_re_terms(x$formula, re_formula)
   bterms <- parse_bf(new_formula)
@@ -59,9 +63,8 @@ extract_draws.brmsfit <- function(x, newdata = NULL, re_formula = NULL,
     bterms, samples = samples, sdata = sdata, data = x$data, 
     draws_ranef = draws_ranef, meef = meef, resp = resp, 
     sample_new_levels = sample_new_levels, nug = nug, 
-    smooths_only = smooths_only, offset = offset, new = new, 
-    oos = oos, stanvars = names(x$stanvars), old_sdata = old_sdata,
-    trunc_bounds = trunc_bounds
+    new = new, oos = oos, stanvars = names(x$stanvars), 
+    old_sdata = old_sdata, trunc_bounds = trunc_bounds
   )
 }
 
@@ -109,7 +112,8 @@ extract_draws.brmsterms <- function(x, samples, sdata, data, ...) {
   nsamples <- nrow(samples)
   nobs <- sdata[[paste0("N", usc(x$resp))]]
   resp <- usc(combine_prefix(x))
-  draws <- nlist(family = prepare_family(x), nsamples, nobs, resp = x$resp)
+  draws <- nlist(nsamples, nobs, resp = x$resp)
+  draws$family <- prepare_family(x)
   draws$old_order <- attr(sdata, "old_order")
   valid_dpars <- valid_dpars(x)
   draws$dpars <- named_list(valid_dpars)
@@ -178,11 +182,11 @@ extract_draws.brmsterms <- function(x, samples, sdata, data, ...) {
       draws$bhaz <- extract_draws_bhaz(x$dpars$mu, samples, sdata, ...)
     }
   }
-  if (has_cor_natural_residuals(x)) {
-    # only include autocor samples on the top-level of draws 
-    # when using the covariance formulation of autocorrelations
-    draws$ac <- extract_draws_autocor(x, samples, sdata, ...)
-  }
+  # response category names for categorical and ordinal models
+  draws$cats <- get_cats(x)
+  # only include those autocor samples on the top-level 
+  # of draws which imply covariance matrices on natural residuals
+  draws$ac <- extract_draws_ac(x$dpars$mu, samples, sdata, nat_cov = TRUE, ...)
   draws$data <- extract_draws_data(x, sdata = sdata, data = data, ...)
   structure(draws, class = "brmsdraws")
 }
@@ -197,40 +201,29 @@ extract_draws.btnl <- function(x, samples, sdata, ...) {
   )
   class(draws) <- "bdrawsnl"
   p <- usc(combine_prefix(x))
-  C <- sdata[[paste0("C", p)]]
-  for (cov in colnames(C)) {
-    dim <- c(nrow(samples), nrow(C))
-    draws$C[[cov]] <- as_draws_matrix(C[, cov], dim = dim)
+  covars <- all.vars(x$covars)
+  dim <- c(draws$nsamples, draws$nobs)
+  for (i in seq_along(covars)) {
+    cvalues <- sdata[[paste0("C", p, "_", i)]]
+    draws$C[[covars[i]]] <- as_draws_matrix(cvalues, dim = dim)
   }
   draws
 }
 
 #' @export
-extract_draws.btl <- function(x, samples, sdata, smooths_only = FALSE, 
-                              offset = TRUE, ...) {
-  smooths_only <- as_one_logical(smooths_only)
-  offset <- as_one_logical(offset)
+extract_draws.btl <- function(x, samples, sdata, ...) {
   nsamples <- nrow(samples)
   nobs <- sdata[[paste0("N", usc(x$resp))]]
   draws <- nlist(family = x$family, nsamples, nobs)
   class(draws) <- "bdrawsl"
-  if (smooths_only) {
-    # make sure only smooth terms will be included in draws
-    draws$sm <- extract_draws_sm(x, samples, sdata, ...)
-    return(draws)
-  }
   draws$fe <- extract_draws_fe(x, samples, sdata, ...)
   draws$sp <- extract_draws_sp(x, samples, sdata, ...)
   draws$cs <- extract_draws_cs(x, samples, sdata, ...)
   draws$sm <- extract_draws_sm(x, samples, sdata, ...)
   draws$gp <- extract_draws_gp(x, samples, sdata, ...)
   draws$re <- extract_draws_re(x, sdata, ...)
-  if (offset) {
-    draws$offset <- extract_draws_offset(x, sdata, ...)
-  }
-  if (!has_cor_natural_residuals(x)) {
-    draws$ac <- extract_draws_autocor(x, samples, sdata, ...)
-  }
+  draws$ac <- extract_draws_ac(x, samples, sdata, nat_cov = FALSE, ...)
+  draws$offset <- extract_draws_offset(x, sdata, ...)
   draws
 }
 
@@ -249,8 +242,9 @@ extract_draws_fe <- function(bterms, samples, sdata, ...) {
 }
 
 # extract draws of special effects terms
-extract_draws_sp <- function(bterms, samples, sdata, data, meef, 
-                             new = FALSE, trunc_bounds = NULL, ...) {
+extract_draws_sp <- function(bterms, samples, sdata, data, 
+                             meef = empty_meef(), new = FALSE,
+                             trunc_bounds = NULL, ...) {
   draws <- list()
   spef <- tidy_spef(bterms, data)
   if (!nrow(spef)) return(draws)
@@ -280,6 +274,7 @@ extract_draws_sp <- function(bterms, samples, sdata, data, meef,
   # extract general data and parameters for special effects
   bsp_pars <- paste0("bsp", p, "_", spef$coef)
   draws$bsp <- get_samples(samples, bsp_pars, fixed = TRUE)
+  colnames(draws$bsp) <- spef$coef
   # prepare draws specific to monotonic effects
   simo_coef <- get_simo_labels(spef)
   Jmo <- sdata[[paste0("Jmo", p)]]
@@ -393,16 +388,17 @@ extract_draws_sp <- function(bterms, samples, sdata, data, meef,
 # extract draws of category specific effects
 extract_draws_cs <- function(bterms, samples, sdata, data, ...) {
   draws <- list()
-  if (is_ordinal(bterms$family)) {
-    resp <- usc(bterms$resp)
-    draws$nthres <- sdata[[paste0("nthres", resp)]]
-    csef <- colnames(get_model_matrix(bterms$cs, data))
-    if (length(csef)) {
-      p <- usc(combine_prefix(bterms))
-      cs_pars <- paste0("^bcs", p, "_", csef, "\\[")
-      draws$bcs <- get_samples(samples, cs_pars)
-      draws$Xcs <- sdata[[paste0("Xcs", p)]]
-    }
+  if (!is_ordinal(bterms$family)) {
+    return(draws) 
+  }
+  resp <- usc(bterms$resp)
+  draws$nthres <- sdata[[paste0("nthres", resp)]]
+  csef <- colnames(get_model_matrix(bterms$cs, data))
+  if (length(csef)) {
+    p <- usc(combine_prefix(bterms))
+    cs_pars <- paste0("^bcs", p, "_", csef, "\\[")
+    draws$bcs <- get_samples(samples, cs_pars)
+    draws$Xcs <- sdata[[paste0("Xcs", p)]]
   }
   draws
 }
@@ -536,11 +532,13 @@ extract_draws_gp <- function(bterms, samples, sdata, data,
 # @param old_ranef same as 'ranef' but based on the original formula
 # @return a named list with one element per group containing posterior draws 
 #   of levels used in the data as well as additional meta-data
-extract_draws_ranef <- function(ranef, samples, sdata, resp, old_ranef, 
+extract_draws_ranef <- function(ranef, samples, sdata, old_ranef, resp = NULL,
                                 sample_new_levels = "uncertainty", ...) {
   if (!nrow(ranef)) {
-    return(NULL)
+    return(list())
   }
+  # ensures subsetting 'ranef' by 'resp' works correctly
+  resp <- resp %||% ""
   groups <- unique(ranef$group)
   out <- named_list(groups, list())
   for (g in groups) {
@@ -561,7 +559,8 @@ extract_draws_ranef <- function(ranef, samples, sdata, resp, old_ranef,
       )
     }
     # only extract draws of effects specified in the new formula
-    used_rpars <- match(ranef_g$cn, old_ranef_g$cn)
+    cols_match <- c("coef", "resp", "dpar", "nlpar")
+    used_rpars <- which(find_rows(old_ranef_g, ls = ranef_g[cols_match]))
     used_rpars <- outer(seq_len(nlevels), (used_rpars - 1) * nlevels, "+")
     used_rpars <- as.vector(used_rpars)
     rsamples <- rsamples[, used_rpars, drop = FALSE]
@@ -570,7 +569,7 @@ extract_draws_ranef <- function(ranef, samples, sdata, resp, old_ranef,
     gtype <- ranef_g$gtype[1]
     resp_g <- intersect(ranef_g$resp, resp)[1]
     # any valid ID works here as J and W are independent of the ID
-    id <- ranef_g$id[1]
+    id <- subset2(ranef_g, resp = resp)$id[1]
     idresp <- paste0(id, usc(resp_g))
     if (gtype == "mm") {
       ngf <- length(ranef_g$gcall[[1]]$groups)
@@ -607,7 +606,7 @@ extract_draws_ranef <- function(ranef, samples, sdata, resp, old_ranef,
 # extract draws and data of group-level effects
 # @param draws_ranef a named list with one element per group containing
 #   posterior draws of levels as well as additional meta-data
-extract_draws_re <- function(bterms, sdata, draws_ranef,
+extract_draws_re <- function(bterms, sdata, draws_ranef = list(),
                              sample_new_levels = "uncertainty", ...) {
   draws <- list()
   if (!length(draws_ranef)) {
@@ -634,6 +633,7 @@ extract_draws_re <- function(bterms, sdata, draws_ranef,
     max_level <- draws_ranef[[g]]$max_level
     gf <- draws_ranef[[g]]$gf
     weights <- draws_ranef[[g]]$weights
+    # TODO: define 'select' according to parameter names not by position
     # store samples and corresponding data in 'draws'
     # special group-level terms (mo, me, mi)
     ranef_g_px_sp <- subset2(ranef_g_px, type = "sp")
@@ -691,9 +691,90 @@ extract_draws_re <- function(bterms, sdata, draws_ranef,
   draws
 }
 
+# extract draws of autocorrelation parameters
+# @param nat_cov extract terms for covariance matrices of natural residuals?
+extract_draws_ac <- function(bterms, samples, sdata, oos = NULL, 
+                             nat_cov = FALSE, new = FALSE, ...) {
+  draws <- list()
+  nat_cov <- as_one_logical(nat_cov)
+  acef <- tidy_acef(bterms)
+  acef <- subset2(acef, nat_cov = nat_cov)
+  if (!NROW(acef)) {
+    return(draws)
+  }
+  draws$acef <- acef
+  p <- usc(combine_prefix(bterms))
+  draws$N_tg <- sdata[[paste0("N_tg", p)]]
+  if (has_ac_class(acef, "arma")) {
+    acef_arma <- subset2(acef, class = "arma")
+    draws$Y <- sdata[[paste0("Y", p)]]
+    if (!is.null(oos)) {
+      if (any(oos > length(draws$Y))) {
+        stop2("'oos' should not contain integers larger than N.")
+      }
+      # .predictor_arma has special behavior for NA responses 
+      draws$Y[oos] <- NA
+    }
+    draws$J_lag <- sdata[[paste0("J_lag", p)]]
+    if (acef_arma$p > 0) {
+      draws$ar <- get_samples(samples, paste0("^ar", p, "\\["))
+    }
+    if (acef_arma$q > 0) {
+      draws$ma <- get_samples(samples, paste0("^ma", p, "\\["))
+    }
+  }
+  if (has_ac_class(acef, "cosy")) {
+    draws$cosy <-  get_samples(samples, paste0("^cosy", p, "$"))
+  }
+  if (use_ac_cov_time(acef)) {
+    # draws for the covariance structures of time-series models
+    draws$begin_tg <- sdata[[paste0("begin_tg", p)]]
+    draws$end_tg <- sdata[[paste0("end_tg", p)]]
+    if (has_cor_latent_residuals(bterms)) {
+      regex_err <- paste0("^err", p, "\\[")
+      has_err <- any(grepl(regex_err, colnames(samples)))
+      if (has_err && !new) {
+        draws$err <- get_samples(samples, regex_err)
+      } else {
+        # need to sample correlated residuals
+        draws$err <- matrix(nrow = nrow(samples), ncol = length(draws$Y))
+        draws$sderr <- get_samples(samples, paste0("^sderr", p, "$"))
+        for (i in seq_len(draws$N_tg)) {
+          obs <- with(draws, begin_tg[i]:end_tg[i])
+          zeros <- rep(0, length(obs))
+          cov <- get_cov_matrix_ac(list(ac = draws), obs, latent = TRUE)
+          .err <- function(s) rmulti_normal(1, zeros, Sigma = cov[s, , ])
+          draws$err[, obs] <- rblapply(seq_rows(samples), .err)
+        }
+      }
+    }
+  }
+  if (has_ac_class(acef, "sar")) {
+    draws$lagsar <- get_samples(samples, paste0("^lagsar", p, "$"))
+    draws$errorsar <- get_samples(samples, paste0("^errorsar", p, "$"))
+    draws$Msar <- sdata[[paste0("Msar", p)]]
+  }
+  if (has_ac_class(acef, "car")) {
+    acef_car <- subset2(acef, class = "car")
+    if (new && acef_car$gr == "NA") {
+      stop2("Without a grouping factor, CAR models cannot handle newdata.")
+    }
+    gcar <- sdata[[paste0("Jloc", p)]]
+    Zcar <- matrix(rep(1, length(gcar)))
+    draws$Zcar <- prepare_Z(Zcar, list(gcar))
+    rcar <- get_samples(samples, paste0("^rcar", p, "\\["))
+    rcar <- rcar[, unique(gcar), drop = FALSE]
+    draws$rcar <- rcar
+  }
+  if (has_ac_class(acef, "fcor")) {
+    draws$Mfcor <- sdata[[paste0("Mfcor", p)]]
+  }
+  draws
+}
+
 extract_draws_offset <- function(bterms, sdata, ...) {
   p <- usc(combine_prefix(bterms))
-  sdata[[paste0("offset", p)]]
+  sdata[[paste0("offsets", p)]]
 }
 
 # extract draws of ordinal thresholds
@@ -726,78 +807,6 @@ extract_draws_bhaz <- function(bterms, samples, sdata, ...) {
   out
 }
 
-# extract draws of autocorrelation parameters
-extract_draws_autocor <- function(bterms, samples, sdata, oos = NULL, 
-                                  new = FALSE, ...) {
-  draws <- list()
-  autocor <- draws$autocor <- bterms$autocor
-  p <- usc(combine_prefix(bterms))
-  draws$N_tg <- sdata[[paste0("N_tg", p)]]
-  if (is.cor_arma(autocor)) {
-    draws$Y <- sdata[[paste0("Y", p)]]
-    if (!is.null(oos)) {
-      if (any(oos > length(draws$Y))) {
-        stop2("'oos' should not contain integers larger than N.")
-      }
-      # .predictor_arma has special behavior for NA responses 
-      draws$Y[oos] <- NA
-    }
-    draws$J_lag <- sdata[[paste0("J_lag", p)]]
-    if (get_ar(autocor)) {
-      draws$ar <- get_samples(samples, paste0("^ar", p, "\\["))
-    }
-    if (get_ma(autocor)) {
-      draws$ma <- get_samples(samples, paste0("^ma", p, "\\["))
-    }
-  }
-  if (is.cor_cosy(autocor)) {
-    draws$cosy <-  get_samples(samples, paste0("^cosy", p, "$"))
-  }
-  if (use_cov(autocor)) {
-    # draws for the 'covariance' versions of ARMA and COSY structures
-    draws$begin_tg <- sdata[[paste0("begin_tg", p)]]
-    draws$end_tg <- sdata[[paste0("end_tg", p)]]
-    if (has_latent_residuals(bterms)) {
-      regex_err <- paste0("^err", p, "\\[")
-      has_err <- any(grepl(regex_err, colnames(samples)))
-      if (has_err && !new) {
-        draws$err <- get_samples(samples, regex_err)
-      } else {
-        # need to sample correlated residuals
-        draws$err <- matrix(nrow = nrow(samples), ncol = length(draws$Y))
-        draws$sderr <- get_samples(samples, paste0("^sderr", p, "$"))
-        for (i in seq_len(draws$N_tg)) {
-          obs <- with(draws, begin_tg[i]:end_tg[i])
-          zeros <- rep(0, length(obs))
-          cov <- get_cov_matrix_autocor(list(ac = draws), obs, latent = TRUE)
-          .err <- function(s) rmulti_normal(1, zeros, Sigma = cov[s, , ])
-          draws$err[, obs] <- rblapply(seq_rows(samples), .err)
-        }
-      }
-    }
-  }
-  if (is.cor_sar(autocor)) {
-    draws$lagsar <- get_samples(samples, paste0("^lagsar", p, "$"))
-    draws$errorsar <- get_samples(samples, paste0("^errorsar", p, "$"))
-    draws$W <- sdata[[paste0("W", p)]]
-  }
-  if (is.cor_car(autocor)) {
-    if (new) {
-      group <- parse_time(autocor)$group
-      if (!isTRUE(nzchar(group))) {
-        stop2("Without a grouping factor, CAR models cannot handle newdata.")
-      }
-    }
-    gcar <- sdata[[paste0("Jloc", p)]]
-    Zcar <- matrix(rep(1, length(gcar)))
-    draws$Zcar <- prepare_Z(Zcar, list(gcar))
-    rcar <- get_samples(samples, paste0("^rcar", p, "\\["))
-    rcar <- rcar[, unique(gcar), drop = FALSE]
-    draws$rcar <- rcar
-  }
-  draws
-}
-
 # extract data mainly related to the response variable
 # @param stanvars: *names* of variables stored in slot 'stanvars'
 extract_draws_data <- function(bterms, sdata, data, stanvars = NULL, ...) {
@@ -819,9 +828,6 @@ extract_draws_data <- function(bterms, sdata, data, stanvars = NULL, ...) {
     stopifnot(is.character(stanvars))
     draws[stanvars] <- sdata[stanvars]
   }
-  if (has_cat(bterms)) {
-    draws$cats <- get_cats(bterms)
-  }
   draws
 }
 
@@ -829,26 +835,6 @@ extract_draws_data <- function(bterms, sdata, data, stanvars = NULL, ...) {
 choose_N <- function(draws) {
   stopifnot(is.brmsdraws(draws) || is.mvbrmsdraws(draws))
   if (!is.null(draws$ac$N_tg)) draws$ac$N_tg else draws$nobs
-}
-
-# prepare for calling family specific post-processing functions
-prepare_family <- function(x) {
-  stopifnot(is.brmsformula(x) || is.brmsterms(x))
-  family <- x$family
-  if (use_cov(x$autocor) && has_natural_residuals(x)) {
-    family$fun <- paste0(family$family, "_cov")
-  } else if (is.cor_sar(x$autocor)) {
-    if (identical(x$autocor$type, "lag")) {
-      family$fun <- paste0(family$family, "_lagsar")
-    } else if (identical(x$autocor$type, "error")) {
-      family$fun <- paste0(family$family, "_errorsar")
-    }
-  } else if (is.cor_fixed(x$autocor)) {
-    family$fun <- paste0(family$family, "_fixed")
-  } else {
-    family$fun <- family$family
-  }
-  family
 }
 
 # create pseudo brmsdraws objects for components of mixture models
@@ -1140,10 +1126,10 @@ is.bdrawsnl <- function(x) {
 #'   correlations. This options may be useful for conducting Bayesian power
 #'   analysis. If \code{"old_levels"}, directly sample new levels from the
 #'   existing levels.
-#' @param new_objects A named \code{list} of objects containing new data, which
-#'   cannot be passed via argument \code{newdata}. Required for objects passed
-#'   via \code{\link{stanvars}} and for \code{\link[brms:cor_sar]{cor_sar}} and
-#'   \code{\link[brms:cor_fixed]{cor_fixed}} correlation structures.
+#' @param newdata2 A named \code{list} of objects containing new data, which
+#'   cannot be passed via argument \code{newdata}. Required for some objects 
+#'   used in autocorrelation structures, or \code{\link{stanvars}}.
+#' @param new_objects Deprecated alias of \code{newdata2}.
 #' @param incl_autocor A flag indicating if correlation structures originally
 #'   specified via \code{autocor} should be included in the predictions.
 #'   Defaults to \code{TRUE}.

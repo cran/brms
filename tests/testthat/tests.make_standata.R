@@ -200,18 +200,22 @@ test_that("make_standata handles multivariate models", {
   sdata <- make_standata(mvbind(y1 / y2, y2, y1 * 3) ~ x, data = dat)
   expect_equal(sdata$Y_y1y2, as.array(dat$y1 / dat$y2))
   
-  sdata <- make_standata(mvbind(y1, y2) ~ x, dat,
-                         autocor = cor_ar(~ tim | g))
+  sdata <- suppressWarnings(
+    make_standata(mvbind(y1, y2) ~ x, dat, autocor = cor_ar(~ tim | g))
+  )
   target1 <- c(seq(9, 1, -2), seq(10, 2, -2))
   expect_equal(sdata$Y_y1, as.array(target1))                 
   target2 <- c(seq(19, 11, -2), seq(20, 12, -2))
   expect_equal(sdata$Y_y2, as.array(target2))   
   
   # models without residual correlations
-  bform <- bf(y1 | cens(censi) ~ x + y2 + (x|2|g)) + 
-    gaussian() + cor_ar() +
-    (bf(x ~ 1) + mixture(poisson, nmix = 2)) +
-    (bf(y2 ~ s(y2) + (1|2|g)) + skew_normal())
+  expect_warning(
+    bform <- bf(y1 | cens(censi) ~ x + y2 + (x|2|g)) + 
+      gaussian() + cor_ar() +
+      (bf(x ~ 1) + mixture(poisson, nmix = 2)) +
+      (bf(y2 ~ s(y2) + (1|2|g)) + skew_normal()),
+    "Using 'cor_brms' objects for 'autocor' is deprecated"
+  )
   bprior <- prior(normal(0, 5), resp = y1) +
     prior(normal(0, 10), resp = y2) +
     prior(dirichlet(2, 1), theta, resp = x)
@@ -235,18 +239,21 @@ test_that("make_standata handles multivariate models", {
   expect_equal(length(sdata$Z_1_y1_2), nsub)
 })
 
-test_that("make_standata returns correct data for autocor structures", {
+test_that("make_standata returns correct data for ARMA terms", {
   dat <- data.frame(y = 1:10, x = rep(0, 10), tim = 10:1, g = rep(3:4, 5))
   
-  sdata <- make_standata(y ~ x, data = dat, autocor = cor_ma(~tim|g))
+  sdata <- make_standata(y ~ x + ma(tim, g), data = dat)
   expect_equal(sdata$J_lag, as.array(c(1, 1, 1, 1, 0, 1, 1, 1, 1, 0)))
   
-  sdata <- make_standata(y ~ x, data = dat, autocor = cor_ar(~tim|g, p = 2))
+  sdata <- make_standata(y ~ x + ar(tim, g, p = 2), data = dat)
   expect_equal(sdata$J_lag, as.array(c(1, 2, 2, 2, 0, 1, 2, 2, 2, 0)))
   
-  sdata <- make_standata(y ~ x, data = dat, autocor = cor_ar(~tim|g, cov = TRUE))
+  sdata <- make_standata(y ~ x + ar(tim, g, cov = TRUE), data = dat)
   expect_equal(sdata$begin_tg, as.array(c(1, 6)))
   expect_equal(sdata$nobs_tg, as.array(c(5, 5)))
+  
+  bform <- bf(y ~ exp(b * x), b ~ 1, nl = TRUE, autocor = ~arma())
+  sdata <- make_standata(bform, dat)
 })
 
 test_that("make_standata allows to retrieve the initial data order", {
@@ -254,13 +261,12 @@ test_that("make_standata allows to retrieve the initial data order", {
                           id = sample(1:10, 100, TRUE), 
                           time = sample(1:100, 100))
   # univariate model
-  sdata1 <- make_standata(y1 ~ 1, data = dat, 
-                          autocor = cor_ar(~time|id),
+  sdata1 <- make_standata(y1 ~ ar(time, id), data = dat,
                           control = list(save_order = TRUE))
   expect_equal(dat$y1, as.numeric(sdata1$Y[attr(sdata1, "old_order")]))
+  
   # multivariate model
-  sdata2 <- make_standata(mvbind(y1, y2) ~ 1, data = dat, 
-                          autocor = cor_ma(~time|id),
+  sdata2 <- make_standata(mvbind(y1, y2) ~ ma(time, id), data = dat, 
                           control = list(save_order = TRUE))
   expect_equal(sdata2$Y_y1[attr(sdata2, "old_order")], as.array(dat$y1))
   expect_equal(sdata2$Y_y2[attr(sdata2, "old_order")], as.array(dat$y2))
@@ -297,7 +303,7 @@ test_that("make_standata correctly prepares data for non-linear models", {
   bform <- bf(y ~ a - b^z, flist = flist, nl = TRUE)
   sdata <- make_standata(bform, data = dat)
   expect_equal(names(sdata), 
-    c("N", "Y", "KC", "C", "K_a", "X_a", "Z_1_a_1", 
+    c("N", "Y", "C_1", "K_a", "X_a", "Z_1_a_1", 
       "K_b", "X_b", "Ksp_b", "Imo_b", "Xmo_b_1", "Jmo_b", 
       "con_simo_b_1", "Z_1_b_2", "J_1", "N_1", 
       "M_1", "NC_1", "prior_only")
@@ -305,15 +311,12 @@ test_that("make_standata correctly prepares data for non-linear models", {
   expect_equal(colnames(sdata$X_a), c("Intercept", "x"))
   expect_equal(sdata$J_1, as.array(dat$g))
   
-  sdata <- make_standata(bform, data = dat, control = list(not4stan = TRUE))
-  expect_equal(colnames(sdata$C), "z")
-  
   bform <- bf(y ~ x) + 
     nlf(sigma ~ a1 * exp(-x/(a2 + z))) +
     lf(a1 ~ 1, a2 ~ z + (x|g)) +
     lf(alpha ~ x)
   sdata <- make_standata(bform, dat, family = skew_normal())
-  sdata_names <- c("C_sigma", "X_a2", "Z_1_a2_1")
+  sdata_names <- c("C_sigma_1", "X_a2", "Z_1_a2_1")
   expect_true(all(sdata_names %in% names(sdata)))
 })
 
@@ -361,12 +364,19 @@ test_that("make_standata correctly prepares data for monotonic effects", {
   )
 })
 
-test_that("make_standata returns fixed residual covariance matrices", {
+test_that("make_standata returns FCOR covariance matrices", {
   data <- data.frame(y = 1:5)
-  V <- diag(5)
-  expect_equal(make_standata(y~1, data, autocor = cor_fixed(V))$V, V)
-  expect_error(make_standata(y~1, data, autocor = cor_fixed(diag(2))),
-               "'V' must have the same number of rows as 'data'")
+  data2 <- list(V = diag(5))
+  expect_equal(make_standata(y ~ fcor(V), data, data2 = data2)$Mfcor, 
+               data2$V, check.attributes = FALSE)
+  
+  expect_warning(
+    expect_error(
+      make_standata(y~1, data, autocor = cor_fixed(diag(2))),
+      "Dimensions of 'M' for FCOR terms must be equal"
+    ),
+    "Using 'cor_brms' objects for 'autocor' is deprecated"
+  )
 })
 
 test_that("make_standata returns data for GAMMs", {
@@ -512,7 +522,7 @@ test_that("make_standata handles missing value terms", {
   
   dat$z <- rbeta(10, 1, 1)
   dat$z[miss] <- NA
-  bform <- bf(y ~ mi(z)*g) + bf(z | mi() ~ g, family = Beta()) + 
+  bform <- bf(exp(y) ~ mi(z)*g) + bf(z | mi() ~ g, family = Beta()) + 
     set_rescor(FALSE)
   sdata <- make_standata(bform, dat)
   expect_equal(sdata$Jmi_z, as.array(miss))
@@ -615,10 +625,10 @@ test_that("Cell-mean coding can be disabled", {
 test_that("make_standata correctly includes offsets", {
   data <- data.frame(y = rnorm(10), x = rnorm(10), c = 1)
   sdata <- make_standata(bf(y ~ x + offset(c), sigma ~ offset(c + 1)), data)
-  expect_equal(sdata$offset, as.array(data$c))
-  expect_equal(sdata$offset_sigma, as.array(data$c + 1))
+  expect_equal(sdata$offsets, as.array(data$c))
+  expect_equal(sdata$offsets_sigma, as.array(data$c + 1))
   sdata <- make_standata(y ~ x + offset(c) + offset(x), data)
-  expect_equal(sdata$offset, as.array(data$c + data$x))
+  expect_equal(sdata$offsets, as.array(data$c + data$x))
 })
 
 test_that("make_standata includes data for mixture models", {
@@ -674,52 +684,60 @@ test_that("make_standata includes data for approximate Gaussian processes", {
 test_that("make_standata includes data for SAR models", {
   dat <- data.frame(y = rnorm(10), x = rnorm(10))
   W <- matrix(0, nrow = 10, ncol = 10)
+  dat2 <- list(W = W)
   
-  sdata <- make_standata(y ~ x, data = dat, autocor = cor_lagsar(W))
-  expect_equal(dim(sdata$W), rep(nrow(W), 2))
+  sdata <- make_standata(y ~ x + sar(W), data = dat, data2 = dat2)
+  expect_equal(dim(sdata$M), rep(nrow(W), 2))
   
+  dat2 <- list(W = matrix(0, 2, 2))
   expect_error(
-    make_standata(y ~ x, data = dat, autocor = cor_lagsar(matrix(1:4, 2, 2))),
-    "Dimensions of 'W' must be equal to the number of observations"
+    make_standata(y ~ x + sar(W), data = dat, data2 = dat2),
+    "Dimensions of 'M' for SAR terms must be equal"
   )
 })
 
 test_that("make_standata includes data for CAR models", {
-  dat = data.frame(y = rnorm(10), x = rnorm(10))
+  dat = data.frame(y = rnorm(10), x = rnorm(10), obs = 1:10)
   edges <- cbind(1:10, 10:1)
   W <- matrix(0, nrow = 10, ncol = 10)
   for (i in seq_len(nrow(edges))) {
     W[edges[i, 1], edges[i, 2]] <- 1 
-  } 
+  }
+  rownames(W) <- 1:nrow(W)
+  dat2 <- list(W = W)
   
-  sdata <- make_standata(y ~ x, dat, autocor = cor_car(W))
+  sdata <- make_standata(y ~ x + car(W, gr = obs), dat, data2 = dat2)
   expect_equal(sdata$Nloc, 10)
-  expect_equal(sdata$Nneigh, rep(1, 10))
-  expect_equal(sdata$edges1, as.array(10:6))
-  expect_equal(sdata$edges2, as.array(1:5))
+  expect_equal(unname(sdata$Nneigh), rep(1, 10))
+  expect_equal(unname(sdata$edges1), as.array(10:6))
+  expect_equal(unname(sdata$edges2), as.array(1:5))
   
-  rownames(W) <- c("a", 2:9, "b")
+  sdata_old <- SW(make_standata(y ~ x, dat, autocor = cor_car(W)))
+  expect_equal(sdata, sdata_old)
+  
+  rownames(dat2$W) <- c("a", 2:9, "b")
   dat$group <- rep(c("a", "b"), each = 5)
-  sdata <- make_standata(y ~ x, dat, autocor = cor_car(W, ~1|group))
+  sdata <- make_standata(y ~ x + car(W, gr = group), dat, data2 = dat2)
   expect_equal(sdata$Nloc, 2)
   expect_equal(sdata$edges1, as.array(2))
   expect_equal(sdata$edges2, as.array(1))
   
-  sdata <- make_standata(y ~ x, dat, autocor = cor_car(W, type = "bym2"))
+  sdata <- make_standata(y ~ x + car(W, group, type = "bym2"), 
+                         data = dat, data2 = dat2)
   expect_equal(length(sdata$car_scale), 1L)
   
   # test error messages
-  rownames(W) <- c(1:9, "a")
-  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W, ~1|group)), 
-               "Row names of 'W' do not match")
-  rownames(W) <- NULL
-  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W, ~1|group)),
-               "Row names are required for 'W'")
-  W[1, 10] <- 0
-  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W)),
-               "'W' must be symmetric")
-  W[10, 1] <- 0
-  expect_error(make_standata(y ~ x, dat, autocor = cor_car(W)),
+  rownames(dat2$W) <- c(1:9, "a")
+  expect_error(make_standata(y ~ car(W, gr = group), dat, data2 = dat2), 
+               "Row names of 'M' for CAR terms do not match")
+  rownames(dat2$W) <- NULL
+  expect_error(make_standata(y ~ car(W, gr = group), dat, data2 = dat2),
+               "Row names are required for 'M'")
+  dat2$W[1, 10] <- 0
+  expect_error(make_standata(y ~ car(W), dat, data2 = dat2),
+               "'M' for CAR terms must be symmetric")
+  dat2$W[10, 1] <- 0
+  expect_error(SW(make_standata(y ~ x + car(W), dat, data2 = dat2)),
                "all locations should have at least one neighbor")
 })
 
@@ -863,15 +881,36 @@ test_that("make_standata handles addition term 'rate' is correctly", {
 
 test_that("make_standata handles grouped ordinal thresholds correctly", {
   dat <- data.frame(
-    y = sample(1:6, 10, TRUE),
-    y2 = sample(1:6, 10, TRUE),
+    y = c(1:5, 1:4, 4),
     gr = rep(c("a", "b"), each = 5),
     th = rep(5:6, each = 5),
     x = rnorm(10)
   )
-  sdata <- make_standata(y | thres(th, gr) ~ x, data = dat, family = sratio())
+  
+  # thresholds without a grouping factor
+  sdata <- make_standata(y ~ x, dat, cumulative())
+  expect_equal(sdata$nthres, 4)
+  
+  sdata <- make_standata(y | thres(5) ~ x, dat, cumulative())
+  expect_equal(sdata$nthres, 5)
+  
+  expect_error(
+    make_standata(y | thres(th) ~ x, dat, cumulative()),
+    "Number of thresholds needs to be a single value"
+  )
+  
+  # thresholds with a grouping factor
+  sdata <- make_standata(y | thres(th, gr) ~ x, dat, cumulative())
   expect_equal(sdata$nthres, as.array(c(5, 6)))
   expect_equal(sdata$ngrthres, 2)
   expect_equal(unname(sdata$Jthres[1, ]), c(1, 5))
   expect_equal(unname(sdata$Jthres[10, ]), c(6, 11))
+  
+  sdata <- make_standata(y | thres(gr = gr) ~ x, dat, cumulative())
+  expect_equal(sdata$nthres, as.array(c(4, 3)))
+  expect_equal(sdata$ngrthres, 2)
+  
+  sdata <- make_standata(y | thres(6, gr = gr) ~ x, dat, cumulative())
+  expect_equal(sdata$nthres, as.array(c(6, 6)))
+  expect_equal(sdata$ngrthres, 2)
 })

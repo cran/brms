@@ -42,10 +42,10 @@ make_stancode <- function(formula, data, family = gaussian(),
   bterms <- parse_bf(formula)
   sample_prior <- check_sample_prior(sample_prior)
   prior <- check_prior(
-    prior, formula = formula, data = data, 
+    prior, formula = formula, data = data,
     sample_prior = sample_prior, warn = TRUE
   )
-  data <- update_data(data, bterms = bterms)
+  data <- validate_data(data, bterms = bterms)
   ranef <- tidy_ranef(bterms, data = data)
   meef <- tidy_meef(bterms, data = data)
   stanvars <- validate_stanvars(stanvars)
@@ -67,7 +67,7 @@ make_stancode <- function(formula, data, family = gaussian(),
     scode_predictor$prior,
     scode_ranef$prior,
     scode_Xme$prior,
-    stan_prior(class = "", prior = prior)
+    stan_unchecked_prior(prior)
   )
   # generate functions block
   scode_functions <- paste0(
@@ -124,8 +124,12 @@ make_stancode <- function(formula, data, family = gaussian(),
       scode_ranef$tpar_def,
       scode_Xme$tpar_def,
       collapse_stanvars(stanvars, block = "tparameters"),
+      scode_predictor$tpar_prior,
+      scode_ranef$tpar_prior,
+      scode_Xme$tpar_prior,
       scode_predictor$tpar_comp,
       scode_ranef$tpar_comp,
+      scode_Xme$tpar_comp,
     "}\n"
   )
   # generate model block

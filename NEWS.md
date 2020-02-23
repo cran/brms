@@ -1,3 +1,43 @@
+# brms 2.12.0
+
+### New Features
+
+* Fix parameters to constants via the `prior` argument. (#783)
+* Specify autocorrelation terms directly in the model formula. (#708)
+* Translate integer covariates in non-linear formulas to integer
+arrays in Stan.
+* Estimate `sigma` in combination with fixed correlation matrices
+via autocorrelation term `fcor`.
+* Use argument `data2` in `brm` and related functions to pass
+data objects which cannot be passed via `data`. The usage of `data2`
+will be extended in future versions.
+* Compute pointwise log-likelihood values via `log_lik` for
+non-factorizable Student-t models. (#705)
+
+### Bug Fixes
+
+* Fix output of `posterior_predict` for `multinomial` models
+thanks to Ivan Ukhov.
+* Fix selection of group-level terms via `re_formula` in
+multivariate models thanks to Maxime Dahirel. (#834)
+* Enforce correct ordering of terms in `re_formula` 
+thanks to @ferberkl. (#844)
+* Fix post-processing of multivariate multilevel models
+when multiple IDs are used for the same grouping factor
+thanks to @lott999. (#835)
+* Store response category names of ordinal models in the
+output of `posterior_predict` again thanks to Mattew Kay. (#838)
+* Handle `NA` values more consistently in `posterior_table`
+thanks to Anna Hake. (#845)
+* Fix a bug in the Stan code of models with multiple monotonic 
+varying effects across different groups thanks to Julian Quandt.
+
+### Other Changes
+
+* Rename `offset` variables to `offsets` in the generated Stan
+code as the former will be reserved in the new stanc3 compiler.
+ 
+
 # brms 2.11.1
 
 ### Bug Fixes

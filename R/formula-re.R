@@ -318,39 +318,50 @@ check_re_formula <- function(re_formula, formula) {
   if (is.null(re_formula)) {
     re_formula <- old_re_formula
   } else if (SW(anyNA(re_formula))) {
-    re_formula <- ~ 1
+    re_formula <- ~1
   } else {
     re_formula <- get_re_terms(as.formula(re_formula), formula = TRUE)
-    new <- parse_bf(re_formula, check_response = FALSE)$dpars$mu$re
-    old <- parse_bf(old_re_formula, check_response = FALSE)$dpars$mu$re
-    if (nrow(new)) {
+    new <- parse_bf(re_formula, check_response = FALSE)$dpars$mu[["re"]]
+    old <- parse_bf(old_re_formula, check_response = FALSE)$dpars$mu[["re"]]
+    if (NROW(new) && NROW(old)) {
+      # compare old and new ranefs
       new_terms <- lapply(new$form, terms)
-      found <- rep(FALSE, nrow(new))
-      for (i in 1:nrow(new)) {
+      found <- rep(FALSE, NROW(new))
+      for (i in seq_rows(new)) {
         group <- new$group[[i]]
         old_terms <- lapply(old$form[old$group == group], terms)
         j <- 1
         while (!found[i] && j <= length(old_terms)) {
+          new_term_labels <- attr(new_terms[[i]], "term.labels")
+          old_term_labels <- attr(old_terms[[j]], "term.labels")
+          new_intercept <- attr(new_terms[[i]], "intercept")
+          old_intercept <- attr(old_terms[[j]], "intercept")
           found[i] <- isTRUE(
-            all(attr(new_terms[[i]], "term.labels") %in% 
-                  attr(old_terms[[j]], "term.labels")) &&
-              attr(new_terms[[i]], "intercept") <=
-              attr(old_terms[[j]], "intercept")
+            all(new_term_labels %in% old_term_labels) &&
+              new_intercept <= old_intercept
           )
+          if (found[i]) {
+            # terms have to maintain the original order so that Z_* data
+            # and r_* parameters match in 'extract_draws' (fixes issue #844)
+            term_matches <- match(new_term_labels, old_term_labels)
+            if (is.unsorted(term_matches)) {
+              stop2("Order of terms in 're_formula' should match the original order.")
+            }
+          }
           j <- j + 1
         }
-      }  
+      }
       new <- new[found, ]
-      if (nrow(new)) {
+      if (NROW(new)) {
         forms <- ulapply(new$form, formula2str, rm = 1)
         groups <- ulapply(new$gcall, "[[", "label")
         re_terms <- paste("(", forms, "|", groups, ")")
         re_formula <- formula(paste("~", paste(re_terms, collapse = "+")))
       } else {
-        re_formula <- ~ 1
+        re_formula <- ~1
       }
     } else {
-      re_formula <- ~ 1
+      re_formula <- ~1
     }
   }
   re_formula
@@ -443,9 +454,11 @@ get_re.mvbrmsterms <- function(x, ...) {
 
 #' @export
 get_re.btl <- function(x, ...) {
-  stopifnot(is.data.frame(x$re))
   px <- check_prefix(x)
-  re <- x$re
+  re <- x[["re"]]
+  if (is.null(re)) {
+    re <- empty_re()
+  }
   re$resp <- rep(px$resp, nrow(re)) 
   re$dpar <- rep(px$dpar, nrow(re))
   re$nlpar <- rep(px$nlpar, nrow(re)) 
@@ -602,6 +615,9 @@ tidy_ranef <- function(bterms, data, all = TRUE, old_levels = NULL) {
       attr(ranef, "levels") <- old_levels
     }
   }
+  # ordering after IDs matches the order of the posterior samples 
+  # if multiple IDs are used for the same grouping factor (#835)
+  ranef <- ranef[order(ranef$id), , drop = FALSE]
   structure(ranef, class = c("ranef_frame", "data.frame"))
 }
 
@@ -615,6 +631,14 @@ empty_ranef <- function() {
       stringsAsFactors = FALSE
     ),
     class = c("ranef_frame", "data.frame")
+  )
+}
+
+empty_re <- function() {
+  data.frame(
+    group = character(0), gtype = character(0),
+    gn = numeric(0), id = numeric(0), type = character(0), 
+    cor = logical(0), form = character(0)
   )
 }
 

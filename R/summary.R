@@ -103,8 +103,8 @@ summary.brmsfit <- function(object, priors = FALSE, prob = 0.95,
     Rhats <- fit_summary[, "Rhat"]
     if (any(Rhats > 1.05, na.rm = TRUE)) {
       warning2(
-        "The model has not converged (some Rhats are > 1.05). ",
-        "Do not analyse the results! \nWe recommend running ", 
+        "Parts of the model have not converged (some Rhats are > 1.05). ",
+        "Be careful when analysing the results! We recommend running ", 
         "more iterations and/or setting stronger priors."
       )
     }
@@ -113,7 +113,7 @@ summary.brmsfit <- function(object, priors = FALSE, prob = 0.95,
     if (div_trans > 0) {
       warning2(
         "There were ", div_trans, " divergent transitions after warmup. ", 
-        "Increasing adapt_delta above ", adapt_delta, " may help.\nSee ",
+        "Increasing adapt_delta above ", adapt_delta, " may help. See ",
         "http://mc-stan.org/misc/warnings.html#divergent-transitions-after-warmup"
       )
     }
@@ -453,6 +453,9 @@ get_estimate <- function(coef, samples, margin = 2, ...) {
 #' @export
 posterior_table <- function(x, levels = NULL) {
   x <- as.matrix(x)
+  if (anyNA(x)) {
+    warning2("NAs will be ignored in 'posterior_table'.")
+  }
   if (is.null(levels)) {
     levels <- sort(unique(as.vector(x)))
   }
@@ -461,11 +464,11 @@ posterior_table <- function(x, levels = NULL) {
     xlevels <- levels
   }
   out <- lapply(seq_len(ncol(x)), 
-                function(n) table(factor(x[, n], levels = levels))
+    function(n) table(factor(x[, n], levels = levels))
   )
   out <- do_call(rbind, out)
   # compute relative frequencies
-  out <- out / sum(out[1, ])
+  out <- out / rowSums(out)
   rownames(out) <- colnames(x)
   colnames(out) <- paste0("P(Y = ", xlevels, ")")
   out

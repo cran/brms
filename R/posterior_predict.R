@@ -136,7 +136,7 @@ posterior_predict.brmsdraws <- function(object, transform = NULL, sort = FALSE,
   } else if (has_multicol(object$family)) {
     out <- do_call(abind, c(out, along = 3))
     out <- aperm(out, perm = c(1, 3, 2))
-    dimnames(out)[[3]] <- object$data$cats
+    dimnames(out)[[3]] <- object$cats
   } else {
     out <- do_call(cbind, out) 
   }
@@ -151,7 +151,7 @@ posterior_predict.brmsdraws <- function(object, transform = NULL, sort = FALSE,
   if (!is.null(transform)) {
     out <- do_call(transform, list(out))
   }
-  attr(out, "levels") <- object$data$cats
+  attr(out, "levels") <- object$cats
   summary <- as_one_logical(summary)
   if (summary) {
     # only for compatibility with the 'predict' method
@@ -365,21 +365,21 @@ posterior_predict_student_mv <- function(i, draws, ...) {
   rblapply(seq_len(draws$nsamples), .predict)
 }
 
-posterior_predict_gaussian_cov <- function(i, draws, ...) {
+posterior_predict_gaussian_time <- function(i, draws, ...) {
   obs <- with(draws$ac, begin_tg[i]:end_tg[i])
   mu <- as.matrix(get_dpar(draws, "mu", i = obs))
-  Sigma <- get_cov_matrix_autocor(draws, obs)
+  Sigma <- get_cov_matrix_ac(draws, obs)
   .predict <- function(s) {
     rmulti_normal(1, mu = mu[s, ], Sigma = Sigma[s, , ])
   }
   rblapply(seq_len(draws$nsamples), .predict)
 }
 
-posterior_predict_student_cov <- function(i, draws, ...) {
+posterior_predict_student_time <- function(i, draws, ...) {
   obs <- with(draws$ac, begin_tg[i]:end_tg[i])
   nu <- as.matrix(get_dpar(draws, "nu", i = obs))
   mu <- as.matrix(get_dpar(draws, "mu", i = obs))
-  Sigma <- get_cov_matrix_autocor(draws, obs)
+  Sigma <- get_cov_matrix_ac(draws, obs)
   .predict <- function(s) {
     rmulti_student_t(1, df = nu[s, ], mu = mu[s, ], Sigma = Sigma[s, , ])
   }
@@ -389,9 +389,9 @@ posterior_predict_student_cov <- function(i, draws, ...) {
 posterior_predict_gaussian_lagsar <- function(i, draws, ...) {
   stopifnot(i == 1)
   .predict <- function(s) {
-    W_new <- with(draws, diag(nobs) - ac$lagsar[s] * ac$W)
-    mu <- as.numeric(solve(W_new) %*% mu[s, ])
-    Sigma <- solve(crossprod(W_new)) * sigma[s]^2
+    M_new <- with(draws, diag(nobs) - ac$lagsar[s] * ac$Msar)
+    mu <- as.numeric(solve(M_new) %*% mu[s, ])
+    Sigma <- solve(crossprod(M_new)) * sigma[s]^2
     rmulti_normal(1, mu = mu, Sigma = Sigma)
   }
   mu <- get_dpar(draws, "mu")
@@ -402,9 +402,9 @@ posterior_predict_gaussian_lagsar <- function(i, draws, ...) {
 posterior_predict_student_lagsar <- function(i, draws, ...) {
   stopifnot(i == 1)
   .predict <- function(s) {
-    W_new <- with(draws, diag(nobs) - ac$lagsar[s] * ac$W)
-    mu <- as.numeric(solve(W_new) %*% mu[s, ])
-    Sigma <- solve(crossprod(W_new)) * sigma[s]^2
+    M_new <- with(draws, diag(nobs) - ac$lagsar[s] * ac$Msar)
+    mu <- as.numeric(solve(M_new) %*% mu[s, ])
+    Sigma <- solve(crossprod(M_new)) * sigma[s]^2
     rmulti_student_t(1, df = nu[s], mu = mu, Sigma = Sigma)
   }
   mu <- get_dpar(draws, "mu")
@@ -416,8 +416,8 @@ posterior_predict_student_lagsar <- function(i, draws, ...) {
 posterior_predict_gaussian_errorsar <- function(i, draws, ...) {
   stopifnot(i == 1)
   .predict <- function(s) {
-    W_new <- with(draws, diag(nobs) - ac$errorsar[s] * ac$W)
-    Sigma <- solve(crossprod(W_new)) * sigma[s]^2
+    M_new <- with(draws, diag(nobs) - ac$errorsar[s] * ac$Msar)
+    Sigma <- solve(crossprod(M_new)) * sigma[s]^2
     rmulti_normal(1, mu = mu[s, ], Sigma = Sigma)
   }
   mu <- get_dpar(draws, "mu")
@@ -428,8 +428,8 @@ posterior_predict_gaussian_errorsar <- function(i, draws, ...) {
 posterior_predict_student_errorsar <- function(i, draws, ...) {
   stopifnot(i == 1)
   .predict <- function(s) {
-    W_new <- with(draws, diag(nobs) - ac$errorsar[s] * ac$W)
-    Sigma <- solve(crossprod(W_new)) * sigma[s]^2
+    M_new <- with(draws, diag(nobs) - ac$errorsar[s] * ac$Msar)
+    Sigma <- solve(crossprod(M_new)) * sigma[s]^2
     rmulti_student_t(1, df = nu[s], mu = mu[s, ], Sigma = Sigma)
   }
   mu <- get_dpar(draws, "mu")
@@ -438,21 +438,23 @@ posterior_predict_student_errorsar <- function(i, draws, ...) {
   rblapply(seq_len(draws$nsamples), .predict)
 }
 
-posterior_predict_gaussian_fixed <- function(i, draws, ...) {
+posterior_predict_gaussian_fcor <- function(i, draws, ...) {
   stopifnot(i == 1)
   mu <- as.matrix(get_dpar(draws, "mu"))
+  Sigma <- get_cov_matrix_ac(draws)
   .predict <- function(s) {
-    rmulti_normal(1, mu = mu[s, ], Sigma = draws$ac$V)
+    rmulti_normal(1, mu = mu[s, ], Sigma = Sigma[s, , ])
   }
   rblapply(seq_len(draws$nsamples), .predict)
 }
 
-posterior_predict_student_fixed <- function(i, draws, ...) {
+posterior_predict_student_fcor <- function(i, draws, ...) {
   stopifnot(i == 1)
-  mu <- as.matrix(get_dpar(draws, "mu"))
   nu <- as.matrix(get_dpar(draws, "nu"))
+  mu <- as.matrix(get_dpar(draws, "mu"))
+  Sigma <- get_cov_matrix_ac(draws)
   .predict <- function(s) {
-    rmulti_student_t(1, df = nu[s, ], mu = mu[s, ], Sigma = draws$ac$V)
+    rmulti_student_t(1, df = nu[s, ], mu = mu[s, ], Sigma = Sigma[s, , ])
   }
   rblapply(seq_len(draws$nsamples), .predict)
 }
@@ -770,7 +772,7 @@ posterior_predict_categorical <- function(i, draws, ...) {
 posterior_predict_multinomial <- function(i, draws, ...) {
   eta <- sapply(names(draws$dpars), get_dpar, draws = draws, i = i)
   eta <- insert_refcat(eta, family = draws$family)
-  p <- pcategorical(seq_len(draws$data$ncat), eta = eta)
+  p <- dcategorical(seq_len(draws$data$ncat), eta = eta)
   size <- draws$data$trials[i]
   out <- lapply(seq_rows(p), function(s) t(rmultinom(1, size, p[s, ])))
   do_call(rbind, out)

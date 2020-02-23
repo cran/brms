@@ -251,14 +251,17 @@ fitted.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
 
 #' Posterior Samples of the Linear Predictor
 #' 
-#' Compute posterior samples of the linear predictor, This method is an alias of
-#' \code{\link{pp_expect.brmsfit}} with \code{scale = "linear"}.
+#' Compute posterior samples of the linear predictor, that is samples before
+#' applying any link functions or other transformations. Can be performed for
+#' the data used to fit the model (posterior predictive checks) or for new data.
 #' 
 #' @inheritParams pp_expect.brmsfit
 #' @param object An object of class \code{brmsfit}.
-#' @param transform Logical; alias of \code{scale}.
-#'  If \code{TRUE}, \code{scale} is set to \code{"response"}.
-#'  If \code{FALSE}, \code{scale} is set to \code{"linear"}. 
+#' @param transform (Deprecated) Logical; if \code{FALSE}
+#'  (the default), samples of the linear predictor are returned.
+#'  If \code{TRUE}, samples of transformed linear predictor,
+#'  that is, the mean of the posterior predictive distribution
+#'  are returned instead (see \code{\link{pp_expect}} for details).
 #'  Only implemented for compatibility with the 
 #'  \code{\link[rstantools:posterior_linpred]{posterior_linpred}}
 #'  generic. 
@@ -293,8 +296,8 @@ posterior_linpred.brmsfit <- function(
   scale <- "linear"
   transform <- as_one_logical(transform)
   if (transform) {
-    warning2("posterior_linpred(transform = TRUE) is deprecated.",
-             "Please use pp_expect() instead.")
+    warning2("posterior_linpred(transform = TRUE) is deprecated. Please ",
+             "use pp_expect() instead, without the 'transform' argument.")
     scale <- "response"
   }
   contains_samples(object)
@@ -475,7 +478,7 @@ pp_expect_categorical <- function(draws) {
   cats <- seq_len(draws$data$ncat)
   out <- abind(lapply(seq_cols(eta), get_probs), along = 3)
   out <- aperm(out, perm = c(1, 3, 2))
-  dimnames(out)[[3]] <- draws$data$cats
+  dimnames(out)[[3]] <- draws$cats
   out
 }
 
@@ -489,7 +492,7 @@ pp_expect_multinomial <- function(draws) {
   trials <- draws$data$trials
   out <- abind(lapply(seq_cols(eta), get_counts), along = 3)
   out <- aperm(out, perm = c(1, 3, 2))
-  dimnames(out)[[3]] <- draws$data$cats
+  dimnames(out)[[3]] <- draws$cats
   out
 }
 
@@ -503,7 +506,7 @@ pp_expect_dirichlet <- function(draws) {
   cats <- seq_len(draws$data$ncat)
   out <- abind(lapply(seq_cols(eta), get_probs), along = 3)
   out <- aperm(out, perm = c(1, 3, 2))
-  dimnames(out)[[3]] <- draws$data$cats
+  dimnames(out)[[3]] <- draws$cats
   out
 }
 
@@ -581,11 +584,14 @@ pp_expect_ordinal <- function(draws) {
 # compute 'pp_expect' for lagsar models
 pp_expect_lagsar <- function(draws) {
   stopifnot(!is.null(draws$ac$lagsar))
+  I <- diag(draws$nobs)
   .pp_expect <- function(s) {
-    W_new <- with(draws, diag(nobs) - ac$lagsar[s, ] * ac$W)
-    as.numeric(solve(W_new) %*% draws$dpars$mu[s, ])
+    IB <- I - with(draws$ac, lagsar[s, ] * Msar)
+    as.numeric(solve(IB, draws$dpars$mu[s, ]))
   }
-  do_call(rbind, lapply(1:draws$nsamples, .pp_expect))
+  out <- rblapply(seq_len(draws$nsamples), .pp_expect)
+  rownames(out) <- NULL
+  out
 }
 
 # expand data to dimension appropriate for
