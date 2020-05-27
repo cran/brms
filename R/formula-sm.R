@@ -25,13 +25,13 @@
 #' fit1 <- brm(y ~ s(x0) + s(x1) + s(x2) + s(x3), 
 #'             data = dat, chains = 2)
 #' summary(fit1)
-#' plot(marginal_smooths(fit1), ask = FALSE)
+#' plot(conditional_smooths(fit1), ask = FALSE)
 #' 
 #' # fit a more complicated smooth model
 #' fit2 <- brm(y ~ t2(x0, x1) + s(x2, by = x3), 
 #'             data = dat, chains = 2)
 #' summary(fit2)
-#' plot(marginal_smooths(fit2), ask = FALSE)
+#' plot(conditional_smooths(fit2), ask = FALSE)
 #' }
 #' 
 #' @export
@@ -50,7 +50,7 @@ t2 <- function(...) {
 # @param data data.frame containing the covariates
 tidy_smef <- function(x, data) {
   if (is.formula(x)) {
-    x <- parse_bf(x, check_response = FALSE)$dpars$mu
+    x <- brmsterms(x, check_response = FALSE)$dpars$mu
   }
   form <- x[["sm"]] 
   if (!is.formula(form)) {
@@ -70,7 +70,7 @@ tidy_smef <- function(x, data) {
   }
   out$label <- paste0(out$sfun, rename(ulapply(out$vars, collapse)))
   # prepare information inferred from the data
-  sdata <- data_sm(x, data, knots = attr(data, "knots"))
+  sdata <- data_sm(x, data)
   bylevels <- attr(sdata$Xs, "bylevels")
   nby <- lengths(bylevels)
   tmp <- vector("list", nterms)

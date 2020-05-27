@@ -21,7 +21,7 @@
 #'   predictors. In the latter case, predictors may have different smoothing.
 #'   Ignored if only a single predictors is supplied.
 #' @param gr Logical; Indicates if auto-grouping should be used (defaults 
-#'   to \code{FALSE}). If enabled, observations sharing the same 
+#'   to \code{TRUE}). If enabled, observations sharing the same 
 #'   predictor values will be represented by the same latent variable
 #'   in the GP. This will improve sampling efficiency
 #'   drastically if the number of unique predictor combinations is small
@@ -81,19 +81,19 @@
 #' # fit a simple GP model
 #' fit1 <- brm(y ~ gp(x2), dat, chains = 2)
 #' summary(fit1)
-#' me1 <- marginal_effects(fit1, nsamples = 200, spaghetti = TRUE)
+#' me1 <- conditional_effects(fit1, nsamples = 200, spaghetti = TRUE)
 #' plot(me1, ask = FALSE, points = TRUE)
 #' 
 #' # fit a more complicated GP model
 #' fit2 <- brm(y ~ gp(x0) + x1 + gp(x2) + x3, dat, chains = 2)
 #' summary(fit2)
-#' me2 <- marginal_effects(fit2, nsamples = 200, spaghetti = TRUE)
+#' me2 <- conditional_effects(fit2, nsamples = 200, spaghetti = TRUE)
 #' plot(me2, ask = FALSE, points = TRUE)
 #' 
 #' # fit a multivariate GP model
 #' fit3 <- brm(y ~ gp(x1, x2), dat, chains = 2)
 #' summary(fit3)
-#' me3 <- marginal_effects(fit3, nsamples = 200, spaghetti = TRUE)
+#' me3 <- conditional_effects(fit3, nsamples = 200, spaghetti = TRUE)
 #' plot(me3, ask = FALSE, points = TRUE)
 #' 
 #' # compare model fit
@@ -105,19 +105,25 @@
 #' # fit separate gaussian processes for different levels of 'fac'
 #' fit4 <- brm(y ~ gp(x2, by = fac), dat2, chains = 2)
 #' summary(fit4)
-#' plot(marginal_effects(fit4), points = TRUE)
+#' plot(conditional_effects(fit4), points = TRUE)
 #' }
 #' 
 #' @seealso \code{\link{brmsformula}}
 #' @export
 gp <- function(..., by = NA, k = NA, cov = "exp_quad", iso = TRUE, 
-               gr = FALSE, cmc = TRUE, scale = TRUE, c = NULL) {
+               gr = TRUE, cmc = TRUE, scale = TRUE, c = NULL) {
   cov <- match.arg(cov, choices = c("exp_quad"))
-  label <- deparse(match.call())
+  call <- match.call()
+  label <- deparse(call)
   vars <- as.list(substitute(list(...)))[-1]
   by <- deparse(substitute(by))
-  gr <- as_one_logical(gr)
   cmc <- as_one_logical(cmc)
+  if (is.null(call[["gr"]]) && require_old_default("2.12.8")) {
+    # the default of 'gr' has changed in version 2.12.8
+    gr <- FALSE
+  } else {
+    gr <- as_one_logical(gr)
+  }
   if (length(vars) > 1L) {
     iso <- as_one_logical(iso)
   } else {
@@ -126,7 +132,7 @@ gp <- function(..., by = NA, k = NA, cov = "exp_quad", iso = TRUE,
   if (!isNA(k)) {
     k <- as.integer(as_one_numeric(k))
     if (k < 1L) {
-      stop2("'k' must be postive.")
+      stop2("'k' must be positive.")
     }
     if (is.null(c)) {
       stop2(
@@ -160,7 +166,7 @@ gp <- function(..., by = NA, k = NA, cov = "exp_quad", iso = TRUE,
 # @return a data.frame with one row per GP term
 tidy_gpef <- function(x, data) {
   if (is.formula(x)) {
-    x <- parse_bf(x, check_response = FALSE)$dpars$mu
+    x <- brmsterms(x, check_response = FALSE)$dpars$mu
   }
   form <- x[["gp"]]
   if (!is.formula(form)) {

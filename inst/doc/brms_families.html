@@ -12,7 +12,7 @@
 
 <meta name="author" content="Paul Bürkner" />
 
-<meta name="date" content="2020-02-21" />
+<meta name="date" content="2020-05-22" />
 
 <title>Parameterization of Response Distributions in brms</title>
 
@@ -215,7 +215,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 
 <h1 class="title toc-ignore">Parameterization of Response Distributions in brms</h1>
 <h4 class="author">Paul Bürkner</h4>
-<h4 class="date">2020-02-21</h4>
+<h4 class="date">2020-05-22</h4>
 
 
 <div id="TOC">
@@ -264,7 +264,7 @@ f(y) = \frac{1}{\sqrt{2\pi}\sigma}
 <h2>Binary and count data models</h2>
 <p>The density of the <strong>binomial</strong> family is given by <span class="math display">\[
 f(y) = {N \choose y} \mu^{y} (1-\mu)^{N - y}
-\]</span> where <span class="math inline">\(N\)</span> is the number of trials and <span class="math inline">\(y \in \{0, ... , N\}\)</span>. When all <span class="math inline">\(N\)</span> are <span class="math inline">\(1\)</span> (i.e., <span class="math inline">\(y \in \{0,1\}\)</span>), the bernoulli distribution for binary data arises. <strong>binomial</strong> and <strong>bernoulli</strong> families are distinguished in brms as the bernoulli distribution has its own implementation in Stan that is computationlly more efficient.</p>
+\]</span> where <span class="math inline">\(N\)</span> is the number of trials and <span class="math inline">\(y \in \{0, ... , N\}\)</span>. When all <span class="math inline">\(N\)</span> are <span class="math inline">\(1\)</span> (i.e., <span class="math inline">\(y \in \{0,1\}\)</span>), the <strong>bernoulli</strong> distribution for binary data arises.</p>
 <p>For <span class="math inline">\(y \in \mathbb{N}_0\)</span>, the density of the <strong>poisson</strong> family is given by <span class="math display">\[
 f(y) = \frac{\mu^{y}}{y!} \exp(-\mu)
 \]</span> The density of the <strong>negbinomial</strong> (negative binomial) family is <span class="math display">\[

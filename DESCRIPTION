@@ -2,19 +2,19 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using 'Stan'
-Version: 2.12.0
-Date: 2020-02-21
+Version: 2.13.0
+Date: 2020-05-22
 Authors@R: person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
   role = c("aut", "cre"))
 Depends: R (>= 3.5.0), Rcpp (>= 0.12.0), methods
 Imports: rstan (>= 2.19.2), ggplot2 (>= 2.0.0), loo (>= 2.2.0), Matrix
-        (>= 1.1.1), mgcv (>= 1.8-13), rstantools (>= 1.5.1), bayesplot
+        (>= 1.1.1), mgcv (>= 1.8-13), rstantools (>= 2.0.0), bayesplot
         (>= 1.5.0), shinystan (>= 2.4.0), bridgesampling (>= 0.3-0),
         glue (>= 1.3.0), matrixStats, nleqslv, nlme, coda, abind,
         future, stats, utils, parallel, grDevices, backports
-Suggests: testthat (>= 0.9.1), RWiener, mice, spdep, mnormt, lme4,
-        MCMCglmm, splines2, ape, arm, statmod, digest, R.rsp, knitr,
-        rmarkdown
+Suggests: testthat (>= 0.9.1), emmeans (>= 1.4.2), RWiener, mice,
+        spdep, mnormt, lme4, MCMCglmm, splines2, ape, arm, statmod,
+        digest, R.rsp, knitr, rmarkdown
 Description: Fit Bayesian generalized (non-)linear multivariate multilevel models
     using 'Stan' for full Bayesian inference. A wide range of distributions 
     and link functions are supported, allowing users to fit -- among others -- 
@@ -37,9 +37,9 @@ URL: https://github.com/paul-buerkner/brms,
         http://discourse.mc-stan.org
 BugReports: https://github.com/paul-buerkner/brms/issues
 VignetteBuilder: knitr, R.rsp
-RoxygenNote: 7.0.2
-Packaged: 2020-02-21 13:58:21 UTC; paulb
+RoxygenNote: 7.1.0
+Packaged: 2020-05-22 16:19:16 UTC; paulb
 Author: Paul-Christian Bürkner [aut, cre]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2020-02-23 17:30:09 UTC
+Date/Publication: 2020-05-27 05:30:08 UTC

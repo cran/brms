@@ -165,7 +165,7 @@ array2list <- function(x) {
   out <- list(length = dim(x)[ndim])
   ind <- collapse(rep(",", ndim - 1))
   for (i in seq_len(dim(x)[ndim])) {
-    out[[i]] <- eval(parse(text = paste0("x[", ind, i, "]")))
+    out[[i]] <- eval2(paste0("x[", ind, i, "]"))
     if (length(dim(x)) > 2) {
       # avoid accidental dropping of other dimensions
       dim(out[[i]]) <- dim(x)[-ndim] 
@@ -378,9 +378,21 @@ cblapply <- function(X, FUN, ...) {
 # find variables in a character string or expression
 all_vars <- function(expr, ...) {
   if (is.character(expr)) {
-    expr <- parse(text = expr)
+    expr <- str2expression(expr)
   }
   all.vars(expr, ...)
+}
+
+# reimplemented for older R versions
+# see ?parse in R 3.6 or higher
+str2expression <- function(x) {
+  parse(text = x, keep.source = FALSE)
+}
+
+# reimplemented for older R versions
+# see ?parse in R 3.6 or higher
+str2lang <- function(x) {
+  str2expression(x)[[1]]
 }
 
 # append list(...) to x
@@ -698,7 +710,7 @@ deparse_combine <- function(x, max_char = NULL) {
 # like 'eval' but parses characters before evaluation
 eval2 <- function(expr, envir = parent.frame(), ...) {
   if (is.character(expr)) {
-    expr <- parse(text = expr)
+    expr <- str2expression(expr)
   }
   eval(expr, envir, ...)
 }
@@ -820,7 +832,7 @@ get_matches <- function(pattern, text, simplify = TRUE,
 # @return character vector containing matches
 get_matches_expr <- function(pattern, expr, ...) {
   if (is.character(expr)) {
-    expr <- parse(text = expr)
+    expr <- str2expression(expr)
   }
   out <- NULL
   for (i in seq_along(expr)) {
@@ -979,6 +991,14 @@ expect_match2 <- function(object, regexp, ..., all = TRUE) {
   invisible(NULL)
 }
 
+# code to execute when loading brms
 .onLoad <- function(libname, pkgname) {
+  # ensure compatibility with older R versions
   backports::import(pkgname)
+  # dynamically register the 'recover_data' and 'emm_basis'
+  # methods needed by 'emmeans', if that package is installed
+  if (requireNamespace("emmeans", quietly = TRUE)) {
+    emmeans::.emm_register("brmsfit", pkgname)
+  }
+  invisible(NULL)
 }
