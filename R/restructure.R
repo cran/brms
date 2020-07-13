@@ -169,6 +169,10 @@ restructure_v2 <- function(x) {
       x$stanvars[[i]]$position <- "start"
     }
   }
+  if (version < "2.13.2") {
+    # added support for 'cmdstanr' as additional backend
+    x$backend <- "rstan"
+  }
   x
 }
 

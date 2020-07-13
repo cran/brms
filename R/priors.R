@@ -730,7 +730,7 @@ prior_sp <- function(bterms, data, ...) {
     prior <- prior + brmsprior(
       class = "b", coef = c("", spef$coef), ls = px
     )
-    simo_coef <- get_simo_labels(spef)
+    simo_coef <- get_simo_labels(spef, use_id = TRUE)
     if (length(simo_coef)) {
       prior <- prior + brmsprior(
         class = "simo", coef = simo_coef, ls = px
@@ -816,8 +816,10 @@ def_lscale_prior <- function(bterms, data, plb = 0.01, pub = 0.01) {
   }
   .def_lscale_prior <- function(X) {
     dq <- diff_quad(X)
-    lb <- sqrt(min(dq[dq > 0]))
     ub <- sqrt(max(dq))
+    lb <- sqrt(min(dq[dq > 0]))
+    # prevent extreme priors
+    lb <- max(lb, 0.01 * ub)
     opt_res <- nleqslv::nleqslv(
       c(0, 0), .opt_fun, lb = lb, ub = ub,
       control = list(allowSingular = TRUE)

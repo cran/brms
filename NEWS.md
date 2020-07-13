@@ -1,3 +1,29 @@
+# brms 2.13.3
+
+### New Features
+
+* Fix shape parameters across multiple monotonic terms via argument
+`id` in function `mo` to ensure conditionally monotonic effects. (#924)
+* Support package `rtdists` as additional backend of `wiener`
+distribution functions thanks to the help of Henrik Singmann. (#385)
+
+### Bug Fixes
+
+* Fix generated Stan Code of models with improper global priors and
+`constant` priors on some coefficients thanks to Frank Weber. (#919)
+* Fix a bug in `conditional_effects` occuring for categorical
+models with matrix predictors thanks to Jamie Cranston. (#933)
+
+### Other Changes
+
+* Adjust behavior of the `rate` addition term so that it also
+affects the `shape` parameter in `negbinomial` models thanks to
+Edward Abraham. (#915)
+* Adjust the default inverse-gamma prior on length-scale parameters
+of Gaussian processes to be less extreme in edge cases thanks
+to Topi Paananen.
+
+
 # brms 2.13.0
 
 ### New Features

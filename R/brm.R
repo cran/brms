@@ -111,7 +111,11 @@
 #'   do not behave well. Alternatively, \code{inits} can be a list of lists
 #'   containing the initial values, or a function (or function name) generating
 #'   initial values. The latter options are mainly implemented for internal
-#'   testing.
+#'   testing but are available to users if necessary. If specifying initial 
+#'   values using a list or a function then currently the parameter names must
+#'   correspond to the names used in the generated Stan code (not the names
+#'   used in \R). For more details on specifying initial values you can consult 
+#'   the documentation of the selected \code{backend}.
 #' @param chains Number of Markov chains (defaults to 4).
 #' @param iter Number of total iterations per chain (including warmup; defaults
 #'   to 2000).
@@ -127,11 +131,19 @@
 #'   be as many processors as the hardware and RAM allow (up to the number of
 #'   chains). For non-Windows OS in non-interactive \R sessions, forking is used
 #'   instead of PSOCK clusters.
-#' @param algorithm Character string indicating the estimation approach to use.
-#'   Can be \code{"sampling"} for MCMC (the default), \code{"meanfield"} for
+#' @param algorithm Character string naming the estimation approach to use.
+#'   Options are \code{"sampling"} for MCMC (the default), \code{"meanfield"} for
 #'   variational inference with independent normal distributions, or
 #'   \code{"fullrank"} for variational inference with a multivariate normal
-#'   distribution.
+#'   distribution. Can be set globally for the current \R session via the
+#'   \code{"stan_algorithm"} option (see \code{\link{options}}).
+#' @param backend Character string naming the package to use as the backend for
+#'   fitting the Stan model. Options are \code{"rstan"} (the default) or
+#'   \code{"cmdstanr"}. Can be set globally for the current \R session via the
+#'   \code{"stan_backend"} option (see \code{\link{options}}). Details on the
+#'   \pkg{rstan} and \pkg{cmdstanr} packages are available at
+#'   \url{https://mc-stan.org/rstan} and \url{https://mc-stan.org/cmdstanr},
+#'   respectively.
 #' @param control A named \code{list} of parameters to control the sampler's
 #'   behavior. It defaults to \code{NULL} so all the default values are used.
 #'   The most important control parameters are discussed in the 'Details'
@@ -142,11 +154,11 @@
 #'   \code{cores} will be ignored. Can be set globally for the current \R
 #'   session via the \code{future} option. The execution type is controlled via
 #'   \code{\link[future:plan]{plan}} (see the examples section below).
-#' @param silent logical; If \code{TRUE} (the default), most of the
+#' @param silent Logical; If \code{TRUE} (the default), most of the
 #'   informational messages of compiler and sampler are suppressed. The actual
 #'   sampling progress is still printed. Set \code{refresh = 0} to turn this off
-#'   as well. To stop Stan from opening additional progress bars, set
-#'   \code{open_progress = FALSE}.
+#'   as well. If using \code{backend = "rstan"} you can also set
+#'   \code{open_progress = FALSE} to prevent opening additional progress bars.
 #' @param seed The seed for random number generation to make results
 #'   reproducible. If \code{NA} (the default), \pkg{Stan} will set the seed
 #'   randomly.
@@ -168,13 +180,12 @@
 #' @param rename For internal use only. 
 #' @param stan_model_args A \code{list} of further arguments passed to
 #'   \code{\link[rstan:stan_model]{stan_model}}.
-#' @param save_dso (Deprecated) Logical, defaulting to \code{TRUE}, indicating
-#'   whether the dynamic shared object (DSO) compiled from the C++ code for the
-#'   model will be saved or not. If \code{TRUE}, we can draw samples from the
-#'   same model in another \R session using the saved DSO (i.e., without
-#'   compiling the C++ code again).
-#' @param ... Further arguments passed to Stan that is to
-#'   \code{\link[rstan:sampling]{sampling}} or \code{\link[rstan:vb]{vb}}.
+#' @param ... Further arguments passed to Stan. 
+#'   For \code{backend = "rstan"} the arguments are passed to
+#'   \code{\link[rstan:stanmodel-method-sampling]{sampling}} or
+#'   \code{\link[rstan:stanmodel-method-vb]{vb}}.
+#'   For \code{backend = "cmdstanr"} the arguments are passed to the
+#'   \code{cmdstanr::sample} or \code{cmdstanr::variational} method.
 #' 
 #' @return An object of class \code{brmsfit}, which contains the posterior
 #'   samples along with many other useful information about the model. Use
@@ -369,12 +380,13 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
                 inits = "random", chains = 4, iter = 2000, 
                 warmup = floor(iter / 2), thin = 1,
                 cores = getOption("mc.cores", 1L), control = NULL,
-                algorithm = c("sampling", "meanfield", "fullrank"),
+                algorithm = getOption("stan_algorithm", "sampling"),
+                backend = getOption("stan_backend", "rstan"),
                 future = getOption("future", FALSE), silent = TRUE, 
                 seed = NA, save_model = NULL, stan_model_args = list(),
-                save_dso = TRUE, file = NULL, empty = FALSE,
-                rename = TRUE, ...) {
+                file = NULL, empty = FALSE, rename = TRUE, ...) {
   
+  # optionally load brmsfit from file
   if (!is.null(file)) {
     x <- read_brmsfit(file)
     if (!is.null(x)) {
@@ -384,7 +396,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   
   # validate arguments later passed to Stan
   dots <- list(...)
-  algorithm <- match.arg(algorithm)
+  algorithm <- match.arg(algorithm, algorithm_choices())
+  backend <- match.arg(backend, backend_choices())
   silent <- as_one_logical(silent)
   iter <- as_one_numeric(iter)
   warmup <- as_one_numeric(warmup)
@@ -395,16 +408,14 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
   seed <- as_one_numeric(seed, allow_na = TRUE)
   empty <- as_one_logical(empty)
   rename <- as_one_logical(rename)
-  if (is.character(inits) && !inits %in% c("random", "0")) {
-    inits <- get(inits, mode = "function", envir = parent.frame())
-  }
   
+  # initialize brmsfit object
   if (is.brmsfit(fit)) {
     # re-use existing model
     x <- fit
-    sdata <- standata(x)
     x$criteria <- list()
-    x$fit <- rstan::get_stanmodel(x$fit)
+    sdata <- standata(x)
+    model <- compiled_model(x)
   } else {  
     # build new model
     formula <- validate_formula(
@@ -430,7 +441,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     # initialize S3 object
     x <- brmsfit(
       formula = formula, data = data, data2 = data2, prior = prior, 
-      stanvars = stanvars, algorithm = algorithm, family = family
+      stanvars = stanvars, algorithm = algorithm, backend = backend,
+      family = family
     )
     x$ranef <- tidy_ranef(bterms, data = x$data)  
     x$exclude <- exclude_pars(
@@ -452,61 +464,22 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
       # return the brmsfit object with an empty 'fit' slot
       return(x)
     }
-    stopifnot(is.list(stan_model_args))
-    silence_stan_model <- !length(stan_model_args)
-    stan_model_args$model_code <- x$model
-    if (!isTRUE(save_dso)) {
-      warning2("'save_dso' is deprecated. Please use 'stan_model_args'.")
-      stan_model_args$save_dso <- save_dso
-    }
-    message("Compiling the C++ model")
-    x$fit <- eval_silent(
-      do_call(rstan::stan_model, stan_model_args),
-      silent = silence_stan_model, type = "message"
-    )
+    # compile the Stan model
+    compile_args <- stan_model_args
+    compile_args$model <- x$model
+    compile_args$backend <- backend
+    model <- do_call(compile_model, compile_args)
   }
   
-  args <- nlist(
-    object = x$fit, data = sdata, pars = x$exclude, 
-    include = FALSE, algorithm, iter, seed
+  # fit the Stan model
+  fit_args <- nlist(
+    model, sdata, algorithm, backend, iter, warmup, thin, chains, 
+    cores, inits, exclude = x$exclude, control, future, seed, 
+    silent, ...
   )
-  args[names(dots)] <- dots
-  message("Start sampling")
-  if (args$algorithm == "sampling") {
-    args$algorithm <- NULL
-    c(args) <- nlist(
-      init = inits, warmup, thin, control, 
-      show_messages = !silent
-    )
-    if (future) {
-      if (cores > 1L) {
-        warning2("Argument 'cores' is ignored when using 'future'.")
-      }
-      args$chains <- 1L
-      futures <- fits <- vector("list", chains)
-      for (i in seq_len(chains)) {
-        args$chain_id <- i
-        if (is.list(inits)) {
-          args$init <- inits[i]
-        }
-        futures[[i]] <- future::future(
-          brms::do_call(rstan::sampling, args), 
-          packages = "rstan"
-        )
-      }
-      for (i in seq_len(chains)) {
-        fits[[i]] <- future::value(futures[[i]]) 
-      }
-      x$fit <- rstan::sflist2stanfit(fits)
-      rm(futures, fits)
-    } else {
-      c(args) <- nlist(chains, cores)
-      x$fit <- do_call(rstan::sampling, args) 
-    }
-  } else {
-    # vb does not support parallel execution
-    x$fit <- do_call(rstan::vb, args)
-  }
+  x$fit <- do_call(fit_model, fit_args)
+
+  # rename parameters to have human readable names
   if (rename) {
     x <- rename_pars(x) 
   }

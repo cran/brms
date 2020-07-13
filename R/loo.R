@@ -24,7 +24,7 @@
 #' @param k_threshold The threshold at which pareto \eqn{k} 
 #'   estimates are treated as problematic. Defaults to \code{0.7}. 
 #'   Only used if argument \code{reloo} is \code{TRUE}.
-#'   See \code{\link[loo:pareto_k_ids]{pareto_k_ids}} for more details.
+#'   See \code{\link[loo:pareto-k-diagnostic]{pareto_k_ids}} for more details.
 #' @param reloo_args Optional \code{list} of additional arguments passed to
 #'   \code{\link{reloo}}.
 #' @param model_names If \code{NULL} (the default) will use model names 
@@ -505,7 +505,7 @@ add_criterion.brmsfit <- function(x, criterion, model_name = NULL,
     # remove previously stored criterion objects
     x$criteria[criterion] <- list(NULL)
   }
-  new_criteria <- criterion[ulapply(x[criterion], is.null)]
+  new_criteria <- criterion[ulapply(x$criteria[criterion], is.null)]
   args <- list(x, ...)
   for (fun in intersect(criterion, loo_options)) {
     args$model_names <- model_name
@@ -630,7 +630,7 @@ validate_models <- function(models, model_names, sub_names) {
 #' @param fit An \R object of class \code{brmsfit}.
 #' @param k_threshold The threshold at which pareto \eqn{k} 
 #'   estimates are treated as problematic. Defaults to \code{0.7}. 
-#'   See \code{\link[loo:pareto_k_ids]{pareto_k_ids}}
+#'   See \code{\link[loo:pareto-k-diagnostic]{pareto_k_ids}}
 #'   for more details.
 #' @param check Logical; If \code{TRUE} (the default), some checks
 #'   check are performed if the \code{loo} object was generated
