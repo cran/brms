@@ -12,10 +12,26 @@
 
 <meta name="author" content="Paul Bürkner" />
 
-<meta name="date" content="2020-07-08" />
+<meta name="date" content="2020-07-27" />
 
 <title>Parameterization of Response Distributions in brms</title>
 
+<script>// Hide empty <a> tag within highlighted CodeBlock for screen reader accessibility (see https://github.com/jgm/pandoc/issues/6352#issuecomment-626106786) -->
+// v0.0.1
+// Written by JooYoung Seo (jooyoung@psu.edu) and Atsushi Yasumoto on June 1st, 2020.
+
+document.addEventListener('DOMContentLoaded', function() {
+  const codeList = document.getElementsByClassName("sourceCode");
+  for (var i = 0; i < codeList.length; i++) {
+    var linkList = codeList[i].getElementsByTagName('a');
+    for (var j = 0; j < linkList.length; j++) {
+      if (linkList[j].innerHTML === "") {
+        linkList[j].setAttribute('aria-hidden', 'true');
+      }
+    }
+  }
+});
+</script>
 
 
 
@@ -215,7 +231,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 
 <h1 class="title toc-ignore">Parameterization of Response Distributions in brms</h1>
 <h4 class="author">Paul Bürkner</h4>
-<h4 class="date">2020-07-08</h4>
+<h4 class="date">2020-07-27</h4>
 
 
 <div id="TOC">
@@ -223,7 +239,7 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <li><a href="#notation">Notation</a></li>
 <li><a href="#location-shift-models">Location shift models</a></li>
 <li><a href="#binary-and-count-data-models">Binary and count data models</a></li>
-<li><a href="#survival-models">Survival models</a></li>
+<li><a href="#time-to-event-models">Time-to-event models</a></li>
 <li><a href="#extreme-value-models">Extreme value models</a></li>
 <li><a href="#response-time-models">Response time models</a></li>
 <li><a href="#quantile-regression">Quantile regression</a></li>
@@ -279,9 +295,9 @@ $$
 with location parameter $\mu \in [0, 1]$ and positive shape parameter $\alpha$.
 -->
 </div>
-<div id="survival-models" class="section level2">
-<h2>Survival models</h2>
-<p>With survival models we mean all models that are defined on the positive reals only, that is <span class="math inline">\(y \in \mathbb{R}^+\)</span>. The density of the <strong>lognormal</strong> family is given by <span class="math display">\[
+<div id="time-to-event-models" class="section level2">
+<h2>Time-to-event models</h2>
+<p>With time-to-event models we mean all models that are defined on the positive reals only, that is <span class="math inline">\(y \in \mathbb{R}^+\)</span>. The density of the <strong>lognormal</strong> family is given by <span class="math display">\[
 f(y) = \frac{1}{\sqrt{2\pi}\sigma x} \exp\left(-\frac{1}{2}\left(\frac{\log(y) - \mu}{\sigma}\right)^2\right)
 \]</span> where <span class="math inline">\(\sigma\)</span> is the residual standard deviation on the log-scale. The density of the <strong>Gamma</strong> family is given by <span class="math display">\[
 f(y) = \frac{(\alpha / \mu)^\alpha}{\Gamma(\alpha)} y^{\alpha-1} 
@@ -291,7 +307,9 @@ f(y) = \frac{\alpha}{s} \left(\frac{y}{s}\right)^{\alpha-1}
 \exp\left(-\left(\frac{y}{s}\right)^\alpha\right)
 \]</span> where <span class="math inline">\(\alpha\)</span> is again a positive shape parameter and <span class="math inline">\(s = \mu / \Gamma(1 + 1 / \alpha)\)</span> is the scale parameter to that <span class="math inline">\(\mu\)</span> is the mean of the distribution. The <strong>exponential</strong> family arises if <span class="math inline">\(\alpha\)</span> is set to <span class="math inline">\(1\)</span> for either the gamma or Weibull distribution. The density of the <strong>inverse.gaussian</strong> family is given by <span class="math display">\[
 f(y) = \left(\frac{\alpha}{2 \pi y^3}\right)^{1/2} \exp \left(\frac{-\alpha (y - \mu)^2}{2 \mu^2 y} \right)
-\]</span> where <span class="math inline">\(\alpha\)</span> is a positive shape parameter.</p>
+\]</span> where <span class="math inline">\(\alpha\)</span> is a positive shape parameter. The <strong>cox</strong> family implements Cox proportional hazards model which assumes a hazard function of the form <span class="math inline">\(h(y) = h_0(y) \mu\)</span> with baseline hazard <span class="math inline">\(h_0(y)\)</span> expressed via M-splines (which integrate to I-splines) in order to ensure monotonicity. The density of the cox model is then given by <span class="math display">\[
+f(y) = h(y) S(y)
+\]</span> where <span class="math inline">\(S(y)\)</span> is the survival function implied by <span class="math inline">\(h(y)\)</span>.</p>
 </div>
 <div id="extreme-value-models" class="section level2">
 <h2>Extreme value models</h2>
