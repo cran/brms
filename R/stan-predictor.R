@@ -111,14 +111,14 @@ stan_predictor.brmsterms <- function(x, data, prior, ...) {
     }
   }
   str_add_list(out) <- stan_mixture(x, data = data, prior = prior, ...)
-  str_add_list(out) <- stan_dpar_transform(x)
+  str_add_list(out) <- stan_dpar_transform(x, ...)
   out$model_log_lik <- stan_log_lik(x, data = data, ...) 
   list(out)
 }
 
 #' @export
-stan_predictor.mvbrmsterms <- function(x, prior, ...) {
-  out <- lapply(x$terms, stan_predictor, prior = prior, ...)
+stan_predictor.mvbrmsterms <- function(x, prior, threads, ...) {
+  out <- lapply(x$terms, stan_predictor, prior = prior, threads = threads, ...)
   out <- unlist(out, recursive = FALSE)
   if (x$rescor) {
     resp_type <- out[[1]]$resp_type
@@ -188,8 +188,8 @@ stan_predictor.mvbrmsterms <- function(x, prior, ...) {
         header_type = "real"
       )
     } 
-    sigma <- ulapply(x$terms, stan_sigma_transform)
-    if (any(grepl("\\[n\\]", sigma))) {
+    sigma <- ulapply(x$terms, stan_sigma_transform, threads = threads)
+    if (any(grepl(stan_nn_regex(), sigma))) {
       str_add(out$model_def) <- "  vector[nresp] sigma[N];\n"
       str_add(out$model_comp_mvjoin) <- glue(
         "    sigma[n] = {stan_vector(sigma)};\n"
@@ -252,7 +252,7 @@ stan_predictor.mvbrmsterms <- function(x, prior, ...) {
         "  }\n"
       )
     }
-    out$model_log_lik <- stan_log_lik(x, ...)
+    out$model_log_lik <- stan_log_lik(x, threads = threads, ...)
     out <- list(out)
   }
   out
@@ -503,6 +503,9 @@ stan_re <- function(ranef, prior, ...) {
         "  real W_{id}{res}_{ng}[N{res}];",
         "  // multi-membership weights\n"
       )
+      str_add(out$pll_args) <- cglue(
+        ", int[] J_{id}{res}_{ng}, real[] W_{id}{res}_{ng}"
+      )
     }
   } else {
     str_add(out$data) <- cglue(
@@ -534,6 +537,9 @@ stan_re <- function(ranef, prior, ...) {
       for (i in which(reqZ)) {
         str_add(out$data) <- cglue(
           "  vector[N{usc(r$resp[i])}] Z_{idp[i]}_{r$cn[i]}_{ng};\n"
+        )
+        str_add(out$pll_args) <- cglue(
+          ", vector Z_{idp[i]}_{r$cn[i]}_{ng}"
         )
       }
     } else {
@@ -1551,8 +1557,7 @@ stan_nl <- function(bterms, data, nlpars, threads, ilink = rep("", 2), ...) {
   resp <- usc(bterms$resp)
   par <- combine_prefix(bterms, keep_mu = TRUE, nlp = TRUE)
   # prepare non-linear model
-  n <- str_if(bterms$loop, stan_nn(threads)) 
-  n <- paste0(n, " ")
+  n <- paste0(str_if(bterms$loop, "[n]"), " ") 
   new_nlpars <- glue(" nlp{resp}_{nlpars}{n}")
   # covariates in the non-linear model
   covars <- all.vars(bterms$covars)
@@ -1561,6 +1566,7 @@ stan_nl <- function(bterms, data, nlpars, threads, ilink = rep("", 2), ...) {
     p <- usc(combine_prefix(bterms))
     new_covars <- rep(NA, length(covars))
     data_cnl <- data_cnl(bterms, data)
+    nn <- paste0(str_if(bterms$loop, stan_nn(threads)), " ")
     str_add(out$data) <- "  // covariate vectors for non-linear functions\n"
     for (i in seq_along(covars)) {
       is_integer <- is.integer(data_cnl[[glue("C{p}_{i}")]])
@@ -1575,7 +1581,7 @@ stan_nl <- function(bterms, data, nlpars, threads, ilink = rep("", 2), ...) {
         )
         str_add(out$pll_args) <- glue(", vector C{p}_{i}")
       }
-      new_covars[i] <- glue(" C{p}_{i}{n}")
+      new_covars[i] <- glue(" C{p}_{i}{nn}")
     }
   }
   # add white spaces to be able to replace parameters and covariates
@@ -2057,7 +2063,7 @@ stan_dpar_tmp_types <- function(dpar, suffix = "", family = NULL) {
 }
 
 # Stan code for transformations of distributional parameters
-stan_dpar_transform <- function(bterms) {
+stan_dpar_transform <- function(bterms, threads, ...) {
   stopifnot(is.brmsterms(bterms))
   out <- list()
   families <- family_names(bterms)
@@ -2084,8 +2090,8 @@ stan_dpar_transform <- function(bterms) {
     dp_names <- names(bterms$dpars)
     for (i in which(families %in% "skew_normal")) {
       id <- str_if(length(families) == 1L, "", i)
-      sigma <- stan_sigma_transform(bterms, id = id)
-      ns <- str_if(grepl("\\[n\\]", sigma), "[n]")
+      sigma <- stan_sigma_transform(bterms, id = id, threads = threads)
+      ns <- str_if(grepl(stan_nn_regex(), sigma), "[n]")
       na <- str_if(glue("alpha{id}") %in% dp_names, "[n]")
       type_delta <- str_if(nzchar(na), glue("vector[N{resp}]"), "real")
       no <- str_if(any(nzchar(c(ns, na))), "[n]", "")
@@ -2105,10 +2111,11 @@ stan_dpar_transform <- function(bterms) {
         "  {omega} = {sigma} / sqrt(1 - sqrt(2 / pi())^2 * {delta}^2);\n"
       )
       str_add(out$model_comp_dpar_trans) <- glue(
-        "   // use efficient skew-normal parameterization\n",
+        "  // use efficient skew-normal parameterization\n",
         str_if(!nzchar(na), comp_delta),
         str_if(!nzchar(no), comp_omega),
         "  for (n in 1:N{resp}) {{\n",
+        stan_nn_def(threads),
         str_if(nzchar(na), glue("  ", comp_delta)),
         str_if(nzchar(no), glue("  ", comp_omega)),
         "    mu{id}{p}[n] = mu{id}{p}[n]", 
@@ -2142,7 +2149,7 @@ stan_dpar_transform <- function(bterms) {
 }
 
 # Stan code for sigma to incorporate addition argument 'se'
-stan_sigma_transform <- function(bterms, id = "") {
+stan_sigma_transform <- function(bterms, id = "", threads = NULL) {
   if (nzchar(id)) {
     # find the right family in mixture models
     family <- family_names(bterms)[as.integer(id)]
@@ -2155,9 +2162,10 @@ stan_sigma_transform <- function(bterms, id = "") {
   has_sigma <- has_sigma(family) && !no_sigma(bterms)
   sigma <- str_if(has_sigma, glue("sigma{id}{p}{ns}"))
   if (is.formula(bterms$adforms$se)) {
+    nse <- stan_nn(threads)
     sigma <- str_if(nzchar(sigma), 
-      glue("sqrt({sigma}^2 + se2{p}[n])"), 
-      glue("se{p}[n]")
+      glue("sqrt(square({sigma}) + se2{p}{nse})"), 
+      glue("se{p}{nse}")
     )
   }
   sigma

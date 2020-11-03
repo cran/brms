@@ -1,3 +1,23 @@
+# brms 2.14.0++
+
+### New Features
+
+* Support `projpred` version 2.0 for variable selection in generalized
+linear and additive multilevel models thanks to Alejandro Catalina.
+* Support `by` variables in multi-membership terms.
+* Use Bayesian bootstrap in `loo_R2`.
+
+### Bug Fixes
+
+* Allow non-linear terms in threaded models.
+* Allow multi-membership terms in threaded models.
+* Allow `se` addition terms in threaded models.
+* Allow `categorical` families in threaded models.
+* Fix updating of parameters in `loo_moment_match`.
+* Fix facet labels in `conditional_effects` thanks 
+to Isaac Petersen. (#1014)
+
+
 # brms 2.14.0
 
 ### New Features

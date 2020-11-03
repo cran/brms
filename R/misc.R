@@ -682,7 +682,7 @@ empty_data_frame <- function() {
 # deparse 'x' if it is no string
 deparse_no_string <- function(x) {
   if (!is.character(x)) {
-    x <- deparse(x)
+    x <- deparse_combine(x)
   }
   x
 }
@@ -919,7 +919,9 @@ wsp_per_line <- function(x, nsp) {
 
 # remove whitespaces from strings
 rm_wsp <- function(x) {
-  gsub("[ \t\r\n]+", "", x, perl = TRUE)
+  out <- gsub("[ \t\r\n]+", "", x, perl = TRUE)
+  dim(out) <- dim(x)
+  out
 }
 
 # limit the number of characters of a vector
