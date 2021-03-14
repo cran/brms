@@ -433,7 +433,9 @@ prepare_predictions_gp <- function(bterms, samples, sdata, data,
   }
   p <- usc(combine_prefix(bterms))
   if (is.null(nug)) {
-    nug <- ifelse(new, 1e-8, 1e-11)
+    # nug for old data must be the same as in the Stan code as even tiny 
+    # differences (e.g., 1e-12 vs. 1e-11) will matter for larger lscales
+    nug <- ifelse(new, 1e-8, 1e-12)
   }
   out <- named_list(gpef$label)
   for (i in seq_along(out)) {
@@ -490,7 +492,9 @@ prepare_predictions_gp <- function(bterms, samples, sdata, data,
   if (new && isNA(gpef$k[i])) {
     # in exact GPs old covariate values are required for predictions
     gp$x <- sdata[[paste0(Xgp_name, "_old")]]
-    gp$nug <- 1e-11
+    # nug for old data must be the same as in the Stan code as even tiny 
+    # differences (e.g., 1e-12 vs. 1e-11) will matter for larger lscales
+    gp$nug <- 1e-12
     # computing GPs for new data requires the old GP terms
     gp$yL <- .predictor_gp(gp)
     gp$x_new <- sdata[[Xgp_name]]
@@ -710,28 +714,32 @@ prepare_predictions_ac <- function(bterms, samples, sdata, oos = NULL,
   if (has_ac_class(acef, "cosy")) {
     out$cosy <-  get_samples(samples, paste0("^cosy", p, "$"))
   }
+  if (has_ac_latent_residuals(bterms)) {
+    regex_err <- paste0("^err", p, "\\[")
+    has_err <- any(grepl(regex_err, colnames(samples)))
+    if (has_err && !new) {
+      out$err <- get_samples(samples, regex_err)
+    } else {
+      if (!use_ac_cov_time(acef)) {
+        stop2("Cannot predict new latent residuals ",
+              "when using cov = FALSE in autocor terms.")
+      }
+      # need to sample correlated residuals
+      out$err <- matrix(nrow = nrow(samples), ncol = length(out$Y))
+      out$sderr <- get_samples(samples, paste0("^sderr", p, "$"))
+      for (i in seq_len(out$N_tg)) {
+        obs <- with(out, begin_tg[i]:end_tg[i])
+        zeros <- rep(0, length(obs))
+        cov <- get_cov_matrix_ac(list(ac = out), obs, latent = TRUE)
+        .err <- function(s) rmulti_normal(1, zeros, Sigma = cov[s, , ])
+        out$err[, obs] <- rblapply(seq_rows(samples), .err)
+      }
+    }
+  }
   if (use_ac_cov_time(acef)) {
     # prepare predictions for the covariance structures of time-series models
     out$begin_tg <- sdata[[paste0("begin_tg", p)]]
     out$end_tg <- sdata[[paste0("end_tg", p)]]
-    if (has_cor_latent_residuals(bterms)) {
-      regex_err <- paste0("^err", p, "\\[")
-      has_err <- any(grepl(regex_err, colnames(samples)))
-      if (has_err && !new) {
-        out$err <- get_samples(samples, regex_err)
-      } else {
-        # need to sample correlated residuals
-        out$err <- matrix(nrow = nrow(samples), ncol = length(out$Y))
-        out$sderr <- get_samples(samples, paste0("^sderr", p, "$"))
-        for (i in seq_len(out$N_tg)) {
-          obs <- with(out, begin_tg[i]:end_tg[i])
-          zeros <- rep(0, length(obs))
-          cov <- get_cov_matrix_ac(list(ac = out), obs, latent = TRUE)
-          .err <- function(s) rmulti_normal(1, zeros, Sigma = cov[s, , ])
-          out$err[, obs] <- rblapply(seq_rows(samples), .err)
-        }
-      }
-    }
   }
   if (has_ac_class(acef, "sar")) {
     out$lagsar <- get_samples(samples, paste0("^lagsar", p, "$"))
@@ -1107,16 +1115,21 @@ is.bprepnl <- function(x) {
 #' @param allow_new_levels A flag indicating if new levels of group-level
 #'   effects are allowed (defaults to \code{FALSE}). Only relevant if
 #'   \code{newdata} is provided.
-#' @param sample_new_levels Indicates how to sample new levels for grouping
-#'   factors specified in \code{re_formula}. This argument is only relevant if
-#'   \code{newdata} is provided and \code{allow_new_levels} is set to
-#'   \code{TRUE}. If \code{"uncertainty"} (default), include group-level
-#'   uncertainty in the predictions based on the variation of the existing
-#'   levels. If \code{"gaussian"}, sample new levels from the (multivariate)
-#'   normal distribution implied by the group-level standard deviations and
-#'   correlations. This options may be useful for conducting Bayesian power
-#'   analysis. If \code{"old_levels"}, directly sample new levels from the
-#'   existing levels.
+#'@param sample_new_levels Indicates how to sample new levels for grouping
+#'  factors specified in \code{re_formula}. This argument is only relevant if
+#'  \code{newdata} is provided and \code{allow_new_levels} is set to
+#'  \code{TRUE}. If \code{"uncertainty"} (default), each posterior sample for a
+#'  new level is drawn from the posterior samples of a randomly chosen existing
+#'  level. Each posterior sample for a new level may be drawn from a different
+#'  existing level such that the resulting set of new posterior samples
+#'  represents the variation across existing levels. If \code{"gaussian"},
+#'  sample new levels from the (multivariate) normal distribution implied by the
+#'  group-level standard deviations and correlations. This options may be useful
+#'  for conducting Bayesian power analysis or predicting new levels in
+#'  situations where relatively few levels where observed in the old_data. If
+#'  \code{"old_levels"}, directly sample new levels from the existing levels,
+#'  where a new level is assigned all of the posterior samples of the same
+#'  (randomly chosen) existing level.
 #' @param newdata2 A named \code{list} of objects containing new data, which
 #'   cannot be passed via argument \code{newdata}. Required for some objects 
 #'   used in autocorrelation structures, or \code{\link{stanvars}}.

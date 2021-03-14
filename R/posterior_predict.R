@@ -195,14 +195,14 @@ posterior_predict.brmsprep <- function(object, transform = NULL, sort = FALSE,
 #'   If \code{summary = TRUE} the output depends on the family: For categorical
 #'   and ordinal families, the output is an N x C matrix, where N is the number
 #'   of observations, C is the number of categories, and the values are
-#'   predicted category probabilites. For all other families, the output is a N
+#'   predicted category probabilities. For all other families, the output is a N
 #'   x E matrix where E = \code{2 + length(probs)} is the number of summary
 #'   statistics: The \code{Estimate} column contains point estimates (either
 #'   mean or median depending on argument \code{robust}), while the
 #'   \code{Est.Error} column contains uncertainty estimates (either standard
 #'   deviation or median absolute deviation depending on argument
 #'   \code{robust}). The remaining columns starting with \code{Q} contain
-#'   quantile estimates as specifed via argument \code{probs}.  
+#'   quantile estimates as specified via argument \code{probs}.  
 #'   
 #' @seealso \code{\link{posterior_predict.brmsfit}} 
 #'  
@@ -305,18 +305,19 @@ validate_pp_method <- function(method) {
 # @param ... ignored arguments
 # @param A vector of length prep$nsamples containing samples
 #   from the posterior predictive distribution
-posterior_predict_gaussian <- function(i, prep, ...) {
+posterior_predict_gaussian <- function(i, prep, ntrys = 5, ...) {
   mu <- get_dpar(prep, "mu", i = i)
   sigma <- get_dpar(prep, "sigma", i = i)
   sigma <- add_sigma_se(sigma, prep, i = i)
   rcontinuous(
     n = prep$nsamples, dist = "norm",
     mean = mu, sd = sigma,
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_student <- function(i, prep, ...) {
+posterior_predict_student <- function(i, prep, ntrys = 5, ...) {
   nu <- get_dpar(prep, "nu", i = i)
   mu <- get_dpar(prep, "mu", i = i)
   sigma <- get_dpar(prep, "sigma", i = i)
@@ -324,30 +325,33 @@ posterior_predict_student <- function(i, prep, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "student_t", 
     df = nu, mu = mu, sigma = sigma,
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_lognormal <- function(i, prep, ...) {
+posterior_predict_lognormal <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "lnorm",
     meanlog = get_dpar(prep, "mu", i = i), 
     sdlog = get_dpar(prep, "sigma", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_shifted_lognormal <- function(i, prep, ...) {
+posterior_predict_shifted_lognormal <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "shifted_lnorm",
     meanlog = get_dpar(prep, "mu", i = i), 
     sdlog = get_dpar(prep, "sigma", i = i),
     shift = get_dpar(prep, "ndt", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_skew_normal <- function(i, prep, ...) {
+posterior_predict_skew_normal <- function(i, prep, ntrys = 5, ...) {
   mu <- get_dpar(prep, "mu", i = i)
   sigma <- get_dpar(prep, "sigma", i = i)
   sigma <- add_sigma_se(sigma, prep, i = i)
@@ -355,7 +359,8 @@ posterior_predict_skew_normal <- function(i, prep, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "skew_normal",
     mu = mu, sigma = sigma, alpha = alpha,
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
@@ -543,74 +548,82 @@ posterior_predict_com_poisson <- function(i, prep, ntrys = 5, ...) {
   )
 }
 
-posterior_predict_exponential <- function(i, prep, ...) {
+posterior_predict_exponential <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "exp",
     rate = 1 / get_dpar(prep, "mu", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_gamma <- function(i, prep, ...) {
+posterior_predict_gamma <- function(i, prep, ntrys = 5, ...) {
   shape <- get_dpar(prep, "shape", i = i)
   scale <- get_dpar(prep, "mu", i = i) / shape
   rcontinuous(
     n = prep$nsamples, dist = "gamma",
     shape = shape, scale = scale,
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_weibull <- function(i, prep, ...) {
+posterior_predict_weibull <- function(i, prep, ntrys = 5, ...) {
   shape <- get_dpar(prep, "shape", i = i)
   scale <- get_dpar(prep, "mu", i = i) / gamma(1 + 1 / shape) 
   rcontinuous(
     n = prep$nsamples, dist = "weibull",
     shape = shape, scale = scale,
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_frechet <- function(i, prep, ...) {
+posterior_predict_frechet <- function(i, prep, ntrys = 5, ...) {
   nu <- get_dpar(prep, "nu", i = i)
   scale <- get_dpar(prep, "mu", i = i) / gamma(1 - 1 / nu)
   rcontinuous(
     n = prep$nsamples, dist = "frechet",
     scale = scale, shape = nu,
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_gen_extreme_value <- function(i, prep, ...) {
+posterior_predict_gen_extreme_value <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "gen_extreme_value", 
     sigma = get_dpar(prep, "sigma", i = i),
     xi = get_dpar(prep, "xi", i = i),
     mu = get_dpar(prep, "mu", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_inverse.gaussian <- function(i, prep, ...) {
+posterior_predict_inverse.gaussian <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "inv_gaussian",
     mu = get_dpar(prep, "mu", i = i), 
     shape = get_dpar(prep, "shape", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_exgaussian <- function(i, prep, ...) {
+posterior_predict_exgaussian <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "exgaussian",
     mu = get_dpar(prep, "mu", i = i), 
     sigma = get_dpar(prep, "sigma", i = i),
     beta = get_dpar(prep, "beta", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_wiener <- function(i, prep, negative_rt = FALSE, ...) {
+posterior_predict_wiener <- function(i, prep, negative_rt = FALSE, ntrys = 5,
+                                     ...) {
   out <- rcontinuous(
     n = 1, dist = "wiener", 
     delta = get_dpar(prep, "mu", i = i), 
@@ -618,7 +631,8 @@ posterior_predict_wiener <- function(i, prep, negative_rt = FALSE, ...) {
     tau = get_dpar(prep, "ndt", i = i),
     beta = get_dpar(prep, "bias", i = i),
     types = if (negative_rt) c("q", "resp") else "q",
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
   if (negative_rt) {
     # code lower bound responses as negative RTs
@@ -627,36 +641,40 @@ posterior_predict_wiener <- function(i, prep, negative_rt = FALSE, ...) {
   out
 }
 
-posterior_predict_beta <- function(i, prep, ...) {
+posterior_predict_beta <- function(i, prep, ntrys = 5, ...) {
   mu <- get_dpar(prep, "mu", i = i)
   phi <- get_dpar(prep, "phi", i = i)
   rcontinuous(
     n = prep$nsamples, dist = "beta", 
     shape1 = mu * phi, shape2 = (1 - mu) * phi,
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_von_mises <- function(i, prep, ...) {
+posterior_predict_von_mises <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "von_mises",
     mu = get_dpar(prep, "mu", i = i), 
     kappa = get_dpar(prep, "kappa", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_asym_laplace <- function(i, prep, ...) {
+posterior_predict_asym_laplace <- function(i, prep, ntrys = 5, ...) {
   rcontinuous(
     n = prep$nsamples, dist = "asym_laplace",
     mu = get_dpar(prep, "mu", i = i), 
     sigma = get_dpar(prep, "sigma", i = i),
     quantile = get_dpar(prep, "quantile", i = i),
-    lb = prep$data$lb[i], ub = prep$data$ub[i]
+    lb = prep$data$lb[i], ub = prep$data$ub[i],
+    ntrys = ntrys
   )
 }
 
-posterior_predict_zero_inflated_asym_laplace <- function(i, prep, ...) {
+posterior_predict_zero_inflated_asym_laplace <- function(i, prep, ntrys = 5,
+                                                         ...) {
   zi <- get_dpar(prep, "zi", i = i)
   tmp <- runif(prep$nsamples, 0, 1)
   ifelse(
@@ -666,7 +684,8 @@ posterior_predict_zero_inflated_asym_laplace <- function(i, prep, ...) {
       mu = get_dpar(prep, "mu", i = i), 
       sigma = get_dpar(prep, "sigma", i = i),
       quantile = get_dpar(prep, "quantile", i = i),
-      lb = prep$data$lb[i], ub = prep$data$ub[i]
+      lb = prep$data$lb[i], ub = prep$data$ub[i],
+      ntrys = ntrys
     )
   )
 }
@@ -874,8 +893,9 @@ posterior_predict_mixture <- function(i, prep, ...) {
 # @param dist name of a distribution for which the functions
 #   p<dist>, q<dist>, and r<dist> are available
 # @param ... additional arguments passed to the distribution functions
+# @param ntrys number of trys in rejection sampling for truncated models
 # @return vector of random values prep from the distribution
-rcontinuous <- function(n, dist, ..., lb = NULL, ub = NULL) {
+rcontinuous <- function(n, dist, ..., lb = NULL, ub = NULL, ntrys = 5) {
   args <- list(...)
   if (is.null(lb) && is.null(ub)) {
     # sample as usual
@@ -883,16 +903,21 @@ rcontinuous <- function(n, dist, ..., lb = NULL, ub = NULL) {
     out <- do_call(rdist, c(list(n), args))
   } else {
     # sample from truncated distribution
-    if (is.null(lb)) lb <- -Inf
-    if (is.null(ub)) ub <- Inf
     pdist <- paste0("p", dist)
     qdist <- paste0("q", dist)
-    plb <- do_call(pdist, c(list(lb), args))
-    pub <- do_call(pdist, c(list(ub), args))
-    out <- runif(n, min = plb, max = pub)
-    out <- do_call(qdist, c(list(out), args))
-    # remove infinte values caused by numerical imprecision
-    out[out %in% c(-Inf, Inf)] <- NA
+    if (!exists(pdist, mode = "function") || !exists(qdist, mode = "function")) {
+      # use rejection sampling as CDF or quantile function are not available
+      out <- rdiscrete(n, dist, ..., lb = lb, ub = ub, ntrys = ntrys)
+    } else {
+      if (is.null(lb)) lb <- -Inf
+      if (is.null(ub)) ub <- Inf
+      plb <- do_call(pdist, c(list(lb), args))
+      pub <- do_call(pdist, c(list(ub), args))
+      out <- runif(n, min = plb, max = pub)
+      out <- do_call(qdist, c(list(out), args))
+      # infinite values may be caused by numerical imprecision
+      out[out %in% c(-Inf, Inf)] <- NA
+    }
   }
   out
 }

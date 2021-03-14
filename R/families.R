@@ -91,7 +91,7 @@
 #'   ('generalized extreme value') allow for modeling extremes.}
 #'   
 #'   \item{Families \code{beta} and \code{dirichlet} can be used to model 
-#'   responses representing rates or propabilities.}
+#'   responses representing rates or probabilities.}
 #'   
 #'   \item{Family \code{asym_laplace} allows for quantile regression when fixing
 #'   the auxiliary \code{quantile} parameter to the quantile of interest.}
@@ -449,7 +449,10 @@ family_info.brmsfit <- function(x, y, ...) {
 # provides special handling for certain elements
 combine_family_info <- function(x, y, ...) {
   y <- as_one_character(y)
-  unite <- c("dpars", "type", "specials", "include", "const", "cats", "ad")
+  unite <- c(
+    "dpars", "type", "specials", "include", 
+    "const", "cats", "ad", "normalized"
+  )
   if (y %in% c("family", "link")) {
     x <- unlist(x)
   } else if (y %in% unite) {
@@ -985,7 +988,7 @@ mixture <- function(..., flist = NULL, nmix = 1, order = NULL) {
 #'   \code{\link[brms:log_lik.brmsfit]{log_lik}},
 #'   \code{\link[brms:posterior_predict.brmsfit]{posterior_predict}}, or
 #'   \code{\link[brms:posterior_epred.brmsfit]{posterior_epred}}.
-#'   By default, \code{env} is the enviroment from which 
+#'   By default, \code{env} is the environment from which 
 #'   \code{custom_family} is called.
 #'   
 #' @details The corresponding probability density or mass \code{Stan} 
@@ -1104,10 +1107,12 @@ custom_family <- function(name, dpars = "mu", links = "identity",
   ub <- named_list(dpars, ub)
   is_mu <- "mu" == dpars
   link <- links[is_mu]
+  normalized <- ""
   out <- nlist(
     family = "custom", link, name, 
     dpars, lb, ub, type, vars, specials,
-    log_lik, posterior_predict, posterior_epred, env
+    log_lik, posterior_predict, posterior_epred, env,
+    normalized
   )
   if (length(dpars) > 1L) {
     out[paste0("link_", dpars[!is_mu])] <- links[!is_mu]
@@ -1596,6 +1601,11 @@ pred_sigma <- function(bterms) {
 no_nu <- function(bterms) {
   # the multi_student_t family only has a single 'nu' parameter
   isTRUE(bterms$rescor) && "student" %in% family_names(bterms)
+}
+
+# suffixes of Stan lpdfs or lpmfs for which only a normalized version exists
+always_normalized <- function(family) {
+  family_info(family, "normalized")
 }
 
 # prepare for calling family specific post-processing functions

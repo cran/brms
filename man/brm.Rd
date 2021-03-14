@@ -29,15 +29,17 @@ brm(
   thin = 1,
   cores = getOption("mc.cores", 1),
   threads = NULL,
+  normalize = getOption("brms.normalize", TRUE),
   control = NULL,
   algorithm = getOption("brms.algorithm", "sampling"),
   backend = getOption("brms.backend", "rstan"),
   future = getOption("future", FALSE),
-  silent = TRUE,
+  silent = 1,
   seed = NA,
   save_model = NULL,
   stan_model_args = list(),
   file = NULL,
+  file_refit = "never",
   empty = FALSE,
   rename = TRUE,
   ...
@@ -195,6 +197,14 @@ parallelization is experimental! We recommend its use only if you are
 experienced with Stan's \code{reduce_sum} function and have a slow running
 model that cannot be sped up by any other means.}
 
+\item{normalize}{Logical. Indicates whether normalization constants should
+be included in the Stan code (defaults to \code{TRUE}). Setting it
+to \code{FALSE} requires Stan version >= 2.25 to work. If \code{FALSE},
+sampling efficiency may be increased but some post processing functions
+such as \code{\link{bridge_sampler}} will not be available. Can be 
+controlled globally for the current \R session via the `brms.normalize`
+option.}
+
 \item{control}{A named \code{list} of parameters to control the sampler's
 behavior. It defaults to \code{NULL} so all the default values are used.
 The most important control parameters are discussed in the 'Details'
@@ -223,8 +233,10 @@ package is used for parallel execution of the chains and argument
 session via the \code{future} option. The execution type is controlled via
 \code{\link[future:plan]{plan}} (see the examples section below).}
 
-\item{silent}{Logical; If \code{TRUE} (the default), most of the
-informational messages of compiler and sampler are suppressed. The actual
+\item{silent}{Verbosity level between \code{0} and \code{2}.
+If \code{1} (the default), most of the
+informational messages of compiler and sampler are suppressed.
+If \code{2}, even more messages are suppressed. The actual
 sampling progress is still printed. Set \code{refresh = 0} to turn this off
 as well. If using \code{backend = "rstan"} you can also set
 \code{open_progress = FALSE} to prevent opening additional progress bars.}
@@ -244,10 +256,24 @@ named after the string supplied in \code{save_model}.}
 fitted model object is saved via \code{\link{saveRDS}} in a file named
 after the string supplied in \code{file}. The \code{.rds} extension is
 added automatically. If the file already exists, \code{brm} will load and
-return the saved model object instead of refitting the model. As existing
+return the saved model object instead of refitting the model. 
+Unless you specify the \code{file_refit} argument as well, the existing
 files won't be overwritten, you have to manually remove the file in order
 to refit and save the model under an existing file name. The file name
 is stored in the \code{brmsfit} object for later usage.}
+
+\item{file_refit}{Modifies when the fit stored via the \code{file} parameter
+is re-used. For \code{"never"} (default) the fit is always loaded if it
+exists and fitting is skipped. If set to \code{"on_change"}, brms will
+refit the model if model, data or algorithm as passed to Stan differ from
+what is stored in the file. This also covers changes in priors,
+\code{sample_prior}, \code{stanvars}, covariance structure, etc. If you
+believe there was a false positive, you can use
+\code{\link{brmsfit_needs_refit}} to see why refit is deemed necessary.
+Refit will not be triggered for changes in additional parameters of the fit
+(e.g., initial values, number of iterations, control arguments, ...). A
+known limitation is that a refit will be triggered if within-chain
+parallelization is switched on/off.}
 
 \item{empty}{Logical. If \code{TRUE}, the Stan model is not created
 and compiled and the corresponding \code{'fit'} slot of the \code{brmsfit}
@@ -258,8 +284,7 @@ Stan model outside of \pkg{brms} and want to feed it back into the package.}
 
 \item{...}{Further arguments passed to Stan. 
 For \code{backend = "rstan"} the arguments are passed to
-\code{\link[rstan:stanmodel-method-sampling]{sampling}} or
-\code{\link[rstan:stanmodel-method-vb]{vb}}.
+\code{\link[rstan]{sampling}} or \code{\link[rstan]{vb}}.
 For \code{backend = "cmdstanr"} the arguments are passed to the
 \code{cmdstanr::sample} or \code{cmdstanr::variational} method.}
 }

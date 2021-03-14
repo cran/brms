@@ -406,7 +406,7 @@ conditional_effects.brmsterms <- function(
     if (conv_cats_dpars(x$family)) {
       stop2("Please set 'categorical' to TRUE.")
     }
-    if (is_ordinal(x$family) && is.null(dpar)) {
+    if (is_ordinal(x$family) && is.null(dpar) && method != "posterior_linpred") {
       warning2(
         "Predictions are treated as continuous variables in ",
         "'conditional_effects' by default which is likely invalid ", 
@@ -418,20 +418,21 @@ conditional_effects.brmsterms <- function(
     }
   }
   
+  cond_data <- add_effects__(cond_data, effects)
   first_numeric <- types[1] %in% "numeric"
   second_numeric <- types[2] %in% "numeric"
   both_numeric <- first_numeric && second_numeric
   if (second_numeric && !surface) {
-    # can only be converted to factor after having called method
+    # only convert 'effect2__' to factor so that the original
+    # second effect variable remains unchanged in the data
     mde2 <- round(cond_data[[effects[2]]], 2)
     levels2 <- sort(unique(mde2), TRUE)
-    cond_data[[effects[2]]] <- factor(mde2, levels = levels2)
+    cond_data$effect2__ <- factor(mde2, levels = levels2)
     labels2 <- names(int_conditions[[effects[2]]])
     if (length(labels2) == length(levels2)) {
-      levels(cond_data[[effects[2]]]) <- labels2
+      levels(cond_data$effect2__) <- labels2
     }
   }
-  cond_data <- add_effects__(cond_data, effects)
   
   spag <- NULL
   if (first_numeric && spaghetti) {
@@ -723,6 +724,7 @@ prepare_conditions <- function(fit, conditions = NULL, effects = NULL,
   }
   req_vars <- all_vars(rhs(bterms$allvars))
   req_vars <- setdiff(req_vars, rsv_vars)
+  req_vars <- setdiff(req_vars, names(fit$data2))
   if (is.null(conditions)) {
     conditions <- as.data.frame(as.list(rep(NA, length(req_vars))))
     names(conditions) <- req_vars

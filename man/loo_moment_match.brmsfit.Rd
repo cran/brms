@@ -53,17 +53,17 @@ Moment matching for efficient approximate leave-one-out cross-validation
 for more details.
 }
 \details{
-The moment matching algorithm requires samples 
-  of all variables defined in Stan's \code{parameters} block
-  to be saved. Otherwise \code{loo_moment_match} cannot be computed.
-  Thus, please set \code{save_all_pars = TRUE} in the call to \code{brm},
-  if you are planning to apply \code{loo_moment_match} to your models.
+The moment matching algorithm requires samples of all variables
+  defined in Stan's \code{parameters} block to be saved. Otherwise
+  \code{loo_moment_match} cannot be computed. Thus, please set
+  \code{save_pars = save_pars(all = TRUE)} in the call to \code{brm}, if you
+  are planning to apply \code{loo_moment_match} to your models.
 }
 \examples{
 \dontrun{
 fit1 <- brm(count ~ zAge + zBase * Trt + (1|patient),
             data = epilepsy, family = poisson(),
-            save_all_pars = TRUE)
+            save_pars = save_pars(all = TRUE))
             
 # throws warning about some pareto k estimates being too high
 (loo1 <- loo(fit1))
@@ -72,6 +72,6 @@ fit1 <- brm(count ~ zAge + zBase * Trt + (1|patient),
 
 }
 \references{
-Paananen, T., Piironen, J., Buerkner, P.-C., Vehtari, A. (2020). 
-  Implicitly Adaptive Importance Sampling. preprint arXiv:1906.08850
+Paananen, T., Piironen, J., Buerkner, P.-C., Vehtari, A. (2021). 
+  Implicitly Adaptive Importance Sampling. Statistics and Computing.
 }

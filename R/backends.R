@@ -10,7 +10,7 @@ parse_model <- function(model, backend, ...) {
 # parse Stan model code with rstan
 # @param model Stan model code
 # @return validated Stan model code
-.parse_model_rstan <- function(model, silent = TRUE, ...) {
+.parse_model_rstan <- function(model, silent = 1, ...) {
   out <- eval_silent(
     rstan::stanc(model_code = model, ...),
     type = "message", try = TRUE, silent = silent
@@ -21,7 +21,7 @@ parse_model <- function(model, backend, ...) {
 # parse Stan model code with cmdstanr
 # @param model Stan model code
 # @return validated Stan model code
-.parse_model_cmdstanr <- function(model, silent = TRUE, ...) {
+.parse_model_cmdstanr <- function(model, silent = 1, ...) {
   require_package("cmdstanr")
   temp_file <- cmdstanr::write_stan_file(model)
   out <- eval_silent(
@@ -44,24 +44,42 @@ compile_model <- function(model, backend, ...) {
 # compile Stan model with rstan
 # @param model Stan model code
 # @return model compiled with rstan
-.compile_model_rstan <- function(model, threads, ...) {
+.compile_model_rstan <- function(model, threads, silent = 1, ...) {
   args <- list(...)
   args$model_code <- model
-  message("Compiling Stan program...")
-  do_call(rstan::stan_model, args)
+  if (silent < 2) {
+    message("Compiling Stan program...")
+  }
+  if (use_threading(threads)) {
+    if (utils::packageVersion("rstan") >= 2.26) {
+      threads_per_chain_def <- rstan::rstan_options("threads_per_chain")
+      on.exit(rstan::rstan_options(threads_per_chain = threads_per_chain_def))
+      rstan::rstan_options(threads_per_chain = threads$threads)
+    } else {
+      stop2("Threading is not supported by backend 'rstan' version ",
+            utils::packageVersion("rstan"), ".")
+    }
+  }
+  eval_silent(
+    do_call(rstan::stan_model, args),
+    type = "message", try = TRUE, silent = silent >= 2
+  )
 }
 
 # compile Stan model with cmdstanr
 # @param model Stan model code
 # @return model compiled with cmdstanr
-.compile_model_cmdstanr <- function(model, threads, ...) {
+.compile_model_cmdstanr <- function(model, threads, silent = 1, ...) {
   require_package("cmdstanr")
   args <- list(...)
   args$stan_file <- cmdstanr::write_stan_file(model)
   if (use_threading(threads)) {
     args$cpp_options$stan_threads <- TRUE
   }
-  do_call(cmdstanr::cmdstan_model, args)
+  eval_silent(
+    do_call(cmdstanr::cmdstan_model, args),
+    type = "message", try = TRUE, silent = silent >= 2
+  )
 }
 
 # fit Stan model
@@ -83,7 +101,14 @@ fit_model <- function(model, backend, ...) {
   
   # some input checks and housekeeping
   if (use_threading(threads)) {
-    stop2("Threading is not yet supported by backend 'rstan'.")
+    if (utils::packageVersion("rstan") >= 2.26) {
+      threads_per_chain_def <- rstan::rstan_options("threads_per_chain")
+      on.exit(rstan::rstan_options(threads_per_chain = threads_per_chain_def))
+      rstan::rstan_options(threads_per_chain = threads$threads)
+    } else {
+      stop2("Threading is not supported by backend 'rstan' version ",
+            utils::packageVersion("rstan"), ".")
+    }
   }
   if (is.character(inits) && !inits %in% c("random", "0")) {
     inits <- get(inits, mode = "function", envir = parent.frame())
@@ -96,7 +121,9 @@ fit_model <- function(model, backend, ...) {
   args[names(dots)] <- dots
   
   # do the actual sampling
-  message("Start sampling")
+  if (silent < 2) {
+    message("Start sampling") 
+  }
   if (algorithm %in% c("sampling", "fixed_param")) {
     c(args) <- nlist(warmup, thin, control, show_messages = !silent)
     if (algorithm == "fixed_param") {
@@ -115,7 +142,8 @@ fit_model <- function(model, backend, ...) {
         }
         futures[[i]] <- future::future(
           brms::do_call(rstan::sampling, args), 
-          packages = "rstan"
+          packages = "rstan",
+          seed = TRUE
         )
       }
       for (i in seq_len(chains)) {
@@ -169,7 +197,8 @@ fit_model <- function(model, backend, ...) {
   args[names(control)] <- control
   
   chains <- as_one_numeric(chains)
-  if (chains == 0) {
+  empty_model <- chains <= 0
+  if (empty_model) {
     # fit the model with minimal amount of draws
     # TODO: replace with a better solution
     chains <- 1
@@ -180,7 +209,9 @@ fit_model <- function(model, backend, ...) {
   }
   
   # do the actual sampling
-  message("Start sampling")
+  if (silent < 2) {
+    message("Start sampling") 
+  }
   if (algorithm %in% c("sampling", "fixed_param")) {
     c(args) <- nlist(
       iter_sampling = iter - warmup,
@@ -202,6 +233,10 @@ fit_model <- function(model, backend, ...) {
   out <- rstan::read_stan_csv(out$output_files())
   # allow updating the model without recompilation
   attributes(out)$CmdStanModel <- model
+  if (empty_model) {
+    # allow correct updating of an 'empty' model
+    out@sim <- list()
+  }
   out
 }
 
@@ -325,4 +360,13 @@ validate_threads <- function(threads) {
 # is threading activated?
 use_threading <- function(threads) {
   isTRUE(validate_threads(threads)$threads > 0)
+}
+
+# validate the 'silent' argument
+validate_silent <- function(silent) {
+  silent <- as_one_integer(silent)
+  if (silent < 0 || silent > 2) {
+    stop2("'silent' must be between 0 and 2.")
+  }
+  silent
 }
