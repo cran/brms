@@ -12,7 +12,7 @@
 
 <meta name="author" content="Paul Bürkner" />
 
-<meta name="date" content="2021-03-11" />
+<meta name="date" content="2021-08-18" />
 
 <title>Parameterization of Response Distributions in brms</title>
 
@@ -46,7 +46,7 @@
 
 <h1 class="title toc-ignore">Parameterization of Response Distributions in brms</h1>
 <h4 class="author">Paul Bürkner</h4>
-<h4 class="date">2021-03-11</h4>
+<h4 class="date">2021-08-18</h4>
 
 
 <div id="TOC">
@@ -113,7 +113,7 @@ with location parameter $\mu \in [0, 1]$ and positive shape parameter $\alpha$.
 <div id="time-to-event-models" class="section level2">
 <h2>Time-to-event models</h2>
 <p>With time-to-event models we mean all models that are defined on the positive reals only, that is <span class="math inline">\(y \in \mathbb{R}^+\)</span>. The density of the <strong>lognormal</strong> family is given by <span class="math display">\[
-f(y) = \frac{1}{\sqrt{2\pi}\sigma x} \exp\left(-\frac{1}{2}\left(\frac{\log(y) - \mu}{\sigma}\right)^2\right)
+f(y) = \frac{1}{\sqrt{2\pi}\sigma y} \exp\left(-\frac{1}{2}\left(\frac{\log(y) - \mu}{\sigma}\right)^2\right)
 \]</span> where <span class="math inline">\(\sigma\)</span> is the residual standard deviation on the log-scale. The density of the <strong>Gamma</strong> family is given by <span class="math display">\[
 f(y) = \frac{(\alpha / \mu)^\alpha}{\Gamma(\alpha)} y^{\alpha-1} 
 \exp\left(-\frac{\alpha y}{\mu}\right)

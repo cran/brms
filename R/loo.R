@@ -21,6 +21,10 @@
 #'  into memory issues, \code{pointwise = TRUE} is the way to go.
 #' @param moment_match Logical; Indicate whether \code{\link{loo_moment_match}} 
 #'  should be applied on problematic observations. Defaults to \code{FALSE}.
+#'  For most models, moment matching will only work if you have set
+#'  \code{save_pars = save_pars(all = TRUE)} when fitting the model with
+#'  \code{\link{brm}}. See \code{\link{loo_moment_match.brmsfit}} for more
+#'  details.
 #' @param reloo Logical; Indicate whether \code{\link{reloo}} 
 #'  should be applied on problematic observations. Defaults to \code{FALSE}.
 #' @param k_threshold The threshold at which pareto \eqn{k} 
@@ -686,12 +690,7 @@ r_eff_log_lik.matrix <- function(x, fit, allow_na = FALSE, ...) {
     return(rep(1, ncol(x)))
   }
   chain_id <- get_chain_id(nrow(x), fit)
-  r_eff_helper(
-    exp(x), 
-    chain_id = chain_id, 
-    allow_na = allow_na, 
-    ...
-  )
+  r_eff_helper(exp(x), chain_id = chain_id, allow_na = allow_na, ...)
 }
 
 #' @export
@@ -705,24 +704,21 @@ r_eff_log_lik.function <- function(x, fit, draws, allow_na = FALSE, ...) {
   lik_fun <- function(data_i, draws, ...) {
     exp(x(data_i, draws, ...))
   }
-  chain_id <- get_chain_id(draws$nsamples, fit)
+  chain_id <- get_chain_id(draws$ndraws, fit)
   r_eff_helper(
-    lik_fun, 
-    chain_id = chain_id, 
-    draws = draws, 
-    allow_na = allow_na, 
-    ...
+    lik_fun, chain_id = chain_id, draws = draws, 
+    allow_na = allow_na, ...
   )
 }
 
 # get chain IDs per posterior draw
-get_chain_id <- function(nsamples, fit) {
-  if (nsamples != nsamples(fit)) {
+get_chain_id <- function(ndraws, fit) {
+  if (ndraws != ndraws(fit)) {
     # don't know the chain IDs of a subset of draws
-    chain_id <- rep(1L, nsamples)
+    chain_id <- rep(1L, ndraws)
   } else {
     nchains <- fit$fit@sim$chains
-    chain_id <- rep(seq_len(nchains), each = nsamples / nchains) 
+    chain_id <- rep(seq_len(nchains), each = ndraws / nchains) 
   }
   chain_id
 }
