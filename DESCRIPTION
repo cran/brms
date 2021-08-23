@@ -2,8 +2,8 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using 'Stan'
-Version: 2.16.0
-Date: 2021-08-18
+Version: 2.16.1
+Date: 2021-08-20
 Authors@R: 
     c(person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
              role = c("aut", "cre")),
@@ -49,7 +49,7 @@ BugReports: https://github.com/paul-buerkner/brms/issues
 Additional_repositories: https://mc-stan.org/r-packages/
 VignetteBuilder: knitr, R.rsp
 RoxygenNote: 7.1.1
-Packaged: 2021-08-18 11:55:17 UTC; paulb
+Packaged: 2021-08-23 11:13:57 UTC; paulb
 Author: Paul-Christian Bürkner [aut, cre],
   Jonah Gabry [ctb],
   Sebastian Weber [ctb],
@@ -60,4 +60,4 @@ Author: Paul-Christian Bürkner [aut, cre],
   Mattan S. Ben-Shachar [ctb]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2021-08-18 22:00:02 UTC
+Date/Publication: 2021-08-23 14:00:05 UTC
