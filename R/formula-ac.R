@@ -610,10 +610,10 @@ validate_car_matrix <- function(M) {
     stop2("'M' for CAR terms must be symmetric.")
   }
   colnames(M) <- rownames(M)
-  not_binary <- !(M == 0 | M == 1)
+  not_binary <- M@x != 1
   if (any(not_binary)) {
     message("Converting all non-zero values in 'M' to 1.")
-    M[not_binary] <- 1
+    M@x[not_binary] <- 1
   }
   M
 }
@@ -638,7 +638,8 @@ validate_fcor_matrix <- function(M) {
 
 # regex to extract all parameter names of autocorrelation structures
 regex_autocor_pars <- function() {
-  p <- c("ar", "ma", "sderr", "cosy", "lagsar", "errorsar", "car", "sdcar")
+  p <- c("ar", "ma", "sderr", "cosy", "lagsar", "errorsar", 
+         "car", "sdcar", "rhocar")
   p <- paste0("(", p, ")", collapse = "|")
   paste0("^(", p, ")(\\[|_|$)")
 }

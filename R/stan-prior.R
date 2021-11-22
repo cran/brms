@@ -55,9 +55,10 @@ stan_prior <- function(prior, class, coef = NULL, group = NULL,
     if (length(unique(base_prior)) > 1L) {
       # define prior for single coefficients manually
       # as there is not single base_prior anymore
-      prior_of_coefs <- prior[nzchar(prior$coef), vars_prefix()]
-      take <- match_rows(prior_of_coefs, upx)
-      prior[nzchar(prior$coef), "prior"] <- base_prior[take]
+      take_coef_prior <- nzchar(prior$coef) & !nzchar(prior$prior)
+      prior_of_coefs <- prior[take_coef_prior, vars_prefix()]
+      take_base_prior <- match_rows(prior_of_coefs, upx)
+      prior$prior[take_coef_prior] <- base_prior[take_base_prior]
     }
     base_prior <- base_prior[1]
     bound <- ""
@@ -416,7 +417,7 @@ stan_special_prior_local <- function(prior, class, ncoef, px,
     )
     str_add(out$tpar_reg_prior) <- glue(
       "  // compute actual regression coefficients\n",
-      "  b{sp}{suffix} = horseshoe({hs_args});\n"
+      "  b{suffix}{sp} = horseshoe({hs_args});\n"
     )
     str_add(out$prior) <- glue(
       "{tp}std_normal_{lpdf}(zb{sp});\n",
@@ -443,7 +444,7 @@ stan_special_prior_local <- function(prior, class, ncoef, px,
     )
     str_add(out$tpar_reg_prior) <- glue(
       "  // compute actual regression coefficients\n",
-      "  b{sp}{suffix} = R2D2({R2D2_args});\n"
+      "  b{suffix}{sp} = R2D2({R2D2_args});\n"
     )
     str_add(out$prior) <- glue(
       "{tp}std_normal_{lpdf}(zb{sp});\n",

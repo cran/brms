@@ -739,13 +739,14 @@ add_rstan_model <- function(x, overwrite = FALSE) {
   overwrite <- as_one_logical(overwrite)
   if (!has_rstan_model(x) || overwrite) {
     message("Recompiling the model with 'rstan'")
-    # threading is not yet supported by rstan andd needs to be deactivated
+    # threading is not yet supported by rstan and needs to be deactivated
     stanfit <- suppressMessages(rstan::stan(
       model_code = stancode(x, threads = threading()), 
       data = standata(x), chains = 0
     ))
     x$fit@stanmodel <- stanfit@stanmodel
     x$fit@.MISC <- stanfit@.MISC
+    message("Recompilation done")
   }
   x
 }
@@ -939,7 +940,7 @@ write_brmsfit <- function(x, file) {
   file <- check_brmsfit_file(file)
   x$file <- file
   saveRDS(x, file = file)
-  invisible(NULL)
+  invisible(x)
 }
 
 # check validity of file name to store a brmsfit object in

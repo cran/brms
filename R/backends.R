@@ -207,6 +207,7 @@ fit_model <- function(model, backend, ...) {
   } else {
     stop2("Algorithm '", algorithm, "' is not supported.")
   }
+  out <- repair_stanfit_names(out)
   out
 }
 
@@ -306,7 +307,7 @@ fit_model <- function(model, backend, ...) {
   out
 }
 
-# extract the compiled model
+# extract the compiled stan model
 # @param x brmsfit object
 compiled_model <- function(x) {
   stopifnot(is.brmsfit(x))
@@ -316,9 +317,66 @@ compiled_model <- function(x) {
   } else if (backend == "cmdstanr") {
     out <- attributes(x$fit)$CmdStanModel
   } else if (backend == "mock") {
-    stop2("Compiled models not supported in the mock backend.")
+    stop2("'compiled_model' is not supported in the mock backend.")
   }
   out
+}
+
+# Does the model need recompilation before being able to sample again?
+needs_recompilation <- function(x) {
+  stopifnot(is.brmsfit(x))
+  backend <- x$backend %||% "rstan"
+  if (backend == "rstan") {
+    # TODO: figure out when rstan requires recompilation
+    out <- FALSE
+  } else if (backend == "cmdstanr") {
+    exe_file <- attributes(x$fit)$CmdStanModel$exe_file()
+    out <- !is.character(exe_file) || !exists(exe_file)
+  } else if (backend == "mock") {
+    out <- FALSE
+  }
+  out
+}
+
+#' Recompile Stan models in \code{brmsfit} objects
+#' 
+#' Recompile the Stan model inside a \code{brmsfit} object, if necessary.
+#' This does not change the model, it simply recreates the executable
+#' so that sampling is possible again. 
+#' 
+#' @param x An object of class \code{brmsfit}.
+#' @param recompile Logical, indicating whether the Stan model should be
+#'   recompiled. If \code{NULL} (the default), \code{recompile_model} tries
+#'   to figure out internally, if recompilation is necessary. Setting it to
+#'   \code{FALSE} will cause \code{recompile_model} to always return the
+#'   \code{brmsfit} object unchanged.
+#'   
+#' @return A (possibly updated) \code{brmsfit} object.
+#' 
+#' @export
+recompile_model <- function(x, recompile = NULL) {
+  stopifnot(is.brmsfit(x))
+  if (is.null(recompile)) {
+    recompile <- needs_recompilation(x)
+  }
+  recompile <- as_one_logical(recompile)
+  if (!recompile) {
+    return(x)
+  }
+  message("Recompiling the Stan model")
+  backend <- x$backend %||% "rstan"
+  new_model <- compile_model(
+    stancode(x), backend = backend, threads = x$threads, 
+    opencl = x$opencl, silent = 2
+  )
+  if (backend == "rstan") {
+    x$fit@stanmodel <- new_model
+  } else if (backend == "cmdstanr") {
+    attributes(x)$CmdStanModel <- new_model
+  } else if (backend == "mock") {
+    stop2("'recompile_model' is not supported in the mock backend.")
+  }
+  x
 }
 
 # extract the elapsed time during model fitting
@@ -525,15 +583,21 @@ validate_silent <- function(silent) {
   silent
 }
 
-# repairs parameter names of stanfit objects
+# repair parameter names of stanfit objects
 repair_stanfit_names <- function(x) {
   stopifnot(is.stanfit(x))
+  if (!length(x@sim$fnames_oi)) {
+    # nothing to rename
+    return(x)
+  }
   # the posterior package cannot deal with non-unique parameter names
   # this case happens rarely but might happen when sample_prior = "yes"
-  x@sim$fnames_oi <- make.unique(x@sim$fnames_oi, "__")
+  x@sim$fnames_oi <- make.unique(as.character(x@sim$fnames_oi), "__")
   for (i in seq_along(x@sim$samples)) {
     # rstan::read_stan_csv may have renamed dimension suffixes (#1218)
-    names(x@sim$samples[[i]]) <- x@sim$fnames_oi
+    if (length(x@sim$samples[[i]]) == length(x@sim$fnames_oi)) {
+      names(x@sim$samples[[i]]) <- x@sim$fnames_oi
+    }
   }
   x
 }

@@ -1,18 +1,28 @@
-#' Projection Predictive Variable Selection
+#' Projection Predictive Variable Selection: Get Reference Model
 #' 
-#' Perform projection predictive variable selection with the \pkg{projpred}
-#' package. See \code{\link[projpred:varsel]{varsel}} and
-#' \code{\link[projpred:cv_varsel]{cv_varsel}} for more details.
+#' The \code{get_refmodel.brmsfit} method can be used to create the reference
+#' model structure which is needed by the \pkg{projpred} package for performing
+#' a projection predictive variable selection. This method is called
+#' automatically when performing variable selection via
+#' \code{\link[projpred:varsel]{varsel}} or
+#' \code{\link[projpred:cv_varsel]{cv_varsel}}, so you will rarely need to call
+#' it manually yourself.
 #' 
-#' @aliases varsel cv_varsel
+#' @inheritParams posterior_predict.brmsfit
+#' @param cvfun Optional cross-validation function
+#' (see \code{\link[projpred:get-refmodel]{get_refmodel}} for details).
+#' If \code{NULL} (the default), \code{cvfun} is defined internally
+#' based on \code{\link{kfold.brmsfit}}.
+#' @param ... Further arguments passed to 
+#' \code{\link[projpred:get-refmodel]{init_refmodel}}.
 #' 
-#' @param object A \code{brmsfit} object.
-#' @param ... Further arguments passed to \code{\link{get_refmodel.brmsfit}}
-#' as well as \code{\link[projpred:varsel]{varsel.refmodel}} or 
-#' \code{\link[projpred:cv_varsel]{cv_varsel.refmodel}}.
+#' @details Note that the \code{extract_model_data} function used internally by
+#'   \code{get_refmodel.brmsfit} ignores arguments \code{wrhs}, \code{orhs}, and
+#'   \code{extract_y}. This is relevant for
+#'   \code{\link[projpred:predict.refmodel]{predict.refmodel}}, for example.
 #' 
-#' @return A \code{vsel} object for which several methods are available
-#' in the \pkg{projpred} package.
+#' @return A \code{refmodel} object to be used in conjunction with the
+#'   \pkg{projpred} package.
 #' 
 #' @examples 
 #' \dontrun{
@@ -20,6 +30,9 @@
 #' fit <- brm(count ~ zAge + zBase * Trt,
 #'            data = epilepsy, family = poisson())
 #' summary(fit)
+#' 
+#' # The following code requires the 'projpred' package to be installed:
+#' library(projpred)
 #' 
 #' # perform variable selection without cross-validation
 #' vs <- varsel(fit)
@@ -31,53 +44,9 @@
 #' summary(cv_vs)
 #' plot(cv_vs)
 #' }
-#' 
-#' @importFrom projpred varsel
-#' @export varsel
-#' @export
-varsel.brmsfit <- function(object, ...) {
-  refmodel <- get_refmodel(object, ...)
-  varsel(refmodel, ...)
-}
-
-#' @rdname varsel.brmsfit
-#' @importFrom projpred cv_varsel
-#' @export cv_varsel
-#' @export
-cv_varsel.brmsfit <- function(object, ...) {
-  refmodel <- get_refmodel(object, ...)
-  cv_varsel(refmodel, ...)
-}
-
-#' Get Reference Models
-#' 
-#' Get reference model structure from \code{brmsfit} objects for use in
-#' \code{\link[projpred:varsel]{varsel}} and related variable selection methods.
-#' This method is called automatically when performing variable selection via
-#' \code{\link{varsel.brmsfit}} and so you will rarely need to call it manually
-#' yourself.
-#' 
-#' @aliases get_refmodel
-#' 
-#' @inheritParams posterior_predict.brmsfit
-#' @param folds Only used for k-fold variable selection. A vector of fold
-#' indices for each data point in data.
-#' @param cvfun Optional cross-validation function
-#' (see \code{\link[projpred:get-refmodel]{get_refmodel}} for details).
-#' If \code{NULL} (the default), \code{cvfun} is defined internally
-#' based on \code{\link{kfold.brmsfit}}.
-#' @param ... Further arguments passed to 
-#' \code{\link[projpred:get-refmodel]{init_refmodel}}.
-#' 
-#' @return A \code{refmodel} object to be used in
-#'   \code{\link[projpred:varsel]{varsel}} and related variable selection
-#'   methods.
-#' 
-#' @importFrom projpred get_refmodel
-#' @export get_refmodel
-#' @export
 get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL, 
-                                 folds = NULL, cvfun = NULL, ...) {
+                                 cvfun = NULL, ...) {
+  require_package("projpred")
   dots <- list(...)
   resp <- validate_resp(resp, object, multiple = FALSE)
   formula <- formula(object)
@@ -89,14 +58,21 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   family <- family(object, resp = resp)
   if (family$family == "bernoulli") {
     family$family <- "binomial"
+  } else if (family$family == "gamma") {
+    family$family <- "Gamma"
   }
   # For the augmented-data approach, do not re-define ordinal or categorical
   # families to preserve their family-specific extra arguments ("extra" meaning
   # "additionally to `link`") like `refcat` and `thresholds` (see ?brmsfamily):
   if (!(isTRUE(dots$aug_data) && is_polytomous(family))) {
     family <- get(family$family, mode = "function")(link = family$link)
+  } else {
+    # TODO: uncomment the lines below as soon as the
+    # `extend_family_<family_name>` exist (in brms):
+    # family <- get(paste0("extend_family_", family$family, mode = "function"))(
+    #   family
+    # )
   }
-  family <- projpred::extend_family(family)
   
   # check if the model is supported by projpred
   bterms <- brmsterms(formula)
@@ -120,7 +96,19 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   dis <- NULL
   if (family$family == "gaussian") {
     dis <- paste0("sigma", usc(resp))
-    dis <- as.data.frame(object, pars = dis, fixed = TRUE)[[dis]]
+    dis <- as.data.frame(object, variable = dis)[[dis]]
+  } else if (family$family == "Gamma") {
+    dis <- paste0("shape", usc(resp))
+    dis <- as.data.frame(object, variable = dis)[[dis]]
+  }
+  
+  # prepare data passed to projpred
+  data <- current_data(object, newdata, resp = resp, check_response = TRUE)
+  attr(data, "terms") <- NULL
+  
+  # allows to handle additional arguments implicitly
+  extract_model_data <- function(object, newdata = NULL, ...) {
+    .extract_model_data(object, newdata = newdata, resp = resp, ...)
   }
   
   # Using the default prediction function from projpred is usually fine
@@ -137,18 +125,18 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
     #     fit, transform = FALSE, newdata = newdata, incl_thres = TRUE
     #   )
     #   stopifnot(length(dim(linpred_out)) == 3L)
+    #   # Since posterior_linpred() is supposed to include the offsets in its
+    #   # result, subtract them here:
+    #   # Observation weights are not needed here, so use `wrhs = NULL` to avoid
+    #   # potential conflicts for a non-`NULL` default `wrhs`:
+    #   offs <- extract_model_data(fit, newdata = newdata, wrhs = NULL)$offset
+    #   if (length(offs)) {
+    #     stopifnot(length(offs) %in% c(1L, dim(linpred_out)[2]))
+    #     linpred_out <- sweep(linpred_out, 2, offs)
+    #   }
     #   linpred_out <- projpred:::arr2augmat(linpred_out, margin_draws = 1)
     #   return(linpred_out)
     # }
-  }
-  
-  # prepare data passed to projpred
-  data <- current_data(object, newdata, resp = resp, check_response = TRUE)
-  attr(data, "terms") <- NULL
-  
-  # allows to handle additional arguments implicitly
-  extract_model_data <- function(object, newdata = NULL, ...) {
-    .extract_model_data(object, newdata = newdata, resp = resp, ...)
   }
   
   # extract a list of K-fold sub-models
@@ -169,8 +157,7 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   }
   
   args <- nlist(
-    object, data, formula, family, folds, dis,
-    ref_predfun = ref_predfun, proj_predfun = NULL, div_minimizer = NULL, 
+    object, data, formula, family, dis, ref_predfun = ref_predfun,
     cvfun = cvfun, extract_model_data = extract_model_data, ...
   )
   do_call(projpred::init_refmodel, args)
@@ -194,9 +181,10 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   # extract relevant auxiliary data
   usc_resp <- usc(resp)
   y <- as.vector(sdata[[paste0("Y", usc_resp)]])
-  offset <- as.vector(sdata[[paste0("offset", usc_resp)]])
+  offset <- as.vector(sdata[[paste0("offsets", usc_resp)]])
   weights <- as.vector(sdata[[paste0("weights", usc_resp)]])
   trials <- as.vector(sdata[[paste0("trials", usc_resp)]])
+  stopifnot(!is.null(y))
   if (is_binary(family)) {
     trials <- rep(1, length(y))
   }
@@ -205,6 +193,12 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
       stop2("Projpred cannot handle 'trials' and 'weights' at the same time.") 
     }
     weights <- trials
+  }
+  if (is.null(weights)) {
+    weights <- rep(1, length(y))
+  }
+  if (is.null(offset)) {
+    offset <- rep(0, length(y))
   }
   nlist(y, weights, offset)
 }
