@@ -4,8 +4,7 @@
 
 # brms
 
-[![Build
-Status](https://travis-ci.org/paul-buerkner/brms.svg?branch=master)](https://travis-ci.org/paul-buerkner/brms)
+[![R-CMD-check](https://github.com/paul-buerkner/brms/workflows/R-CMD-check/badge.svg)](https://github.com/paul-buerkner/brms/actions)
 [![Coverage
 Status](https://codecov.io/github/paul-buerkner/brms/coverage.svg?branch=master)](https://codecov.io/github/paul-buerkner/brms?branch=master)
 [![CRAN
@@ -35,9 +34,8 @@ with posterior predictive checks, cross-validation, and Bayes factors.
 
 ## Resources
 
--   [Introduction to
-    brms](https://doi.org/10.18637/jss.v080.i01) (Journal of
-    Statistical Software)
+-   [Introduction to brms](https://doi.org/10.18637/jss.v080.i01)
+    (Journal of Statistical Software)
 -   [Advanced multilevel modeling with
     brms](https://journal.r-project.org/archive/2018/RJ-2018-017/index.html)
     (The R Journal)
@@ -66,20 +64,20 @@ intercept is incorporated to account for the resulting dependency in the
 data.
 
 ``` r
-fit1 <- brm(count ~ zAge + zBase * Trt + (1|patient), 
+fit1 <- brm(count ~ zAge + zBase * Trt + (1|patient),
             data = epilepsy, family = poisson())
 ```
 
 The results (i.e., posterior draws) can be investigated using
 
 ``` r
-summary(fit1) 
+summary(fit1)
 #>  Family: poisson 
 #>   Links: mu = log 
 #> Formula: count ~ zAge + zBase * Trt + (1 | patient) 
 #>    Data: epilepsy (Number of observations: 236) 
-#> Samples: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;
-#>          total post-warmup samples = 4000
+#>   Draws: 4 chains, each with iter = 2000; warmup = 1000; thin = 1;
+#>          total post-warmup draws = 4000
 #> 
 #> Group-Level Effects: 
 #> ~patient (Number of levels: 59) 
@@ -94,7 +92,7 @@ summary(fit1)
 #> Trt1          -0.27      0.17    -0.59     0.06 1.00      661     1046
 #> zBase:Trt1     0.05      0.16    -0.26     0.37 1.00      993     1624
 #> 
-#> Samples were drawn using sampling(NUTS). For each parameter, Bulk_ESS
+#> Draws were sampled using sampling(NUTS). For each parameter, Bulk_ESS
 #> and Tail_ESS are effective sample size measures, and Rhat is the potential
 #> scale reduction factor on split chains (at convergence, Rhat = 1).
 ```
@@ -131,7 +129,7 @@ distributions, we can use the `plot` method. If we just want to see
 results of the regression coefficients of `Trt` and `zBase`, we go for
 
 ``` r
-plot(fit1, variable = c("b_Trt1", "b_zBase")) 
+plot(fit1, variable = c("b_Trt1", "b_zBase"))
 ```
 
 <img src="man/figures/README-plot-1.png" width="60%" style="display: block; margin: auto;" />
@@ -185,7 +183,7 @@ distribution. For this purpose, we include a second group-level
 intercept that captures possible overdispersion.
 
 ``` r
-fit2 <- brm(count ~ zAge + zBase * Trt + (1|patient) + (1|obs), 
+fit2 <- brm(count ~ zAge + zBase * Trt + (1|patient) + (1|obs),
             data = epilepsy, family = poisson())
 ```
 

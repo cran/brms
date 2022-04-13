@@ -1,46 +1,46 @@
 #' Stan Code for \pkg{brms} Models
-#' 
+#'
 #' Generate Stan code for \pkg{brms} models
-#' 
+#'
 #' @inheritParams brm
 #' @param ... Other arguments for internal usage only.
-#' 
-#' @return A character string containing the fully commented \pkg{Stan} code 
+#'
+#' @return A character string containing the fully commented \pkg{Stan} code
 #'   to fit a \pkg{brms} model.
-#'  
-#' @examples 
-#' make_stancode(rating ~ treat + period + carry + (1|subject), 
+#'
+#' @examples
+#' make_stancode(rating ~ treat + period + carry + (1|subject),
 #'               data = inhaler, family = "cumulative")
-#' 
+#'
 #' make_stancode(count ~ zAge + zBase * Trt + (1|patient),
 #'               data = epilepsy, family = "poisson")
 #'
 #' @export
-make_stancode <- function(formula, data, family = gaussian(), 
+make_stancode <- function(formula, data, family = gaussian(),
                           prior = NULL, autocor = NULL, data2 = NULL,
-                          cov_ranef = NULL, sparse = NULL, 
-                          sample_prior = "no", stanvars = NULL, 
-                          stan_funs = NULL, knots = NULL, 
-                          threads = NULL, 
+                          cov_ranef = NULL, sparse = NULL,
+                          sample_prior = "no", stanvars = NULL,
+                          stan_funs = NULL, knots = NULL,
+                          threads = getOption("brms.threads", NULL),
                           normalize = getOption("brms.normalize", TRUE),
                           save_model = NULL, ...) {
-  
+
   if (is.brmsfit(formula)) {
     stop2("Use 'stancode' to extract Stan code from 'brmsfit' objects.")
   }
   formula <- validate_formula(
-    formula, data = data, family = family, 
+    formula, data = data, family = family,
     autocor = autocor, sparse = sparse,
     cov_ranef = cov_ranef
   )
   bterms <- brmsterms(formula)
   data2 <- validate_data2(
-    data2, bterms = bterms, 
+    data2, bterms = bterms,
     get_data2_autocor(formula),
     get_data2_cov_ranef(formula)
   )
   data <- validate_data(
-    data, bterms = bterms, 
+    data, bterms = bterms,
     data2 = data2, knots = knots
   )
   prior <- .validate_prior(
@@ -49,23 +49,23 @@ make_stancode <- function(formula, data, family = gaussian(),
   )
   stanvars <- validate_stanvars(stanvars, stan_funs = stan_funs)
   threads <- validate_threads(threads)
-  
+
  .make_stancode(
-   bterms, data = data, prior = prior, 
+   bterms, data = data, prior = prior,
    stanvars = stanvars, threads = threads,
    normalize = normalize, save_model = save_model,
    ...
- ) 
+ )
 }
 
 # internal work function of 'make_stancode'
 # @param parse parse the Stan model for automatic syntax checking
 # @param backend name of the backend used for parsing
 # @param silent silence parsing messages
-.make_stancode <- function(bterms, data, prior, stanvars, 
-                           threads = threading(), 
+.make_stancode <- function(bterms, data, prior, stanvars,
+                           threads = threading(),
                            normalize = getOption("brms.normalize", TRUE),
-                           parse = getOption("brms.parse_stancode", FALSE), 
+                           parse = getOption("brms.parse_stancode", FALSE),
                            backend = getOption("brms.backend", "rstan"),
                            silent = TRUE, save_model = NULL, ...) {
   normalize <- as_one_logical(normalize)
@@ -88,7 +88,7 @@ make_stancode <- function(formula, data, family = gaussian(),
   scode_global_defs <- stan_global_defs(
     bterms, prior = prior, ranef = ranef, threads = threads
   )
-  
+
   # extend Stan's likelihood part
   if (use_threading(threads)) {
     # threading is activated
@@ -119,11 +119,11 @@ make_stancode <- function(formula, data, family = gaussian(),
       partial_log_lik <- gsub(" target \\+=", " ptarget +=", partial_log_lik)
       partial_log_lik <- paste0(
         "// compute partial sums of the log-likelihood\n",
-        "real partial_log_lik_lpmf", resp, "(int[] seq", resp, 
+        "real partial_log_lik", resp, "_lpmf(int[] seq", resp,
         ", int start, int end", pll_args$typed, ") {\n",
         "  real ptarget = 0;\n",
         "  int N = end - start + 1;\n",
-        partial_log_lik, 
+        partial_log_lik,
         "  return ptarget;\n",
         "}\n"
       )
@@ -131,7 +131,7 @@ make_stancode <- function(formula, data, family = gaussian(),
       scode_predictor[[i]][["partial_log_lik"]] <- partial_log_lik
       static <- str_if(threads$static, "_static")
       scode_predictor[[i]][["model_lik"]] <- paste0(
-        "  target += reduce_sum", static, "(partial_log_lik_lpmf", resp, 
+        "  target += reduce_sum", static, "(partial_log_lik", resp, "_lpmf",
         ", seq", resp, ", grainsize", pll_args$plain, ");\n"
       )
       str_add(scode_predictor[[i]][["tdata_def"]]) <- glue(
@@ -145,8 +145,8 @@ make_stancode <- function(formula, data, family = gaussian(),
       scode_predictor[["model_no_pll_comp_mvjoin"]],
       scode_predictor[["model_lik"]]
     )
-    str_add(scode_predictor[["data"]]) <- 
-      "  int grainsize;  // grainsize for threading\n" 
+    str_add(scode_predictor[["data"]]) <-
+      "  int grainsize;  // grainsize for threading\n"
   } else {
     # threading is not activated
     scode_predictor <- collapse_lists(ls = scode_predictor)
@@ -169,17 +169,16 @@ make_stancode <- function(formula, data, family = gaussian(),
       collapse_stanvars(stanvars, "likelihood", "end")
     )
   }
-  scode_predictor[["model_lik"]] <- 
+  scode_predictor[["model_lik"]] <-
     wsp_per_line(scode_predictor[["model_lik"]], 2)
-    
-  # get priors for all parameters in the model
-  scode_prior <- paste0(
-    scode_predictor[["prior"]],
-    scode_ranef[["prior"]],
-    scode_Xme[["prior"]],
-    stan_unchecked_prior(prior)
+
+  # get all priors added to 'lprior'
+  scode_tpar_prior <- paste0(
+    scode_predictor[["tpar_prior"]],
+    scode_ranef[["tpar_prior"]],
+    scode_Xme[["tpar_prior"]]
   )
-  
+
   # generate functions block
   scode_functions <- paste0(
     "// generated with brms ", utils::packageVersion("brms"), "\n",
@@ -189,7 +188,7 @@ make_stancode <- function(formula, data, family = gaussian(),
       scode_predictor[["partial_log_lik"]],
     "}\n"
   )
-  
+
   # generate data block
   scode_data <- paste0(
     "data {\n",
@@ -201,7 +200,7 @@ make_stancode <- function(formula, data, family = gaussian(),
     collapse_stanvars(stanvars, "data"),
     "}\n"
   )
-  
+
   # generate transformed parameters block
   scode_transformed_data <- paste0(
     "transformed data {\n",
@@ -212,7 +211,7 @@ make_stancode <- function(formula, data, family = gaussian(),
        collapse_stanvars(stanvars, "tdata", "end"),
     "}\n"
   )
-  
+
   # generate parameters block
   scode_parameters <- paste0(
     scode_predictor[["par"]],
@@ -221,7 +220,7 @@ make_stancode <- function(formula, data, family = gaussian(),
   )
   # prepare additional sampling from priors
   scode_rngprior <- stan_rngprior(
-    prior = scode_prior,
+    tpar_prior = scode_tpar_prior,
     par_declars = scode_parameters,
     gen_quantities = scode_predictor[["gen_def"]],
     prior_special = attr(prior, "special"),
@@ -234,36 +233,47 @@ make_stancode <- function(formula, data, family = gaussian(),
       collapse_stanvars(stanvars, "parameters"),
     "}\n"
   )
-  
+
   # generate transformed parameters block
+  scode_lprior_def <- "  real lprior = 0;  // prior contributions to the log posterior\n"
   scode_transformed_parameters <- paste0(
     "transformed parameters {\n",
       scode_predictor[["tpar_def"]],
       scode_ranef[["tpar_def"]],
       scode_Xme[["tpar_def"]],
+      str_if(normalize, scode_lprior_def),
       collapse_stanvars(stanvars, "tparameters", "start"),
-      scode_predictor[["tpar_prior"]],
-      scode_ranef[["tpar_prior"]],
-      scode_Xme[["tpar_prior"]],
+      scode_predictor[["tpar_prior_const"]],
+      scode_ranef[["tpar_prior_const"]],
+      scode_Xme[["tpar_prior_const"]],
       scode_predictor[["tpar_comp"]],
       scode_predictor[["tpar_reg_prior"]],
       scode_ranef[["tpar_comp"]],
       scode_Xme[["tpar_comp"]],
+      # lprior cannot contain _lupdf functions in transformed parameters
+      # as discussed on github.com/stan-dev/stan/issues/3094
+      str_if(normalize, scode_tpar_prior),
       collapse_stanvars(stanvars, "tparameters", "end"),
     "}\n"
   )
-  
+
   # combine likelihood with prior part
   not_const <- str_if(!normalize, " not")
   scode_model <- paste0(
     "model {\n",
+      str_if(!normalize, scode_lprior_def),
       collapse_stanvars(stanvars, "model", "start"),
       "  // likelihood", not_const, " including constants\n",
       "  if (!prior_only) {\n",
       scode_predictor[["model_lik"]],
-      "  }\n", 
+      "  }\n",
       "  // priors", not_const, " including constants\n",
-      scode_prior, 
+      str_if(!normalize, scode_tpar_prior),
+      "  target += lprior;\n",
+      scode_predictor[["model_prior"]],
+      scode_ranef[["model_prior"]],
+      scode_Xme[["model_prior"]],
+      stan_unchecked_prior(prior),
       collapse_stanvars(stanvars, "model", "end"),
     "}\n"
   )
@@ -285,17 +295,24 @@ make_stancode <- function(formula, data, family = gaussian(),
   # combine all elements into a complete Stan model
   scode <- paste0(
     scode_functions,
-    scode_data, 
-    scode_transformed_data, 
+    scode_data,
+    scode_transformed_data,
     scode_parameters,
     scode_transformed_parameters,
     scode_model,
     scode_generated_quantities
   )
-  
+
   scode <- expand_include_statements(scode)
   if (parse) {
     scode <- parse_model(scode, backend, silent = silent)
+  }
+  if (backend == "cmdstanr") {
+    if (requireNamespace("cmdstanr", quietly = TRUE) && 
+        cmdstanr::cmdstan_version() >= "2.29.0") {
+      tmp_file <- cmdstanr::write_stan_file(scode)
+      scode <- .canonicalize_stan_model(tmp_file, overwrite_file = FALSE)
+    }
   }
   if (is.character(save_model)) {
     cat(scode, file = save_model)
@@ -307,15 +324,15 @@ make_stancode <- function(formula, data, family = gaussian(),
 #' @export
 print.brmsmodel <- function(x, ...) {
   cat(x)
-  invisible(x) 
+  invisible(x)
 }
 
 #' Extract Stan model code
-#' 
+#'
 #' Extract Stan code that was used to specify the model.
-#' 
+#'
 #' @aliases stancode.brmsfit
-#' 
+#'
 #' @param object An object of class \code{brmsfit}.
 #' @param version Logical; indicates if the first line containing
 #'   the \pkg{brms} version number should be included.
@@ -326,14 +343,15 @@ print.brmsmodel <- function(x, ...) {
 #'   to be \code{TRUE} by other arguments.
 #' @param threads Controls whether the Stan code should be threaded.
 #'   See \code{\link{threading}} for details.
+#' @param backend Controls the Stan backend. See \code{\link{brm}} for details.
 #' @param ... Further arguments passed to \code{\link{make_stancode}} if the
 #'   Stan code is regenerated.
-#' 
+#'
 #' @return Stan model code for further processing.
-#' 
+#'
 #' @export
-stancode.brmsfit <- function(object, version = TRUE, regenerate = NULL, 
-                             threads = NULL, ...) {
+stancode.brmsfit <- function(object, version = TRUE, regenerate = NULL,
+                             threads = NULL, backend = NULL, ...) {
   if (is.null(regenerate)) {
     # determine whether regenerating the Stan code is required
     regenerate <- FALSE
@@ -347,6 +365,14 @@ stancode.brmsfit <- function(object, version = TRUE, regenerate = NULL,
       }
       object$threads <- threads
     }
+    if ("backend" %in% names(cl)) {
+      backend <- match.arg(backend, backend_choices())
+      # older Stan versions do not support array syntax
+      if (require_old_stan_syntax(object, backend, "2.29.0")) {
+        regenerate <- TRUE
+      }
+      object$backend <- backend
+    }
   }
   regenerate <- as_one_logical(regenerate)
   if (regenerate) {
@@ -359,6 +385,7 @@ stancode.brmsfit <- function(object, version = TRUE, regenerate = NULL,
       stanvars = object$stanvars,
       sample_prior = get_sample_prior(object$prior),
       threads = object$threads,
+      backend = object$backend,
       ...
     )
   } else {
@@ -366,7 +393,7 @@ stancode.brmsfit <- function(object, version = TRUE, regenerate = NULL,
     out <- object$model
   }
   if (!version) {
-    out <- sub("^[^\n]+[[:digit:]]\\.[^\n]+\n", "", out) 
+    out <- sub("^[^\n]+[[:digit:]]\\.[^\n]+\n", "", out)
   }
   out
 }
@@ -417,4 +444,16 @@ normalize_stancode <- function(x) {
   # Standardize whitespace (including newlines)
   x <- gsub("[[:space:]]+"," ", x)
   trimws(x)
+}
+
+# check if the currently installed Stan version requires older syntax 
+# than the Stan version with which the model was initially fitted
+require_old_stan_syntax <- function(object, backend, version) {
+  stopifnot(is.brmsfit(object))
+  isTRUE(
+    (object$backend == "rstan" && object$version$rstan >= version ||
+       object$backend == "cmdstanr" && object$version$cmdstan >= version) &&
+      (backend == "rstan" && utils::packageVersion("rstan") < version ||
+         backend == "cmdstanr" && cmdstanr::cmdstan_version() < version)
+  )
 }

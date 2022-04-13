@@ -1,5 +1,5 @@
 #' Projection Predictive Variable Selection: Get Reference Model
-#' 
+#'
 #' The \code{get_refmodel.brmsfit} method can be used to create the reference
 #' model structure which is needed by the \pkg{projpred} package for performing
 #' a projection predictive variable selection. This method is called
@@ -7,53 +7,65 @@
 #' \code{\link[projpred:varsel]{varsel}} or
 #' \code{\link[projpred:cv_varsel]{cv_varsel}}, so you will rarely need to call
 #' it manually yourself.
-#' 
+#'
 #' @inheritParams posterior_predict.brmsfit
 #' @param cvfun Optional cross-validation function
-#' (see \code{\link[projpred:get-refmodel]{get_refmodel}} for details).
+#' (see \code{\link[projpred:get_refmodel]{get_refmodel}} for details).
 #' If \code{NULL} (the default), \code{cvfun} is defined internally
 #' based on \code{\link{kfold.brmsfit}}.
-#' @param ... Further arguments passed to 
-#' \code{\link[projpred:get-refmodel]{init_refmodel}}.
-#' 
+#' @param brms_seed A seed used to infer seeds for \code{\link{kfold.brmsfit}}
+#'   and for sampling group-level effects for new levels (in multilevel models).
+#' @param ... Further arguments passed to
+#' \code{\link[projpred:init_refmodel]{init_refmodel}}.
+#'
 #' @details Note that the \code{extract_model_data} function used internally by
 #'   \code{get_refmodel.brmsfit} ignores arguments \code{wrhs}, \code{orhs}, and
 #'   \code{extract_y}. This is relevant for
 #'   \code{\link[projpred:predict.refmodel]{predict.refmodel}}, for example.
-#' 
+#'
 #' @return A \code{refmodel} object to be used in conjunction with the
 #'   \pkg{projpred} package.
-#' 
-#' @examples 
+#'
+#' @examples
 #' \dontrun{
 #' # fit a simple model
 #' fit <- brm(count ~ zAge + zBase * Trt,
 #'            data = epilepsy, family = poisson())
 #' summary(fit)
-#' 
+#'
 #' # The following code requires the 'projpred' package to be installed:
 #' library(projpred)
-#' 
+#'
 #' # perform variable selection without cross-validation
 #' vs <- varsel(fit)
 #' summary(vs)
 #' plot(vs)
-#' 
+#'
 #' # perform variable selection with cross-validation
 #' cv_vs <- cv_varsel(fit)
 #' summary(cv_vs)
 #' plot(cv_vs)
 #' }
-get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL, 
-                                 cvfun = NULL, ...) {
+get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
+                                 cvfun = NULL, brms_seed = NULL, ...) {
   require_package("projpred")
-  dots <- list(...)
   resp <- validate_resp(resp, object, multiple = FALSE)
   formula <- formula(object)
   if (!is.null(resp)) {
     formula <- formula$forms[[resp]]
   }
-  
+
+  # Infer "sub-seeds":
+  if (exists(".Random.seed", envir = .GlobalEnv)) {
+    rng_state_old <- get(".Random.seed", envir = .GlobalEnv)
+    on.exit(assign(".Random.seed", rng_state_old, envir = .GlobalEnv))
+  }
+  if (!is.null(brms_seed)) {
+    set.seed(brms_seed)
+  }
+  kfold_seed <- sample.int(.Machine$integer.max, 1)
+  refprd_seed <- sample.int(.Machine$integer.max, 1)
+
   # prepare the family object for use in projpred
   family <- family(object, resp = resp)
   if (family$family == "bernoulli") {
@@ -64,16 +76,11 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   # For the augmented-data approach, do not re-define ordinal or categorical
   # families to preserve their family-specific extra arguments ("extra" meaning
   # "additionally to `link`") like `refcat` and `thresholds` (see ?brmsfamily):
-  if (!(isTRUE(dots$aug_data) && is_polytomous(family))) {
+  aug_data <- is_categorical(family) || is_ordinal(family)
+  if (!aug_data) {
     family <- get(family$family, mode = "function")(link = family$link)
-  } else {
-    # TODO: uncomment the lines below as soon as the
-    # `extend_family_<family_name>` exist (in brms):
-    # family <- get(paste0("extend_family_", family$family, mode = "function"))(
-    #   family
-    # )
   }
-  
+
   # check if the model is supported by projpred
   bterms <- brmsterms(formula)
   if (length(bterms$dpars) > 1L && !conv_cats_dpars(family$family)) {
@@ -86,12 +93,12 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   if (any(not_ok_term_types %in% names(bterms$dpars$mu))) {
     stop2("Projpred only supports standard multilevel terms and offsets.")
   }
-  
+
   # only use the raw formula for selection of terms
   formula <- formula$formula
   # LHS should only contain the response variable
   formula[[2]] <- bterms$respform[[2]]
-  
+
   # projpred requires the dispersion parameter if present
   dis <- NULL
   if (family$family == "gaussian") {
@@ -101,102 +108,145 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
     dis <- paste0("shape", usc(resp))
     dis <- as.data.frame(object, variable = dis)[[dis]]
   }
-  
-  # prepare data passed to projpred
-  data <- current_data(object, newdata, resp = resp, check_response = TRUE)
-  attr(data, "terms") <- NULL
-  
+
   # allows to handle additional arguments implicitly
   extract_model_data <- function(object, newdata = NULL, ...) {
     .extract_model_data(object, newdata = newdata, resp = resp, ...)
   }
-  
-  # Using the default prediction function from projpred is usually fine
-  ref_predfun <- NULL
-  if (isTRUE(dots$aug_data) && is_ordinal(family$family)) {
-    stop2("This case is not yet supported.")
-    # Use argument `incl_thres` of posterior_linpred() (and convert the
-    # 3-dimensional array to an "augmented-rows" matrix)
-    # TODO: uncomment the lines below as soon as arr2augmat() is exported
-    # ref_predfun <- function(fit, newdata = NULL) {
-    #   # Note: `transform = FALSE` is not needed, but included here for
-    #   # consistency with projpred's default ref_predfun():
-    #   linpred_out <- posterior_linpred(
-    #     fit, transform = FALSE, newdata = newdata, incl_thres = TRUE
-    #   )
-    #   stopifnot(length(dim(linpred_out)) == 3L)
-    #   # Since posterior_linpred() is supposed to include the offsets in its
-    #   # result, subtract them here:
-    #   # Observation weights are not needed here, so use `wrhs = NULL` to avoid
-    #   # potential conflicts for a non-`NULL` default `wrhs`:
-    #   offs <- extract_model_data(fit, newdata = newdata, wrhs = NULL)$offset
-    #   if (length(offs)) {
-    #     stopifnot(length(offs) %in% c(1L, dim(linpred_out)[2]))
-    #     linpred_out <- sweep(linpred_out, 2, offs)
-    #   }
-    #   linpred_out <- projpred:::arr2augmat(linpred_out, margin_draws = 1)
-    #   return(linpred_out)
-    # }
+
+  # The default `ref_predfun` from projpred does not set `allow_new_levels`, so
+  # use a customized `ref_predfun` which also handles some preparations for the
+  # augmented-data projection:
+  ref_predfun <- function(fit, newdata = NULL) {
+    # Setting a seed is necessary for reproducible sampling of group-level
+    # effects for new levels:
+    if (exists(".Random.seed", envir = .GlobalEnv)) {
+      rng_state_old <- get(".Random.seed", envir = .GlobalEnv)
+      on.exit(assign(".Random.seed", rng_state_old, envir = .GlobalEnv))
+    }
+    set.seed(refprd_seed)
+    lprd_args <- nlist(
+      object = fit, newdata, resp, allow_new_levels = TRUE,
+      sample_new_levels = "gaussian"
+    )
+    if (is_ordinal(family)) {
+      c(lprd_args) <- list(incl_thres = TRUE)
+    }
+    out <- do_call(posterior_linpred, lprd_args)
+    if (length(dim(out)) == 2) {
+      out <- t(out)
+    }
+    out
   }
-  
+
+  if (utils::packageVersion("projpred") <= "2.0.2" && NROW(object$ranef)) {
+    warning2("Under projpred version <= 2.0.2, projpred's K-fold CV results ",
+             "may not be reproducible for multilevel brms reference models.")
+  }
+
   # extract a list of K-fold sub-models
   if (is.null(cvfun)) {
     cvfun <- function(folds, ...) {
-      cvres <- kfold(
-        object, K = max(folds),
-        save_fits = TRUE, folds = folds,
-        ...
-      )
-      fits <- cvres$fits[, "fit"]
-      return(fits)
+      kfold(
+        object, K = max(folds), save_fits = TRUE, folds = folds,
+        seed = kfold_seed, ...
+      )$fits[, "fit"]
     }
   } else {
     if (!is.function(cvfun)) {
       stop2("'cvfun' should be a function.")
     }
   }
-  
-  args <- nlist(
-    object, data, formula, family, dis, ref_predfun = ref_predfun,
-    cvfun = cvfun, extract_model_data = extract_model_data, ...
+
+  cvrefbuilder <- function(cvfit) {
+    # For `brms_seed` in fold `cvfit$projpred_k` (= k) of K, choose a new seed
+    # which is based on the original `brms_seed`:
+    if (is.null(brms_seed)) {
+      brms_seed_k <- NULL
+    } else {
+      brms_seed_k <- brms_seed + cvfit$projpred_k
+    }
+    projpred::get_refmodel(cvfit, resp = resp, brms_seed = brms_seed_k, ...)
+  }
+
+  # prepare data passed to projpred
+  data <- current_data(
+    object, newdata, resp = resp, check_response = TRUE,
+    allow_new_levels = TRUE
   )
+  attr(data, "terms") <- NULL
+  args <- nlist(
+    object, data, formula, family, dis, ref_predfun,
+    cvfun, extract_model_data, cvrefbuilder, ...
+  )
+  if (aug_data) {
+    c(args) <- list(
+      augdat_link = get(paste0("link_", family$family), mode = "function"),
+      augdat_ilink = get(paste0("inv_link_", family$family), mode = "function")
+    )
+    if (is_ordinal(family)) {
+      c(args) <- list(
+        augdat_args_link = list(link = family$link),
+        augdat_args_ilink = list(link = family$link)
+      )
+    }
+  }
   do_call(projpred::init_refmodel, args)
 }
 
 # auxiliary data required in predictions via projpred
-# @return a named list with slots 'weights' and 'offset'
+# @return a named list with slots 'y', 'weights', and 'offset'
 .extract_model_data <- function(object, newdata = NULL, resp = NULL, ...) {
   stopifnot(is.brmsfit(object))
   resp <- validate_resp(resp, object, multiple = FALSE)
-  family <- family(object, resp = resp)
-  
+
+  # extract the response variable manually instead of from make_standata
+  # so that it passes input checks of validate_newdata later on (#1314)
+  formula <- formula(object)
+  if (!is.null(resp)) {
+    formula <- formula$forms[[resp]]
+  }
+  respform <- brmsterms(formula)$respform
+  data <- current_data(
+    object, newdata, resp = resp, check_response = TRUE,
+    allow_new_levels = TRUE
+  )
+  y <- unname(model.response(model.frame(respform, data, na.action = na.pass)))
+  aug_data <- is_categorical(formula) || is_ordinal(formula)
+  if (aug_data) {
+    y_lvls <- levels(as.factor(y))
+    if (!is_equal(y_lvls, get_cats(formula))) {
+      stop2("The augmented data approach requires all response categories to ",
+            "be present in the data passed to projpred.")
+    }
+  }
+
+  # extract relevant auxiliary data
   # call standata to ensure the correct format of the data
   args <- nlist(
     object, newdata, resp,
-    check_response = TRUE, 
+    allow_new_levels = TRUE,
+    check_response = TRUE,
     internal = TRUE
   )
   sdata <- do_call(standata, args)
-  
-  # extract relevant auxiliary data
+
   usc_resp <- usc(resp)
-  y <- as.vector(sdata[[paste0("Y", usc_resp)]])
-  offset <- as.vector(sdata[[paste0("offsets", usc_resp)]])
   weights <- as.vector(sdata[[paste0("weights", usc_resp)]])
   trials <- as.vector(sdata[[paste0("trials", usc_resp)]])
-  stopifnot(!is.null(y))
-  if (is_binary(family)) {
+  if (is_binary(formula)) {
     trials <- rep(1, length(y))
   }
   if (!is.null(trials)) {
     if (!is.null(weights)) {
-      stop2("Projpred cannot handle 'trials' and 'weights' at the same time.") 
+      stop2("Projpred cannot handle 'trials' and 'weights' at the same time.")
     }
     weights <- trials
   }
   if (is.null(weights)) {
     weights <- rep(1, length(y))
   }
+  offset <- as.vector(sdata[[paste0("offsets", usc_resp)]])
   if (is.null(offset)) {
     offset <- rep(0, length(y))
   }

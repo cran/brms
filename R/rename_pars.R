@@ -1,31 +1,31 @@
 #' Rename Parameters
-#' 
+#'
 #' Rename parameters within the \code{stanfit} object after model fitting to
 #' ensure reasonable parameter names. This function is usually called
 #' automatically by \code{\link{brm}} and users will rarely be required to call
 #' it themselves.
-#' 
+#'
 #' @param x A brmsfit object.
 #' @return A brmfit object with adjusted parameter names.
-#' 
+#'
 #' @examples
 #' \dontrun{
 #' # fit a model manually via rstan
 #' scode <- make_stancode(count ~ Trt, data = epilepsy)
 #' sdata <- make_standata(count ~ Trt, data = epilepsy)
 #' stanfit <- rstan::stan(model_code = scode, data = sdata)
-#' 
+#'
 #' # feed the Stan model back into brms
 #' fit <- brm(count ~ Trt, data = epilepsy, empty = TRUE)
 #' fit$fit <- stanfit
 #' fit <- rename_pars(fit)
 #' summary(fit)
 #' }
-#' 
+#'
 #' @export
 rename_pars <- function(x) {
   if (!length(x$fit@sim)) {
-    return(x) 
+    return(x)
   }
   bterms <- brmsterms(x$formula)
   data <- model.frame(x)
@@ -84,6 +84,7 @@ change_effects.brmsterms <- function(x, ...) {
   if (is.formula(x$adforms$mi)) {
     c(out) <- change_Ymi(x, ...)
   }
+  c(out) <- change_family_cor_pars(x, ...)
   out
 }
 
@@ -212,7 +213,7 @@ change_Xme <- function(meef, pars) {
         } else {
           indices <- seq_len(sum(pos))
         }
-        fnames <- paste0(Xme_new, "[", indices, "]") 
+        fnames <- paste0(Xme_new, "[", indices, "]")
         lc(out) <- clist(pos, fnames)
       }
     }
@@ -271,7 +272,7 @@ change_gp <- function(bterms, data, pars) {
     lscale_names <- paste0(lscale, "_", sfx2)
     lc(out) <- clist(lscale_pos, lscale_names)
     c(out) <- change_prior(lscale_old, pars, names = sfx2, new_class = lscale)
-    
+
     zgp <- paste0("zgp", p)
     zgp_old <- paste0(zgp, "_", i)
     if (length(sfx1) > 1L) {
@@ -346,7 +347,7 @@ change_re <- function(ranef, pars) {
       sd_pos <- grepl(paste0("^sd_", id, "(\\[|$)"), pars)
       lc(out) <- clist(sd_pos, sd_names)
       c(out) <- change_prior(
-        paste0("sd_", id), pars, new_class = paste0("sd_", g), 
+        paste0("sd_", id), pars, new_class = paste0("sd_", g),
         names = paste0("_", as.vector(rnames))
       )
       # rename group-level correlations
@@ -382,7 +383,7 @@ change_re <- function(ranef, pars) {
     }
   }
   out
-} 
+}
 
 # helps in renaming varying effects parameters per level
 # @param ranef: data.frame returned by 'tidy_ranef'
@@ -399,6 +400,20 @@ change_re_levels <- function(ranef, pars)  {
     index_names <- make_index_names(levels, r$coef, dim = 2)
     fnames <- paste0(r_new_parname, index_names)
     lc(out) <- clist(grepl(r_regex, pars), fnames)
+  }
+  out
+}
+
+# helps to rename correlation parameters of likelihoods
+change_family_cor_pars <- function(x, pars, ...) {
+  stopifnot(is.brmsterms(x))
+  out <- list()
+  if (is_logistic_normal(x$family)) {
+    predcats <- get_predcats(x$family)
+    lncor_names <- get_cornames(
+      predcats, type = "lncor", brackets = FALSE
+    )
+    lc(out) <- clist(grepl("^lncor\\[", pars), lncor_names)
   }
   out
 }
@@ -427,12 +442,13 @@ change_special_prior_local <- function(bterms, coef, pars) {
 change_prior <- function(class, pars, names = NULL, new_class = class,
                          is_vector = FALSE) {
   out <- list()
-  regex <- paste0("^prior_", class, "(_[[:digit:]]+|$|\\[)")
+  # 'stan_rngprior' adds '__' before the digits to disambiguate
+  regex <- paste0("^prior_", class, "(__[[:digit:]]+|$|\\[)")
   pos_priors <- which(grepl(regex, pars))
   if (length(pos_priors)) {
     priors <- gsub(
-      paste0("^prior_", class), 
-      paste0("prior_", new_class), 
+      paste0("^prior_", class),
+      paste0("prior_", new_class),
       pars[pos_priors]
     )
     if (is_vector) {
@@ -445,12 +461,12 @@ change_prior <- function(class, pars, names = NULL, new_class = class,
       lc(out) <- clist(pos_priors, priors)
     } else {
       digits <- sapply(priors, function(prior) {
-        d <- regmatches(prior, gregexpr("_[[:digit:]]+$", prior))[[1]]
-        if (length(d)) as.numeric(substr(d, 2, nchar(d))) else 0
+        d <- regmatches(prior, gregexpr("__[[:digit:]]+$", prior))[[1]]
+        if (length(d)) as.numeric(substr(d, 3, nchar(d))) else 0
       })
       for (i in seq_along(priors)) {
         if (digits[i] && !is.null(names)) {
-          priors[i] <- gsub("[[:digit:]]+$", names[digits[i]], priors[i])
+          priors[i] <- gsub("_[[:digit:]]+$", names[digits[i]], priors[i])
         }
         if (pars[pos_priors[i]] != priors[i]) {
           lc(out) <- clist(pos_priors[i], priors[i])
@@ -472,7 +488,7 @@ is.clist <- function(x) {
 
 # compute index names in square brackets for indexing stan parameters
 # @param rownames a vector of row names
-# @param colnames a vector of columns 
+# @param colnames a vector of columns
 # @param dim the number of output dimensions
 # @return all index pairs of rows and cols
 make_index_names <- function(rownames, colnames = NULL, dim = 1) {
@@ -507,13 +523,13 @@ do_renaming <- function(x, change) {
     for (i in seq_len(chains)) {
       names(x$fit@sim$samples[[i]])[change$pos] <- change$fnames
       if (!is.null(change$sort)) {
-        x$fit@sim$samples[[i]][change$pos] <- 
+        x$fit@sim$samples[[i]][change$pos] <-
           x$fit@sim$samples[[i]][change$pos][change$sort]
       }
     }
     return(x)
   }
-  chains <- length(x$fit@sim$samples) 
+  chains <- length(x$fit@sim$samples)
   # temporary fix for issue #387 until fixed in rstan
   for (i in seq_len(chains)) {
     x$fit@sim$samples[[i]]$lp__.1 <- NULL
@@ -528,12 +544,12 @@ do_renaming <- function(x, change) {
 # @param x brmsfit object
 reorder_pars <- function(x) {
   all_classes <- unique(c(
-    "b", "bs", "bsp", "bcs", "ar", "ma", "lagsar", "errorsar", 
-    "car", "sdcar", "cosy", "sd", "cor", "df", "sds", "sdgp", 
-    "lscale", valid_dpars(x), "Intercept", "tmp", "rescor", 
-    "delta", "lasso", "simo", "r", "s", "zgp", "rcar", "sbhaz", 
-    "R2D2", "Ymi", "Yl", "meanme", "sdme", "corme", "Xme", "prior", 
-    "lp"
+    "b", "bs", "bsp", "bcs", "ar", "ma", "sderr", "lagsar", "errorsar",
+    "car", "rhocar", "sdcar", "cosy", "sd", "cor", "df", "sds", "sdgp",
+    "lscale", valid_dpars(x), "lncor", "Intercept", "tmp", "rescor",
+    "delta", "lasso", "simo", "r", "s", "zgp", "rcar", "sbhaz",
+    "R2D2", "Ymi", "Yl", "meanme", "sdme", "corme", "Xme", "prior",
+    "lprior", "lp"
   ))
   # reorder parameter classes
   class <- get_matches("^[^_]+", x$fit@sim$pars_oi)
@@ -556,13 +572,13 @@ reorder_pars <- function(x) {
   chains <- length(x$fit@sim$samples)
   for (i in seq_len(chains)) {
     # attributes of samples must be kept
-    x$fit@sim$samples[[i]] <- 
+    x$fit@sim$samples[[i]] <-
       subset_keep_attr(x$fit@sim$samples[[i]], new_order)
   }
   x
 }
 
-# wrapper function to compute and store quantities in the stanfit 
+# wrapper function to compute and store quantities in the stanfit
 # object which were not computed / stored by Stan itself
 # @param x a brmsfit object
 # @return a brmsfit object
