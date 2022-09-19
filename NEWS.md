@@ -1,3 +1,36 @@
+# brms 2.18.0
+
+### New Features
+
+* Support regression splines with fixed degrees of freedom 
+specified via `s(..., fx = TRUE)`.
+* Reuse user-specified control arguments originally passed 
+to the Stan backend in `update` and related methods. (#1373, #1378)
+* Allow to retain unused factors levels via `drop_unused_levels = FALSE` 
+in `brm` and related functions. (#1346)
+* Automatically update old default priors based on new input when 
+when updating models via `update.brmsfit`. (#1380)
+* Allow to use `dirichlet` priors for more parameter types. (#1165)
+
+### Other Changes
+
+* Improve efficiency of converting models fitted with `backend = "cmdstanr"`
+to `stanfit` objects thanks to Simon Mills and Jacob Socolar. (#1331)
+* Allow for more `O1` optimization of brms-generated Stan models
+thanks to Aki Vehtari. (#1382)
+
+### Bug Fixes
+
+* Fix problems with missing boundaries of `sdme` parameters in models
+with known response standard errors thanks to Solomon Kurz. (#1348)
+* Fix Stan code of `gamma` models with `softplus` link.
+* Allow for more flexible data inputs to `brm_multiple`. (#1383)
+* Ensure that `control_params` returns the right values for
+models fitted with the `cmdstanr` backend. (#1390)
+* Fix problems in multivariate spline models when using 
+the `subset` addition term. (#1385)
+
+
 # brms 2.17.0
 
 ### New Features

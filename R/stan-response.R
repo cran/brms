@@ -134,12 +134,12 @@ stan_response <- function(bterms, data, normalize) {
     )
   }
   if (is.formula(bterms$adforms$cens)) {
-    cens <- eval_rhs(bterms$adforms$cens)
     str_add(out$data) <- glue(
       "  int<lower=-1,upper=2> cens{resp}[N{resp}];  // indicates censoring\n"
     )
     str_add(out$pll_args) <- glue(", data int[] cens{resp}")
-    if (cens$vars$y2 != "NA") {
+    y2_expr <- get_ad_expr(bterms, "cens", "y2")
+    if (!is.null(y2_expr)) {
       # interval censoring is required
       if (rtype == "int") {
         str_add(out$data) <- glue(
@@ -413,16 +413,16 @@ stan_mixture <- function(bterms, data, prior, threads, normalize, ...) {
     missing_id <- setdiff(1:nmix, dpar_id(names(theta_pred)))
     str_add(out$model_def) <- glue(
       "  vector[N{p}] theta{missing_id}{p} = rep_vector(0.0, N{p});\n",
-      "  real log_sum_exp_theta;\n"
+      "  real log_sum_exp_theta{p};\n"
     )
     sum_exp_theta <- glue("exp(theta{1:nmix}{p}[n])", collapse = " + ")
     str_add(out$model_comp_mix) <- glue(
       "  for (n in 1:N{p}) {{\n",
       "    // scale theta to become a probability vector\n",
-      "    log_sum_exp_theta = log({sum_exp_theta});\n"
+      "    log_sum_exp_theta{p} = log({sum_exp_theta});\n"
     )
     str_add(out$model_comp_mix) <- cglue(
-      "    theta{1:nmix}{p}[n] = theta{1:nmix}{p}[n] - log_sum_exp_theta;\n"
+      "    theta{1:nmix}{p}[n] = theta{1:nmix}{p}[n] - log_sum_exp_theta{p};\n"
     )
     str_add(out$model_comp_mix) <- "  }\n"
   } else if (length(theta_fix)) {

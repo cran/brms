@@ -17,7 +17,7 @@ qstudent_t(p, df, mu = 0, sigma = 1)
 rstudent_t(n, df, mu = 0, sigma = 1)
 }
 \arguments{
-\item{x, q}{Vector of quantiles.}
+\item{x}{Vector of quantiles.}
 
 \item{df}{Vector of degrees of freedom.}
 
@@ -25,10 +25,14 @@ rstudent_t(n, df, mu = 0, sigma = 1)
 
 \item{sigma}{Vector of scale values.}
 
-\item{log, log.p}{Logical; If \code{TRUE}, values are returned on the log scale.}
+\item{log}{Logical; If \code{TRUE}, values are returned on the log scale.}
+
+\item{q}{Vector of quantiles.}
 
 \item{lower.tail}{Logical; If \code{TRUE} (default), return P(X <= x).
 Else, return P(X > x) .}
+
+\item{log.p}{Logical; If \code{TRUE}, values are returned on the log scale.}
 
 \item{p}{Vector of probabilities.}
 

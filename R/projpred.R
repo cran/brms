@@ -49,6 +49,7 @@
 get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
                                  cvfun = NULL, brms_seed = NULL, ...) {
   require_package("projpred")
+  object <- restructure(object)
   resp <- validate_resp(resp, object, multiple = FALSE)
   formula <- formula(object)
   if (!is.null(resp)) {
@@ -72,6 +73,8 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
     family$family <- "binomial"
   } else if (family$family == "gamma") {
     family$family <- "Gamma"
+  } else if (family$family == "beta") {
+    family$family <- "Beta"
   }
   # For the augmented-data approach, do not re-define ordinal or categorical
   # families to preserve their family-specific extra arguments ("extra" meaning
@@ -91,7 +94,8 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   }
   not_ok_term_types <- setdiff(all_term_types(), c("fe", "re", "offset", "sm"))
   if (any(not_ok_term_types %in% names(bterms$dpars$mu))) {
-    stop2("Projpred only supports standard multilevel terms and offsets.")
+    stop2("Projpred only supports standard multilevel and smoothing terms as ",
+          "well as offsets.")
   }
 
   # only use the raw formula for selection of terms
@@ -140,8 +144,8 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   }
 
   if (utils::packageVersion("projpred") <= "2.0.2" && NROW(object$ranef)) {
-    warning2("Under projpred version <= 2.0.2, projpred's K-fold CV results ",
-             "may not be reproducible for multilevel brms reference models.")
+    warning2("In projpred versions <= 2.0.2, projpred's K-fold CV results may ",
+             "not be reproducible for multilevel brms reference models.")
   }
 
   # extract a list of K-fold sub-models
@@ -212,14 +216,6 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
     allow_new_levels = TRUE
   )
   y <- unname(model.response(model.frame(respform, data, na.action = na.pass)))
-  aug_data <- is_categorical(formula) || is_ordinal(formula)
-  if (aug_data) {
-    y_lvls <- levels(as.factor(y))
-    if (!is_equal(y_lvls, get_cats(formula))) {
-      stop2("The augmented data approach requires all response categories to ",
-            "be present in the data passed to projpred.")
-    }
-  }
 
   # extract relevant auxiliary data
   # call standata to ensure the correct format of the data

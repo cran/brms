@@ -100,7 +100,7 @@ stan_predictor.brmsterms <- function(x, data, prior, normalize, ...) {
         dp_comment <- paste0(dp_comment, " (temporary)")
       }
       str_add_list(out) <- stan_prior(
-        prior, dp, prefix = prefix, suffix = resp, 
+        prior, dp, prefix = prefix, suffix = resp,
         header_type = "real", px = px,
         comment = dp_comment, normalize = normalize
       )
@@ -188,7 +188,7 @@ stan_predictor.mvbrmsterms <- function(x, prior, threads, normalize, ...) {
   )
   if (family == "student") {
     str_add_list(out) <- stan_prior(
-      prior, class = "nu", header_type = "real", 
+      prior, class = "nu", header_type = "real",
       normalize = normalize
     )
   }
@@ -328,7 +328,7 @@ stan_fe <- function(bterms, data, prior, stanvars, threads, primitive,
       } else {
         str_add_list(out) <- stan_prior(
           prior, class = "b", coef = fixef, type = b_type,
-          px = px, suffix = p, header_type = "vector", 
+          px = px, suffix = p, header_type = "vector",
           comment = b_comment, normalize = normalize
         )
       }
@@ -346,7 +346,7 @@ stan_fe <- function(bterms, data, prior, stanvars, threads, primitive,
       } else {
         str_add_list(out) <- stan_prior(
           prior, class = "b", coef = fixef, type = b_type,
-          px = px, suffix = glue("Q{p}"), header_type = "vector", 
+          px = px, suffix = glue("Q{p}"), header_type = "vector",
           comment = b_comment, normalize = normalize
         )
       }
@@ -746,6 +746,9 @@ stan_sm <- function(bterms, data, prior, threads, normalize, ...) {
     str_add(out$eta) <- glue(" + Xs{p}{slice} * bs{p}")
   }
   for (i in seq_rows(smef)) {
+    if (smef$nbases[[i]] == 0) {
+      next  # no penalized spline components present
+    }
     pi <- glue("{p}_{i}")
     nb <- seq_len(smef$nbases[[i]])
     str_add(out$data) <- glue(
@@ -1073,7 +1076,7 @@ stan_gp <- function(bterms, data, prior, threads, normalize, ...) {
       )
       str_add_list(out) <- stan_prior(
         prior, class = "lscale", coef = sfx2,
-        type = lscale_type, dim = lscale_dim, suffix = glue("{pi}"), 
+        type = lscale_type, dim = lscale_dim, suffix = glue("{pi}"),
         px = px, comment = lscale_comment, normalize = normalize
       )
       if (gr) {
@@ -1663,11 +1666,8 @@ stan_nl <- function(bterms, data, nlpars, threads, inv_link = rep("", 2), ...) {
     "  // initialize non-linear predictor term\n",
     "  vector[N{resp}] {par};\n"
   )
-  # make sure mu comes last as it might depend on other parameters
-  is_mu <- isTRUE("mu" %in% dpar_class(bterms[["dpar"]]))
-  position <- str_if(is_mu, "model_comp_mu_link", "model_comp_dpar_link")
   if (bterms$loop) {
-    str_add(out[[position]]) <- glue(
+    str_add(out$model_comp_dpar_link) <- glue(
       "  for (n in 1:N{resp}) {{\n",
       stan_nn_def(threads),
       "    // compute non-linear predictor values\n",
@@ -1675,7 +1675,7 @@ stan_nl <- function(bterms, data, nlpars, threads, inv_link = rep("", 2), ...) {
       "  }}\n"
     )
   } else {
-    str_add(out[[position]]) <- glue(
+    str_add(out$model_comp_dpar_link) <- glue(
       "  // compute non-linear predictor values\n",
       "  {par} = {inv_link[1]}{eta}{inv_link[2]};\n"
     )
@@ -1816,8 +1816,11 @@ stan_eta_combine <- function(out, bterms, ranef, threads, primitive,
   out$eta <- sub("^[ \t\r\n]+\\+", "", out$eta, perl = TRUE)
   str_add(out$model_def) <- glue(
     "  // initialize linear predictor term\n",
-    "  vector[N{resp}] {eta} ={out$eta};\n"
+    "  vector[N{resp}] {eta} = rep_vector(0.0, N{resp});\n"
   )
+  if (nzchar(out$eta)) {
+    str_add(out$model_comp_eta) <- glue("  {eta} +={out$eta};\n")
+  }
   out$eta <- NULL
   str_add(out$loopeta) <- stan_eta_re(ranef, threads = threads, px = px)
   if (nzchar(out$loopeta)) {
@@ -1834,14 +1837,8 @@ stan_eta_combine <- function(out, bterms, ranef, threads, primitive,
   out$loopeta <- NULL
   # possibly transform eta before it is passed to the likelihood
   if (sum(nzchar(inv_link))) {
-    # make sure mu comes last as it might depend on other parameters
-    is_mu <- isTRUE("mu" %in% dpar_class(bterms[["dpar"]]))
-    position <- str_if(is_mu, "model_comp_mu_link", "model_comp_dpar_link")
-    str_add(out[[position]]) <- glue(
-      "  for (n in 1:N{resp}) {{\n",
-      "    // apply the inverse link function\n",
-      "    {eta}[n] = {inv_link[1]}{eta}[n]{inv_link[2]};\n",
-      "  }}\n"
+    str_add(out$model_comp_dpar_link) <- glue(
+      "  {eta} = {inv_link[1]}{eta}{inv_link[2]};\n"
     )
   }
   out
@@ -1853,33 +1850,31 @@ stan_eta_combine <- function(out, bterms, ranef, threads, primitive,
 # @param primitive use Stan's GLM likelihood primitives?
 # @return a single character string
 stan_eta_fe <- function(fixef, bterms, threads, primitive) {
-  if (length(fixef) && !primitive) {
-    p <- usc(combine_prefix(bterms))
-    center_X <- stan_center_X(bterms)
-    decomp <- get_decomp(bterms$fe)
-    sparse <- is_sparse(bterms$fe)
-    if (sparse) {
-      stopifnot(!center_X && decomp == "none")
-      csr_args <- sargs(
-        paste0(c("rows", "cols"), "(X", p, ")"),
-        paste0(c("wX", "vX", "uX", "b"), p)
-      )
-      eta_fe <- glue("csr_matrix_times_vector({csr_args})")
-    } else {
-      sfx_X <- sfx_b <- ""
-      if (decomp == "QR") {
-        sfx_X <- sfx_b <- "Q"
-      } else if (center_X) {
-        sfx_X <- "c"
-      }
-      slice <- stan_slice(threads)
-      eta_fe <- glue("X{sfx_X}{p}{slice} * b{sfx_b}{p}")
-    }
-  } else {
-    resp <- usc(bterms$resp)
-    eta_fe <- glue("rep_vector(0.0, N{resp})")
+  if (!length(fixef) || primitive) {
+    return("")
   }
-  glue(" + {eta_fe}")
+  p <- usc(combine_prefix(bterms))
+  center_X <- stan_center_X(bterms)
+  decomp <- get_decomp(bterms$fe)
+  sparse <- is_sparse(bterms$fe)
+  if (sparse) {
+    stopifnot(!center_X && decomp == "none")
+    csr_args <- sargs(
+      paste0(c("rows", "cols"), "(X", p, ")"),
+      paste0(c("wX", "vX", "uX", "b"), p)
+    )
+    eta_fe <- glue(" + csr_matrix_times_vector({csr_args})")
+  } else {
+    sfx_X <- sfx_b <- ""
+    if (decomp == "QR") {
+      sfx_X <- sfx_b <- "Q"
+    } else if (center_X) {
+      sfx_X <- "c"
+    }
+    slice <- stan_slice(threads)
+    eta_fe <- glue(" + X{sfx_X}{p}{slice} * b{sfx_b}{p}")
+  }
+  eta_fe
 }
 
 # write the group-level part of the linear predictor
@@ -1935,11 +1930,8 @@ stan_eta_rsp <- function(r) {
 }
 
 # does eta need to be transformed manually using the link functions
-# @param family the model family
-# @param cens_or_trunc is the model censored or truncated?
 stan_eta_transform <- function(family, bterms) {
-  transeta <- "transeta" %in% family_info(family, "specials")
-  no_transform <- family$link == "identity" && !transeta ||
+  no_transform <- family$link == "identity" ||
     has_joint_link(family) && !is.customfamily(family)
   !no_transform && !stan_has_built_in_fun(family, bterms)
 }
@@ -1954,34 +1946,8 @@ stan_eta_inv_link <- function(dpar, bterms, resp = "") {
   out <- rep("", 2)
   family <- bterms$dpars[[dpar]]$family
   if (stan_eta_transform(family, bterms)) {
-    dpar_id <- dpar_id(dpar)
-    pred_dpars <- names(bterms$dpars)
-    shape <- glue("shape{dpar_id}")
-    n_shape <- str_if(shape %in% pred_dpars, "[n]")
-    shape <- glue("{shape}{resp}{n_shape}")
-    nu <- glue("nu{dpar_id}")
-    n_nu <- str_if(nu %in% pred_dpars, "[n]")
-    nu <- glue("{nu}{resp}{n_nu}")
-
-    family_link <- str_if(
-      family$family %in% c("gamma", "hurdle_gamma", "exponential"),
-      paste0(family$family, "_", family$link), family$family
-    )
     inv_link <- stan_inv_link(family$link)
-    out <- switch(family_link,
-      c(glue("{inv_link}("), ")"),
-      gamma_log = c(glue("{shape} * exp(-("), "))"),
-      gamma_inverse = c(glue("{shape} * ("), ")"),
-      gamma_identity = c(glue("{shape} / ("), ")"),
-      hurdle_gamma_log = c(glue("{shape} * exp(-("), "))"),
-      hurdle_gamma_inverse = c(glue("{shape} * ("), ")"),
-      hurdle_gamma_identity = c(glue("{shape} / ("), ")"),
-      exponential_log = c("exp(-(", "))"),
-      exponential_inverse = c("(", ")"),
-      exponential_identity = c("inv(", ")"),
-      weibull = c(glue("{inv_link}("), glue(") / tgamma(1 + 1 / {shape})")),
-      frechet = c(glue("{inv_link}("), glue(") / tgamma(1 - 1 / {nu})"))
-    )
+    out <- c(paste0(inv_link, "("), ")")
   }
   out
 }
@@ -2032,6 +1998,8 @@ stan_dpar_comments <- function(dpar, family) {
 }
 
 # Stan code for transformations of distributional parameters
+# TODO: refactor into family-specific functions
+# TODO: add gamma and related families here to compute rate = shape / mean
 stan_dpar_transform <- function(bterms, prior, threads, normalize, ...) {
   stopifnot(is.brmsterms(bterms))
   out <- list()
@@ -2108,12 +2076,12 @@ stan_dpar_transform <- function(bterms, prior, threads, normalize, ...) {
       xi <- glue("xi{id}")
       if (!xi %in% dp_names) {
         str_add(out$model_def) <- glue(
-          "  real {xi};  // scaled shape parameter\n"
+          "  real {xi}{p};  // scaled shape parameter\n"
         )
         sigma <- glue("sigma{id}")
         sfx <- str_if(sigma %in% names(bterms$dpars), "_vector")
         args <- sargs(
-          glue("tmp_{xi}"), glue("Y{p}"),
+          glue("tmp_{xi}{p}"), glue("Y{p}"),
           glue("mu{id}{p}"), glue("{sigma}{p}")
         )
         str_add(out$model_comp_dpar_trans) <- glue(

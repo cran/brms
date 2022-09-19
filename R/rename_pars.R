@@ -40,7 +40,7 @@ rename_pars <- function(x) {
   # perform the actual renaming in x$fit@sim
   x <- save_old_par_order(x)
   x <- do_renaming(x, change)
-  x$fit <- repair_stanfit_names(x$fit)
+  x$fit <- repair_stanfit(x$fit)
   x <- compute_quantities(x)
   x <- reorder_pars(x)
   x
@@ -58,10 +58,10 @@ change_effects.default <- function(x, ...) {
 }
 
 #' @export
-change_effects.mvbrmsterms <- function(x, pars, ...) {
+change_effects.mvbrmsterms <- function(x, data, pars, ...) {
   out <- list()
   for (i in seq_along(x$terms)) {
-    c(out) <- change_effects(x$terms[[i]], pars = pars, ...)
+    c(out) <- change_effects(x$terms[[i]], data = data, pars = pars, ...)
   }
   if (x$rescor) {
     rescor_names <- get_cornames(
@@ -73,35 +73,36 @@ change_effects.mvbrmsterms <- function(x, pars, ...) {
 }
 
 #' @export
-change_effects.brmsterms <- function(x, ...) {
+change_effects.brmsterms <- function(x, data, ...) {
+  data <- subset_data(data, x)
   out <- list()
   for (dp in names(x$dpars)) {
-    c(out) <- change_effects(x$dpars[[dp]], ...)
+    c(out) <- change_effects(x$dpars[[dp]], data = data, ...)
   }
   for (nlp in names(x$nlpars)) {
-    c(out) <- change_effects(x$nlpars[[nlp]], ...)
+    c(out) <- change_effects(x$nlpars[[nlp]], data = data, ...)
   }
   if (is.formula(x$adforms$mi)) {
-    c(out) <- change_Ymi(x, ...)
+    c(out) <- change_Ymi(x, data = data, ...)
   }
-  c(out) <- change_family_cor_pars(x, ...)
+  c(out) <- change_thres(x, data = data, ...)
+  c(out) <- change_family_cor_pars(x, data = data, ...)
   out
 }
 
 # helps in renaming parameters of additive predictor terms
 # @param pars vector of all parameter names
 #' @export
-change_effects.btl <- function(x, data, pars, ...) {
-  c(change_fe(x, data, pars),
-    change_sm(x, data, pars),
-    change_cs(x, data, pars),
-    change_sp(x, data, pars),
-    change_gp(x, data, pars),
-    change_thres(x, pars))
+change_effects.btl <- function(x, ...) {
+  c(change_fe(x, ...),
+    change_sm(x, ...),
+    change_cs(x, ...),
+    change_sp(x, ...),
+    change_gp(x, ...))
 }
 
 # helps in renaming fixed effects parameters
-change_fe <- function(bterms, data, pars) {
+change_fe <- function(bterms, data, pars, ...) {
   out <- list()
   px <- check_prefix(bterms)
   fixef <- colnames(data_fe(bterms, data)$X)
@@ -120,7 +121,7 @@ change_fe <- function(bterms, data, pars) {
 }
 
 # helps in renaming special effects parameters
-change_sp <- function(bterms, data, pars) {
+change_sp <- function(bterms, data, pars, ...) {
   out <- list()
   spef <- tidy_spef(bterms, data)
   if (!nrow(spef)) return(out)
@@ -145,7 +146,7 @@ change_sp <- function(bterms, data, pars) {
 }
 
 # helps in renaming category specific effects parameters
-change_cs <- function(bterms, data, pars) {
+change_cs <- function(bterms, data, pars, ...) {
   out <- list()
   csef <- colnames(data_cs(bterms, data)$Xcs)
   if (length(csef)) {
@@ -165,7 +166,7 @@ change_cs <- function(bterms, data, pars) {
 }
 
 # rename threshold parameters in ordinal models
-change_thres <- function(bterms, pars) {
+change_thres <- function(bterms, pars, ...) {
   out <- list()
   # renaming is only required if multiple threshold were estimated
   if (!has_thres_groups(bterms)) {
@@ -186,7 +187,7 @@ change_thres <- function(bterms, pars) {
 
 # helps in renaming global noise free variables
 # @param meef data.frame returned by 'tidy_meef'
-change_Xme <- function(meef, pars) {
+change_Xme <- function(meef, pars, ...) {
   stopifnot(is.meef_frame(meef))
   out <- list()
   levels <- attr(meef, "levels")
@@ -251,7 +252,7 @@ change_Ymi <- function(bterms, data, pars, ...) {
 }
 
 # helps in renaming parameters of gaussian processes
-change_gp <- function(bterms, data, pars) {
+change_gp <- function(bterms, data, pars, ...) {
   out <- list()
   p <- usc(combine_prefix(bterms), "prefix")
   gpef <- tidy_gpef(bterms, data)
@@ -299,7 +300,7 @@ change_gp <- function(bterms, data, pars) {
 }
 
 # helps in renaming smoothing term parameters
-change_sm <- function(bterms, data, pars) {
+change_sm <- function(bterms, data, pars, ...) {
   out <- list()
   smef <- tidy_smef(bterms, data)
   if (NROW(smef)) {
@@ -336,7 +337,7 @@ change_sm <- function(bterms, data, pars) {
 
 # helps in renaming group-level parameters
 # @param ranef: data.frame returned by 'tidy_ranef'
-change_re <- function(ranef, pars) {
+change_re <- function(ranef, pars, ...) {
   out <- list()
   if (has_rows(ranef)) {
     for (id in unique(ranef$id)) {
@@ -387,7 +388,7 @@ change_re <- function(ranef, pars) {
 
 # helps in renaming varying effects parameters per level
 # @param ranef: data.frame returned by 'tidy_ranef'
-change_re_levels <- function(ranef, pars)  {
+change_re_levels <- function(ranef, pars, ...)  {
   out <- list()
   for (i in seq_rows(ranef)) {
     r <- ranef[i, ]
@@ -419,7 +420,7 @@ change_family_cor_pars <- function(x, pars, ...) {
 }
 
 # rename parameters related to special priors
-change_special_prior_local <- function(bterms, coef, pars) {
+change_special_prior_local <- function(bterms, coef, pars, ...) {
   out <- list()
   p <- combine_prefix(bterms)
   # rename parameters related to the R2D2 prior

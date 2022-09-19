@@ -21,6 +21,7 @@ make_stancode <- function(formula, data, family = gaussian(),
                           cov_ranef = NULL, sparse = NULL,
                           sample_prior = "no", stanvars = NULL,
                           stan_funs = NULL, knots = NULL,
+                          drop_unused_levels = TRUE,
                           threads = getOption("brms.threads", NULL),
                           normalize = getOption("brms.normalize", TRUE),
                           save_model = NULL, ...) {
@@ -41,7 +42,8 @@ make_stancode <- function(formula, data, family = gaussian(),
   )
   data <- validate_data(
     data, bterms = bterms,
-    data2 = data2, knots = knots
+    data2 = data2, knots = knots,
+    drop_unused_levels = drop_unused_levels
   )
   prior <- .validate_prior(
     prior, bterms = bterms, data = data,
@@ -105,9 +107,9 @@ make_stancode <- function(formula, data, family = gaussian(),
         scode_predictor[[i]][["model_def"]],
         collapse_stanvars(stanvars, "likelihood", "start"),
         scode_predictor[[i]][["model_comp_basic"]],
+        scode_predictor[[i]][["model_comp_eta"]],
         scode_predictor[[i]][["model_comp_eta_loop"]],
         scode_predictor[[i]][["model_comp_dpar_link"]],
-        scode_predictor[[i]][["model_comp_mu_link"]],
         scode_predictor[[i]][["model_comp_dpar_trans"]],
         scode_predictor[[i]][["model_comp_mix"]],
         scode_predictor[[i]][["model_comp_arma"]],
@@ -156,9 +158,9 @@ make_stancode <- function(formula, data, family = gaussian(),
       collapse_stanvars(stanvars, "likelihood", "start"),
       scode_predictor[["model_no_pll_comp_basic"]],
       scode_predictor[["model_comp_basic"]],
+      scode_predictor[["model_comp_eta"]],
       scode_predictor[["model_comp_eta_loop"]],
       scode_predictor[["model_comp_dpar_link"]],
-      scode_predictor[["model_comp_mu_link"]],
       scode_predictor[["model_comp_dpar_trans"]],
       scode_predictor[["model_comp_mix"]],
       scode_predictor[["model_comp_arma"]],
@@ -308,7 +310,7 @@ make_stancode <- function(formula, data, family = gaussian(),
     scode <- parse_model(scode, backend, silent = silent)
   }
   if (backend == "cmdstanr") {
-    if (requireNamespace("cmdstanr", quietly = TRUE) && 
+    if (requireNamespace("cmdstanr", quietly = TRUE) &&
         cmdstanr::cmdstan_version() >= "2.29.0") {
       tmp_file <- cmdstanr::write_stan_file(scode)
       scode <- .canonicalize_stan_model(tmp_file, overwrite_file = FALSE)
@@ -446,7 +448,7 @@ normalize_stancode <- function(x) {
   trimws(x)
 }
 
-# check if the currently installed Stan version requires older syntax 
+# check if the currently installed Stan version requires older syntax
 # than the Stan version with which the model was initially fitted
 require_old_stan_syntax <- function(object, backend, version) {
   stopifnot(is.brmsfit(object))

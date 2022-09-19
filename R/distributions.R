@@ -6,13 +6,15 @@
 #'
 #' @name StudentT
 #'
-#' @param x,q Vector of quantiles.
+#' @param x Vector of quantiles.
+#' @param q Vector of quantiles.
 #' @param p Vector of probabilities.
 #' @param n Number of draws to sample from the distribution.
 #' @param mu Vector of location values.
 #' @param sigma Vector of scale values.
 #' @param df Vector of degrees of freedom.
-#' @param log,log.p Logical; If \code{TRUE}, values are returned on the log scale.
+#' @param log Logical; If \code{TRUE}, values are returned on the log scale.
+#' @param log.p Logical; If \code{TRUE}, values are returned on the log scale.
 #' @param lower.tail Logical; If \code{TRUE} (default), return P(X <= x).
 #'   Else, return P(X > x) .
 #'
@@ -929,7 +931,7 @@ rinv_gaussian <- function(n, mu = 1, shape = 1) {
 #' @param size Vector of number of trials (zero or more).
 #' @param mu Vector of means.
 #' @param phi Vector of precisions.
-#' 
+#'
 #' @export
 dbeta_binomial <- function(x, size, mu, phi, log = FALSE) {
   require_package("extraDistr")
@@ -944,7 +946,7 @@ pbeta_binomial <- function(q, size, mu, phi, lower.tail = TRUE, log.p = FALSE) {
   require_package("extraDistr")
   alpha <- mu * phi
   beta <- (1 - mu) * phi
-  extraDistr::pbbinom(q, size, alpha = alpha, beta = beta, 
+  extraDistr::pbbinom(q, size, alpha = alpha, beta = beta,
                       lower.tail = lower.tail, log.p = log.p)
 }
 
@@ -2086,10 +2088,9 @@ inv_link_categorical <- function(x, refcat = 1, log = FALSE) {
   if (!is.null(refcat)) {
     x <- insert_refcat(x, refcat = refcat)
   }
-  if (log) {
-    out <- log_softmax(x)
-  } else {
-    out <- softmax(x)
+  out <- log_softmax(x)
+  if (!log) {
+    out <- exp(out)
   }
   out
 }

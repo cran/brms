@@ -3,24 +3,25 @@
 #' Provide additional information on the response variable
 #' in \pkg{brms} models, such as censoring, truncation, or
 #' known measurement error. Detailed documentation on the use
-#' of each of these functions can be found in the Details section 
+#' of each of these functions can be found in the Details section
 #' of \code{\link{brmsformula}} (under "Additional response information").
 #'
 #' @name addition-terms
-#' @aliases se weights trials thres cat dec cens trunc 
+#' @aliases se weights trials thres cat dec cens trunc
 #' @aliases index rate subset vreal vint
 #'
-#' @param x A vector; usually a variable defined in the data. Allowed values
-#'   depend on the function: \code{resp_se} and \code{resp_weights} require
-#'   positive numeric values. \code{resp_trials}, \code{resp_thres}, and
-#'   \code{resp_cat} require positive integers. \code{resp_dec} requires
-#'   \code{0} and \code{1}, or alternatively \code{'lower'} and \code{'upper'}.
-#'   \code{resp_subset} requires \code{0} and \code{1}, or alternatively
-#'   \code{FALSE} and \code{TRUE}. \code{resp_cens} requires \code{'left'},
-#'   \code{'none'}, \code{'right'}, and \code{'interval'} (or equivalently
-#'   \code{-1}, \code{0}, \code{1}, and \code{2}) to indicate left, no, right,
-#'   or interval censoring. \code{resp_index} does not make any requirements
-#'   other than the value being unique for each observation.
+#' @param x A vector; Ideally a single variable defined in the data (see
+#'   Details). Allowed values depend on the function: \code{resp_se} and
+#'   \code{resp_weights} require positive numeric values. \code{resp_trials},
+#'   \code{resp_thres}, and \code{resp_cat} require positive integers.
+#'   \code{resp_dec} requires \code{0} and \code{1}, or alternatively
+#'   \code{'lower'} and \code{'upper'}. \code{resp_subset} requires \code{0} and
+#'   \code{1}, or alternatively \code{FALSE} and \code{TRUE}. \code{resp_cens}
+#'   requires \code{'left'}, \code{'none'}, \code{'right'}, and
+#'   \code{'interval'} (or equivalently \code{-1}, \code{0}, \code{1}, and
+#'   \code{2}) to indicate left, no, right, or interval censoring.
+#'   \code{resp_index} does not make any requirements other than the value being
+#'   unique for each observation.
 #' @param sigma Logical; Indicates whether the residual standard deviation
 #'  parameter \code{sigma} should be included in addition to the known
 #'  measurement error. Defaults to \code{FALSE} for backwards compatibility,
@@ -56,6 +57,10 @@
 #'   Within formulas, the \code{resp_} prefix may be omitted.
 #'   More information is given in the 'Details' section
 #'   of \code{\link{brmsformula}} (under "Additional response information").
+#'
+#'   It is highly recommended to use a single data variable as input
+#'   for \code{x} (instead of a more complicated expression) to make sure all
+#'   post-processing functions work as expected.
 #'
 #' @seealso
 #'   \code{\link{brm}},
@@ -95,6 +100,8 @@
 #' }
 #'
 NULL
+
+# TODO: split into separate docs for each function
 
 #' @rdname addition-terms
 #' @export
@@ -427,4 +434,10 @@ check_cross_formula_indexing <- function(bterms) {
           "the 'idx' argument to be specified.")
   }
   invisible(TRUE)
+}
+
+# does an expression consist of a single variable?
+is_single_variable <- function(x) {
+  x <- as_one_character(x)
+  is_equal(x, all_vars(x))
 }

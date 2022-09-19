@@ -60,17 +60,18 @@ resp_vreal(...)
 resp_vint(...)
 }
 \arguments{
-\item{x}{A vector; usually a variable defined in the data. Allowed values
-depend on the function: \code{resp_se} and \code{resp_weights} require
-positive numeric values. \code{resp_trials}, \code{resp_thres}, and
-\code{resp_cat} require positive integers. \code{resp_dec} requires
-\code{0} and \code{1}, or alternatively \code{'lower'} and \code{'upper'}.
-\code{resp_subset} requires \code{0} and \code{1}, or alternatively
-\code{FALSE} and \code{TRUE}. \code{resp_cens} requires \code{'left'},
-\code{'none'}, \code{'right'}, and \code{'interval'} (or equivalently
-\code{-1}, \code{0}, \code{1}, and \code{2}) to indicate left, no, right,
-or interval censoring. \code{resp_index} does not make any requirements
-other than the value being unique for each observation.}
+\item{x}{A vector; Ideally a single variable defined in the data (see
+Details). Allowed values depend on the function: \code{resp_se} and
+\code{resp_weights} require positive numeric values. \code{resp_trials},
+\code{resp_thres}, and \code{resp_cat} require positive integers.
+\code{resp_dec} requires \code{0} and \code{1}, or alternatively
+\code{'lower'} and \code{'upper'}. \code{resp_subset} requires \code{0} and
+\code{1}, or alternatively \code{FALSE} and \code{TRUE}. \code{resp_cens}
+requires \code{'left'}, \code{'none'}, \code{'right'}, and
+\code{'interval'} (or equivalently \code{-1}, \code{0}, \code{1}, and
+\code{2}) to indicate left, no, right, or interval censoring.
+\code{resp_index} does not make any requirements other than the value being
+unique for each observation.}
 
 \item{sigma}{Logical; Indicates whether the residual standard deviation
 parameter \code{sigma} should be included in addition to the known
@@ -114,7 +115,7 @@ A list of additional response information to be processed further
 Provide additional information on the response variable
 in \pkg{brms} models, such as censoring, truncation, or
 known measurement error. Detailed documentation on the use
-of each of these functions can be found in the Details section 
+of each of these functions can be found in the Details section
 of \code{\link{brmsformula}} (under "Additional response information").
 }
 \details{
@@ -123,6 +124,10 @@ These functions are almost solely useful when
   Within formulas, the \code{resp_} prefix may be omitted.
   More information is given in the 'Details' section
   of \code{\link{brmsformula}} (under "Additional response information").
+
+  It is highly recommended to use a single data variable as input
+  for \code{x} (instead of a more complicated expression) to make sure all
+  post-processing functions work as expected.
 }
 \examples{
 \dontrun{

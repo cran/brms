@@ -195,7 +195,7 @@ restructure_v2 <- function(x) {
   if (version < "2.16.1") {
     # problems with rstan::read_stan_csv as well as
     # non-unique variable names became apparent (#1218)
-    x$fit <- repair_stanfit_names(x$fit)
+    x$fit <- repair_stanfit(x$fit)
   }
   if (version < "2.16.12") {
     # added full user control over parameter boundaries (#1324)
@@ -216,13 +216,18 @@ restructure_v2 <- function(x) {
       # should always have exactly one row but still check whether it has
       # any rows at all to prevent things from breaking accidentally
       if (NROW(prior_sub_i)) {
-        x$prior[i, c("lb", "ub")] <- prior_sub_i[1, c("lb", "ub")] 
+        x$prior[i, c("lb", "ub")] <- prior_sub_i[1, c("lb", "ub")]
       } else {
         x$prior[i, c("lb", "ub")] <- ""
       }
     }
     x$prior$lb[is.na(x$prior$lb)] <- x$prior$ub[is.na(x$prior$ub)] <- ""
     x$prior <- move2end(x$prior, "source")
+  }
+  if (version < "2.17.6") {
+    # a slot was added that stores additional control arguments
+    # that are directly passed to the Stan backends for later reuse #1373
+    x$stan_args <- list()
   }
   x
 }

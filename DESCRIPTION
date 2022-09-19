@@ -2,8 +2,8 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using 'Stan'
-Version: 2.17.0
-Date: 2022-04-08
+Version: 2.18.0
+Date: 2022-09-11
 Authors@R: 
     c(person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
              role = c("aut", "cre")),
@@ -14,7 +14,8 @@ Authors@R:
       person("Hamada S.", "Badr", role = c("ctb")),
       person("Frank", "Weber", role = c("ctb")),
       person("Mattan S.", "Ben-Shachar", role = c("ctb")),
-      person("Hayden", "Rabel", role = c("ctb")))
+      person("Hayden", "Rabel", role = c("ctb")),
+      person("Simon C.", "Mills", role = c("ctb")))
 Depends: R (>= 3.5.0), Rcpp (>= 0.12.0), methods
 Imports: rstan (>= 2.19.2), ggplot2 (>= 2.0.0), loo (>= 2.3.1),
         posterior (>= 1.0.0), Matrix (>= 1.1.1), mgcv (>= 1.8-13),
@@ -22,7 +23,7 @@ Imports: rstan (>= 2.19.2), ggplot2 (>= 2.0.0), loo (>= 2.3.1),
         2.4.0), bridgesampling (>= 0.3-0), glue (>= 1.3.0), future (>=
         1.19.0), matrixStats, nleqslv, nlme, coda, abind, stats, utils,
         parallel, grDevices, backports
-Suggests: testthat (>= 0.9.1), emmeans (>= 1.4.2), cmdstanr (>= 0.4.0),
+Suggests: testthat (>= 0.9.1), emmeans (>= 1.4.2), cmdstanr (>= 0.5.0),
         projpred (>= 2.0.0), RWiener, rtdists, extraDistr, processx,
         mice, spdep, mnormt, lme4, MCMCglmm, splines2, ape, arm,
         statmod, digest, diffobj, R.rsp, gtable, shiny, knitr,
@@ -32,15 +33,16 @@ Description: Fit Bayesian generalized (non-)linear multivariate multilevel model
     and link functions are supported, allowing users to fit -- among others --
     linear, robust linear, count data, survival, response times, ordinal,
     zero-inflated, hurdle, and even self-defined mixture models all in a
-    multilevel context. Further modeling options include non-linear and
-    smooth terms, auto-correlation structures, censored data, meta-analytic
-    standard errors, and quite a few more. In addition, all parameters of the
-    response distribution can be predicted in order to perform distributional
-    regression. Prior specifications are flexible and explicitly encourage
-    users to apply prior distributions that actually reflect their beliefs.
-    Model fit can easily be assessed and compared with posterior predictive
-    checks and leave-one-out cross-validation. References: Bürkner (2017)
-    <doi:10.18637/jss.v080.i01>; Bürkner (2018) <doi:10.32614/RJ-2018-017>;
+    multilevel context. Further modeling options include both theory-driven and
+    data-driven non-linear terms, auto-correlation structures, censoring and 
+    truncation, meta-analytic standard errors, and quite a few more. 
+    In addition, all parameters of the response distribution can be predicted 
+    in order to perform distributional regression. Prior specifications are 
+    flexible and explicitly encourage users to apply prior distributions that
+    actually reflect their prior knowledge. Models can easily be evaluated and
+    compared using several methods assessing posterior or prior predictions. 
+    References: Bürkner (2017) <doi:10.18637/jss.v080.i01>; 
+    Bürkner (2018) <doi:10.32614/RJ-2018-017>;
     Bürkner (2021) <doi:10.18637/jss.v100.i05>; Carpenter et al. (2017)
     <doi:10.18637/jss.v076.i01>.
 LazyData: true
@@ -51,8 +53,8 @@ URL: https://github.com/paul-buerkner/brms,
 BugReports: https://github.com/paul-buerkner/brms/issues
 Additional_repositories: https://mc-stan.org/r-packages/
 VignetteBuilder: knitr, R.rsp
-RoxygenNote: 7.1.2
-Packaged: 2022-04-11 08:20:38 UTC; paul.buerkner
+RoxygenNote: 7.2.1
+Packaged: 2022-09-19 11:56:34 UTC; paul.buerkner
 Author: Paul-Christian Bürkner [aut, cre],
   Jonah Gabry [ctb],
   Sebastian Weber [ctb],
@@ -61,7 +63,8 @@ Author: Paul-Christian Bürkner [aut, cre],
   Hamada S. Badr [ctb],
   Frank Weber [ctb],
   Mattan S. Ben-Shachar [ctb],
-  Hayden Rabel [ctb]
+  Hayden Rabel [ctb],
+  Simon C. Mills [ctb]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2022-04-13 14:22:29 UTC
+Date/Publication: 2022-09-19 13:56:19 UTC
