@@ -3,6 +3,8 @@
 
 # define Stan functions or globally used transformed data
 # TODO: refactor to not require extraction of information from all model parts
+#   'expand_include_statements' removes duplicates which opens the door
+#   for adding Stan functions at better places rather than globally here
 stan_global_defs <- function(bterms, prior, ranef, threads) {
   families <- family_names(bterms)
   links <- family_info(bterms, "link")
@@ -61,7 +63,11 @@ stan_global_defs <- function(bterms, prior, ranef, threads) {
     ord_fams <- families[is_ordinal]
     ord_links <- links[is_ordinal]
     for (i in seq_along(ord_fams)) {
-      str_add(out$fun) <- stan_ordinal_lpmf(ord_fams[i], ord_links[i])
+      if (has_extra_cat(ord_fams[i])) {
+        str_add(out$fun) <- stan_hurdle_ordinal_lpmf(ord_fams[i], ord_links[i])
+      } else {
+        str_add(out$fun) <- stan_ordinal_lpmf(ord_fams[i], ord_links[i])
+      }
     }
   }
   uni_mo <- ulapply(get_effect(bterms, "sp"), attr, "uni_mo")
@@ -77,16 +83,39 @@ stan_global_defs <- function(bterms, prior, ranef, threads) {
   acterms <- get_effect(bterms, "ac")
   acefs <- lapply(acterms, tidy_acef)
   if (any(ulapply(acefs, has_ac_subset, dim = "time", cov = TRUE))) {
-    # TODO: include functions selectively
     str_add(out$fun) <- glue(
-      "  #include 'fun_normal_time.stan'\n",
-      "  #include 'fun_student_t_time.stan'\n",
-      "  #include 'fun_scale_time_err.stan'\n",
-      "  #include 'fun_cholesky_cor_ar1.stan'\n",
-      "  #include 'fun_cholesky_cor_ma1.stan'\n",
-      "  #include 'fun_cholesky_cor_arma1.stan'\n",
-      "  #include 'fun_cholesky_cor_cosy.stan'\n"
+      "  #include 'fun_sequence.stan'\n",
+      "  #include 'fun_is_equal.stan'\n",
+      "  #include 'fun_stack_vectors.stan'\n"
     )
+    if ("gaussian" %in% families) {
+      str_add(out$fun) <- glue(
+        "  #include 'fun_normal_time.stan'\n",
+        "  #include 'fun_normal_time_se.stan'\n"
+      )
+    }
+    if ("student" %in% families) {
+      str_add(out$fun) <- glue(
+        "  #include 'fun_student_t_time.stan'\n",
+        "  #include 'fun_student_t_time_se.stan'\n"
+      )
+    }
+    # TODO: include selectively once we have the 'latent' indicator
+    str_add(out$fun) <- glue(
+      "  #include 'fun_scale_time_err.stan'\n"
+    )
+    if (any(ulapply(acefs, has_ac_class, "arma"))) {
+      str_add(out$fun) <- glue(
+        "  #include 'fun_cholesky_cor_ar1.stan'\n",
+        "  #include 'fun_cholesky_cor_ma1.stan'\n",
+        "  #include 'fun_cholesky_cor_arma1.stan'\n"
+      )
+    }
+    if (any(ulapply(acefs, has_ac_class, "cosy"))) {
+      str_add(out$fun) <- glue(
+        "  #include 'fun_cholesky_cor_cosy.stan'\n"
+      )
+    }
   }
   if (any(ulapply(acefs, has_ac_class, "sar"))) {
     if ("gaussian" %in% families) {
@@ -122,48 +151,118 @@ stan_global_defs <- function(bterms, prior, ranef, threads) {
 
 # link function in Stan language
 # @param link name of the link function
-stan_link <- function(link) {
-  switch(link,
-    identity = "",
-    log = "log",
-    logm1 = "logm1",
-    inverse = "inv",
-    sqrt = "sqrt",
-    "1/mu^2" = "inv_square",
-    logit = "logit",
-    probit = "inv_Phi",
-    probit_approx = "inv_Phi",
-    cloglog = "cloglog",
-    cauchit = "cauchit",
-    tan_half = "tan_half",
-    log1p = "log1p",
-    softplus = "log_expm1",
-    squareplus = "inv_squareplus",
-    softit = "softit"
-  )
+# @param vectorize use vectorize version of the link function?
+# @param transform actually apply the link function?
+stan_link <- function(link, vectorize = TRUE, transform = TRUE) {
+  vectorize <- as_one_logical(vectorize)
+  transform <- as_one_logical(transform %||% FALSE)
+  if (!transform) {
+    # we have a Stan lpdf that applies the link automatically
+    # or we have a non-linear parameter that has no link function
+    return("")
+  }
+  if (vectorize) {
+    # custom function cannot yet be overloaded in old Stan versions
+    # TODO: change names once overloading is possible in rstan
+    out <- switch(
+      link,
+      identity = "",
+      log = "log",
+      logm1 = "logm1_vector",
+      inverse = "inv",
+      sqrt = "sqrt",
+      "1/mu^2" = "inv_square",
+      logit = "logit",
+      probit = "inv_Phi",
+      probit_approx = "inv_Phi",
+      cloglog = "cloglog_vector",
+      cauchit = "cauchit_vector",
+      tan_half = "tan_half_vector",
+      log1p = "log1p",
+      softplus = "log_expm1_vector",
+      squareplus = "inv_squareplus_vector",
+      softit = "softit_vector"
+    )
+  } else {
+    out <- switch(
+      link,
+      identity = "",
+      log = "log",
+      logm1 = "logm1",
+      inverse = "inv",
+      sqrt = "sqrt",
+      "1/mu^2" = "inv_square",
+      logit = "logit",
+      probit = "inv_Phi",
+      probit_approx = "inv_Phi",
+      cloglog = "cloglog",
+      cauchit = "cauchit",
+      tan_half = "tan_half",
+      log1p = "log1p",
+      softplus = "log_expm1",
+      squareplus = "inv_squareplus",
+      softit = "softit"
+    )
+  }
+  out
 }
 
 # inverse link in Stan language
 # @param link name of the link function
-stan_inv_link <- function(link) {
-  switch(link,
-    identity = "",
-    log = "exp",
-    logm1 = "expp1",
-    inverse = "inv",
-    sqrt = "square",
-    "1/mu^2" = "inv_sqrt",
-    logit = "inv_logit",
-    probit = "Phi",
-    probit_approx = "Phi_approx",
-    cloglog = "inv_cloglog",
-    cauchit = "inv_cauchit",
-    tan_half = "inv_tan_half",
-    log1p = "expm1",
-    softplus = "log1p_exp",
-    squareplus = "squareplus",
-    softit = "inv_softit"
-  )
+# @param vectorize use vectorize version of the inv_link function?
+# @param transform actually apply the inv_link function?
+stan_inv_link <- function(link, vectorize = TRUE, transform = TRUE) {
+  vectorize <- as_one_logical(vectorize)
+  transform <- as_one_logical(transform %||% FALSE)
+  if (!transform) {
+    # we have a Stan lpdf that applies the inv_link automatically
+    # or we have a non-linear parameter that has no link function
+    return("")
+  }
+  if (vectorize) {
+    # custom function cannot yet be overloaded in old Stan versions
+    # TODO: change names once overloading is possible in rstan
+    out <- switch(
+      link,
+      identity = "",
+      log = "exp",
+      logm1 = "expp1_vector",
+      inverse = "inv",
+      sqrt = "square",
+      "1/mu^2" = "inv_sqrt",
+      logit = "inv_logit",
+      probit = "Phi",
+      probit_approx = "Phi_approx",
+      cloglog = "inv_cloglog",
+      cauchit = "inv_cauchit_vector",
+      tan_half = "inv_tan_half_vector",
+      log1p = "expm1",
+      softplus = "log1p_exp",
+      squareplus = "squareplus_vector",
+      softit = "inv_softit_vector"
+    )
+  } else {
+    out <- switch(
+      link,
+      identity = "",
+      log = "exp",
+      logm1 = "expp1",
+      inverse = "inv",
+      sqrt = "square",
+      "1/mu^2" = "inv_sqrt",
+      logit = "inv_logit",
+      probit = "Phi",
+      probit_approx = "Phi_approx",
+      cloglog = "inv_cloglog",
+      cauchit = "inv_cauchit",
+      tan_half = "inv_tan_half",
+      log1p = "expm1",
+      softplus = "log1p_exp",
+      squareplus = "squareplus",
+      softit = "inv_softit"
+    )
+  }
+  out
 }
 
 # define a vector in Stan language

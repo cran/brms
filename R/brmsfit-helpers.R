@@ -214,8 +214,9 @@ get_cor_matrix <- function(cor, size = NULL, ndraws = NULL) {
 # compute covariance matrices of autocor structures
 # @param prep a brmsprep object
 # @param obs observations for which to compute the covariance matrix
+# @param Jtime vector indicating to which time points obs belong
 # @param latent compute covariance matrix for latent residuals?
-get_cov_matrix_ac <- function(prep, obs = NULL, latent = FALSE) {
+get_cov_matrix_ac <- function(prep, obs = NULL, Jtime = NULL, latent = FALSE) {
   if (is.null(obs)) {
     obs <- seq_len(prep$nobs)
   }
@@ -238,6 +239,9 @@ get_cov_matrix_ac <- function(prep, obs = NULL, latent = FALSE) {
   } else if (has_ac_class(acef, "cosy")) {
     cosy <- as.numeric(prep$ac$cosy)
     cor <- get_cor_matrix_cosy(cosy, nobs)
+  } else if (has_ac_class(acef, "unstr")) {
+    cortime <- prep$ac$cortime
+    cor <- get_cor_matrix_unstr(cortime, Jtime)
   } else if (has_ac_class(acef, "fcor")) {
     cor <- get_cor_matrix_fcor(prep$ac$Mfcor, ndraws)
   } else {
@@ -345,6 +349,17 @@ get_cor_matrix_cosy <- function(cosy, nobs) {
     }
   }
   out
+}
+
+# compute unstructured time correlation matrices
+# @param cortime time correlation draws
+# @param Jtime indictor of rows/cols to consider in cortime
+# @return a numeric 'ndraws' x 'nobs' x 'nobs' array
+#   where nobs = length(Jtime[Jtime > 0])
+get_cor_matrix_unstr <- function(cortime, Jtime) {
+  stopifnot(length(Jtime) > 0L)
+  Jtime <- Jtime[Jtime > 0]
+  get_cor_matrix(cortime)[, Jtime, Jtime, drop = FALSE]
 }
 
 # prepare a fixed correlation matrix
@@ -713,7 +728,7 @@ split_dots <- function(x, ..., model_names = NULL, other = TRUE) {
   other <- as_one_logical(other)
   dots <- list(x, ...)
   names <- substitute(list(x, ...), env = parent.frame())[-1]
-  names <- ulapply(names, deparse_combine)
+  names <- ulapply(names, deparse0)
   if (length(names)) {
     if (!length(names(dots))) {
       names(dots) <- names
@@ -756,11 +771,12 @@ reorder_obs <- function(eta, old_order = NULL, sort = FALSE) {
 # allows to call log_prob and other C++ using methods
 # on objects not created in the current R session
 # or objects created via another backend
-update_misc_env <- function(x, only_windows = FALSE) {
+update_misc_env <- function(x, recompile = FALSE, only_windows = FALSE) {
   stopifnot(is.brmsfit(x))
+  recompile <- as_one_logical(recompile)
   only_windows <- as_one_logical(only_windows)
-  if (!has_rstan_model(x)) {
-    x <- add_rstan_model(x)
+  if (recompile || !has_rstan_model(x)) {
+    x <- add_rstan_model(x, overwrite = TRUE)
   } else if (os_is_windows() || !only_windows) {
     # TODO: detect when updating .MISC is not required
     # TODO: find a more efficient way to update .MISC

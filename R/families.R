@@ -9,8 +9,8 @@
 #' You can also specify custom families for use in \pkg{brms} with
 #' the \code{\link{custom_family}} function.
 #'
-#' @param family A character string naming the distribution of the response
-#'   variable be used in the model. Currently, the following families are
+#' @param family A character string naming the distribution family of the response
+#'   variable to be used in the model. Currently, the following families are
 #'   supported: \code{gaussian}, \code{student}, \code{binomial},
 #'   \code{bernoulli}, \code{beta-binomial}, \code{poisson}, \code{negbinomial},
 #'   \code{geometric}, \code{Gamma}, \code{skew_normal}, \code{lognormal},
@@ -20,7 +20,7 @@
 #'   \code{asym_laplace}, \code{gen_extreme_value}, \code{categorical},
 #'   \code{multinomial}, \code{cumulative}, \code{cratio}, \code{sratio},
 #'   \code{acat}, \code{hurdle_poisson}, \code{hurdle_negbinomial},
-#'   \code{hurdle_gamma}, \code{hurdle_lognormal},
+#'   \code{hurdle_gamma}, \code{hurdle_lognormal}, \code{hurdle_cumulative},
 #'   \code{zero_inflated_binomial}, \code{zero_inflated_beta_binomial},
 #'   \code{zero_inflated_beta}, \code{zero_inflated_negbinomial},
 #'   \code{zero_inflated_poisson}, and \code{zero_one_inflated_beta}.
@@ -109,10 +109,10 @@
 #'   \item{Families \code{hurdle_poisson}, \code{hurdle_negbinomial},
 #'   \code{hurdle_gamma}, \code{hurdle_lognormal}, \code{zero_inflated_poisson},
 #'   \code{zero_inflated_negbinomial}, \code{zero_inflated_binomial},
-#'   \code{zero_inflated_beta_binomial}, \code{zero_inflated_beta}, and
-#'   \code{zero_one_inflated_beta} allow to estimate zero-inflated and hurdle
-#'   models. These models can be very helpful when there are many zeros in the
-#'   data (or ones in case of one-inflated models)
+#'   \code{zero_inflated_beta_binomial}, \code{zero_inflated_beta},
+#'   \code{zero_one_inflated_beta}, and \code{hurdle_cumulative} allow to estimate 
+#'   zero-inflated and hurdle models. These models can be very helpful when there 
+#'   are many zeros in the data (or ones in case of one-inflated models)
 #'   that cannot be explained by the primary distribution of the response.}
 #'   }
 #'
@@ -136,8 +136,8 @@
 #'   \code{cauchit}, \code{identity}, and \code{log}.}
 #'
 #'   \item{Families \code{cumulative}, \code{cratio}, \code{sratio},
-#'   and \code{acat} support \code{logit}, \code{probit},
-#'   \code{probit_approx}, \code{cloglog}, and \code{cauchit}.}
+#'   \code{acat}, and \code{hurdle_cumulative} support \code{logit}, 
+#'   \code{probit}, \code{probit_approx}, \code{cloglog}, and \code{cauchit}.}
 #'
 #'   \item{Families \code{categorical}, \code{multinomial}, and \code{dirichlet}
 #'   support \code{logit}.}
@@ -244,7 +244,7 @@ brmsfamily <- function(family, link = NULL, link_sigma = "log",
   family_info$links <- NULL
   # non-standard evaluation of link
   if (!is.character(slink)) {
-    slink <- deparse(slink)
+    slink <- deparse0(slink)
   }
   if (!slink %in% ok_links) {
     if (is.character(link)) {
@@ -723,6 +723,16 @@ hurdle_lognormal <- function(link = "identity", link_sigma = "log",
   slink <- substitute(link)
   .brmsfamily("hurdle_lognormal", link = link, slink = slink,
               link_sigma = link_sigma, link_hu = link_hu)
+}
+
+#' @rdname brmsfamily
+#' @export 
+hurdle_cumulative <- function(link = "logit", link_hu = "logit",
+                              link_disc = "log", threshold = "flexible") {
+  slink <- substitute(link)
+  .brmsfamily("hurdle_cumulative", link = link, slink = slink,
+               link_hu = link_hu, link_disc = link_disc,
+               threshold = threshold)
 }
 
 #' @rdname brmsfamily
@@ -1685,6 +1695,11 @@ has_eta_minus_thres <- function(family) {
   "eta_minus_thres" %in% family_info(family, "specials")
 }
 
+# has an extra category that is not part of the ordinal scale (#1429)
+has_extra_cat <- function(family) {
+  "extra_cat" %in% family_info(family, "specials")
+}
+
 # get names of response categories
 get_cats <- function(family) {
   family_info(family, "cats")
@@ -1870,6 +1885,8 @@ family_bounds.brmsterms <- function(x, ...) {
     out <- list(lb = -pi, ub = pi)
   } else if (family %in% c("wiener", "shifted_lognormal")) {
     out <- list(lb = paste0("min_Y", resp), ub = Inf)
+  } else if (family %in% c("hurdle_cumulative")) {
+    out <- list(lb = 0, ub = paste0("ncat", resp))
   } else {
     out <- list(lb = -Inf, ub = Inf)
   }

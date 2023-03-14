@@ -325,7 +325,9 @@ stan_log_lik_multiply_rate_denom <- function(dpar, bterms, reqn, resp = "",
     denom <- glue("log_{denom}")
     operator <- "+"
   } else {
-    is_pred <- dpar %in% c("mu", names(bterms$dpars))
+    # dpar without resp name or index
+    dpar_clean <- sub("(_|\\[).*", "", dpar)
+    is_pred <- dpar_clean %in% c("mu", names(bterms$dpars))
     operator <- str_if(reqn || !is_pred, "*", ".*")
   }
   glue("{dpar_transform} {operator} {denom}")
@@ -368,13 +370,23 @@ stan_log_lik_gaussian_time <- function(bterms, resp = "", mix = "", ...) {
   if (stan_log_lik_adj(bterms)) {
     stop2("Invalid addition arguments for this model.")
   }
+  has_se <- is.formula(bterms$adforms$se)
+  flex <- has_ac_class(tidy_acef(bterms), "unstr")
   p <- stan_log_lik_dpars(bterms, FALSE, resp, mix)
-  v <- c("chol_cor", "se2", "nobs_tg", "begin_tg", "end_tg")
+  v <- c("Lcortime", "nobs_tg", "begin_tg", "end_tg")
+  if (has_se) {
+    c(v) <- "se2"
+  }
+  if (flex) {
+    c(v) <- "Jtime_tg"
+  }
   p[v] <- as.list(paste0(v, resp))
   sfx <- str_if("sigma" %in% names(bterms$dpars), "het", "hom")
+  sfx <- str_if(has_se, paste0(sfx, "_se"), sfx)
+  sfx <- str_if(flex, paste0(sfx, "_flex"), sfx)
   sdist(glue("normal_time_{sfx}"),
-    p$mu, p$sigma, p$chol_cor, p$se2,
-    p$nobs_tg, p$begin_tg, p$end_tg
+    p$mu, p$sigma, p$se2, p$Lcortime,
+    p$nobs_tg, p$begin_tg, p$end_tg, p$Jtime_tg
   )
 }
 
@@ -427,13 +439,23 @@ stan_log_lik_student_time <- function(bterms, resp = "", mix = "", ...) {
   if (stan_log_lik_adj(bterms)) {
     stop2("Invalid addition arguments for this model.")
   }
+  has_se <- is.formula(bterms$adforms$se)
+  flex <- has_ac_class(tidy_acef(bterms), "unstr")
   p <- stan_log_lik_dpars(bterms, FALSE, resp, mix)
-  v <- c("chol_cor", "se2", "nobs_tg", "begin_tg", "end_tg")
+  v <- c("Lcortime", "nobs_tg", "begin_tg", "end_tg")
+  if (has_se) {
+    c(v) <- "se2"
+  }
+  if (flex) {
+    c(v) <- "Jtime_tg"
+  }
   p[v] <- as.list(paste0(v, resp))
   sfx <- str_if("sigma" %in% names(bterms$dpars), "het", "hom")
+  sfx <- str_if(has_se, paste0(sfx, "_se"), sfx)
+  sfx <- str_if(flex, paste0(sfx, "_flex"), sfx)
   sdist(glue("student_t_time_{sfx}"),
-    p$nu, p$mu, p$sigma, p$chol_cor, p$se2,
-    p$nobs_tg, p$begin_tg, p$end_tg
+    p$nu, p$mu, p$sigma, p$se2, p$Lcortime,
+    p$nobs_tg, p$begin_tg, p$end_tg, p$Jtime_tg
   )
 }
 
@@ -701,9 +723,8 @@ stan_log_lik_von_mises <- function(bterms, resp = "", mix = "", ...) {
 stan_log_lik_cox <- function(bterms, resp = "", mix = "", threads = NULL,
                              ...) {
   p <- stan_log_lik_dpars(bterms, TRUE, resp, mix)
-  n <- stan_nn(threads)
-  p$bhaz <- paste0("bhaz", resp, n)
-  p$cbhaz <- paste0("cbhaz", resp, n)
+  p$bhaz <- paste0("bhaz", resp, "[n]")
+  p$cbhaz <- paste0("cbhaz", resp, "[n]")
   lpdf <- "cox"
   if (bterms$family$link == "log") {
     str_add(lpdf) <- "_log"
@@ -834,6 +855,38 @@ stan_log_lik_hurdle_lognormal <- function(bterms, resp = "", mix = "", ...) {
   usc_logit <- stan_log_lik_dpar_usc_logit("hu", bterms)
   lpdf <- paste0("hurdle_lognormal", usc_logit)
   sdist(lpdf, p$mu, p$sigma, p$hu)
+}
+
+stan_log_lik_hurdle_cumulative <- function(bterms, resp = "", mix = "",
+                                           threads = NULL, ...) {
+  prefix <- paste0(str_if(nzchar(mix), paste0("_mu", mix)), resp)
+  p <- stan_log_lik_dpars(bterms, TRUE, resp, mix)
+  if (use_ordered_logistic(bterms)) {
+    # TODO: support 'ordered_probit' as well
+    lpdf <- "hurdle_cumulative_ordered_logistic"
+  } else {
+    lpdf <- paste0(bterms$family$family, "_", bterms$family$link)
+  }
+  if (has_thres_groups(bterms)) {
+    str_add(lpdf) <- "_merged"
+    n <- stan_nn(threads)
+    p$Jthres <- paste0("Jthres", resp, n)
+    p$thres <- "merged_Intercept"
+  } else {
+    p$thres <- "Intercept"
+  }
+  str_add(p$thres) <- prefix
+  if (has_sum_to_zero_thres(bterms)) {
+    str_add(p$thres) <- "_stz"
+  }
+  if (has_cs(bterms)) {
+    if (has_thres_groups(bterms)) {
+      stop2("Cannot use category specific effects ",
+            "in models with multiple thresholds.")
+    }
+    str_add(p$thres) <- paste0(" - transpose(mucs", prefix, "[n])")
+  }
+  sdist(lpdf, p$mu, p$hu, p$disc, p$thres, p$Jthres)
 }
 
 stan_log_lik_zero_inflated_poisson <- function(bterms, resp = "", mix = "",
@@ -992,7 +1045,7 @@ args_glm_primitive <- function(bterms, resp = "", threads = NULL) {
 # use the ordered_logistic built-in functions
 use_ordered_logistic <- function(bterms) {
   stopifnot(is.brmsterms(bterms))
-  isTRUE(bterms$family$family == "cumulative") &&
+  isTRUE(bterms$family$family %in% c("cumulative", "hurdle_cumulative")) &&
     isTRUE(bterms$family$link == "logit") &&
     isTRUE(bterms$fdpars$disc$value == 1) &&
     !has_cs(bterms)

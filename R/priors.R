@@ -588,7 +588,8 @@ prior_predictor.brmsterms <- function(x, data, internal = FALSE, ...) {
       dp_prior <- prior_predictor(
         x$dpars[[dp]], data = data,
         def_scale_prior = def_scale_prior,
-        def_dprior = def_dprior
+        def_dprior = def_dprior,
+        internal = internal
       )
     } else if (!is.null(x$fdpars[[dp]])) {
       # parameter is fixed
@@ -608,7 +609,8 @@ prior_predictor.brmsterms <- function(x, data, internal = FALSE, ...) {
     nlp_prior <- prior_predictor(
       x$nlpars[[nlp]], data = data,
       def_scale_prior = def_scale_prior,
-      def_dprior = def_dprior
+      def_dprior = def_dprior,
+      internal = internal
     )
     prior <- prior + nlp_prior
   }
@@ -964,7 +966,7 @@ prior_sm <- function(bterms, data, def_scale_prior, ...) {
 }
 
 # priors for autocor parameters
-prior_ac <- function(bterms, def_scale_prior, ...) {
+prior_ac <- function(bterms, def_scale_prior, internal = FALSE, ...) {
   prior <- empty_prior()
   acef <- tidy_acef(bterms)
   if (!NROW(acef)) {
@@ -994,6 +996,15 @@ prior_ac <- function(bterms, def_scale_prior, ...) {
     # this causes problems with divergent transitions (#878)
     prior <- prior +
       brmsprior(class = "cosy", ls = px, lb = "0", ub = "1")
+  }
+  if (has_ac_class(acef, "unstr")) {
+    if (internal) {
+      prior <- prior +
+        brmsprior("lkj_corr_cholesky(1)", class = "Lcortime", ls = px)
+    } else {
+      prior <- prior +
+        brmsprior("lkj(1)", class = "cortime", ls = px)
+    }
   }
   if (has_ac_latent_residuals(bterms)) {
     prior <- prior +
@@ -1195,8 +1206,8 @@ validate_prior <- function(prior, formula, data, family = gaussian(),
   prior <- prior[!no_checks, ]
   # check for duplicated priors
   prior$class <- rename(
-    prior$class, c("^cor$", "^rescor$", "^corme$", "^lncor"),
-    c("L", "Lrescor", "Lme", "Llncor"), fixed = FALSE
+    prior$class, c("^cor$", "^rescor$", "^corme$", "^lncor", "^cortime"),
+    c("L", "Lrescor", "Lme", "Llncor", "Lcortime"), fixed = FALSE
   )
   if (any(duplicated(prior))) {
     stop2("Duplicated prior specifications are not allowed.")
@@ -1307,7 +1318,10 @@ check_prior_content <- function(prior) {
   lb_priors_regex <- paste0("^(", paste0(lb_priors, collapse = "|"), ")")
   ulb_priors <- c("beta", "uniform", "von_mises", "beta_proportion")
   ulb_priors_regex <- paste0("^(", paste0(ulb_priors, collapse = "|"), ")")
-  cormat_pars <- c("cor", "L", "rescor", "Lrescor", "corme", "Lme", "lncor", "Llncor")
+  cormat_pars <- c(
+    "cor", "L", "rescor", "Lrescor", "corme", "Lme",
+    "lncor", "Llncor", "cortime", "Lcortime"
+  )
   cormat_regex <- "^((lkj)|(constant))"
   simplex_pars <- c("simo", "theta", "sbhaz")
   simplex_regex <- "^((dirichlet)|(constant))\\("
@@ -1906,12 +1920,12 @@ eval_dirichlet <- function(prior, len = NULL, env = NULL) {
 #'   is greater \code{1}, the shape of the prior will no longer resemble
 #'   a horseshoe and it may be more appropriately called an hierarchical
 #'   shrinkage prior in this case.
-#' @param scale_slab Scale of the student-t prior of the regularization
-#'   parameter. Defaults to \code{2}. The original unregularized horseshoe
-#'   prior is obtained by setting \code{scale_slab} to infinite, which
-#'   we can approximate in practice by setting it to a very large real value.
-#' @param df_slab Degrees of freedom of the student-t prior of
-#'   the regularization parameter. Defaults to \code{4}.
+#' @param scale_slab Scale of the Student-t slab. Defaults to \code{2}. The
+#'   original unregularized horseshoe prior is obtained by setting
+#'   \code{scale_slab} to infinite, which we can approximate in practice by
+#'   setting it to a very large real value.
+#' @param df_slab Degrees of freedom of the student-t slab.
+#'   Defaults to \code{4}.
 #' @param par_ratio Ratio of the expected number of non-zero coefficients
 #'   to the expected number of zero coefficients. If specified,
 #'   \code{scale_global} is ignored and internally computed as
@@ -1986,7 +2000,7 @@ eval_dirichlet <- function(prior, len = NULL, env = NULL) {
 horseshoe <- function(df = 1, scale_global = 1, df_global = 1,
                       scale_slab = 2, df_slab = 4, par_ratio = NULL,
                       autoscale = TRUE) {
-  out <- deparse(match.call(), width.cutoff = 500L)
+  out <- deparse0(match.call())
   df <- as.numeric(df)
   df_global <- as.numeric(df_global)
   df_slab <- as.numeric(df_slab)
@@ -2056,7 +2070,7 @@ horseshoe <- function(df = 1, scale_global = 1, df_global = 1,
 #'
 #' @export
 R2D2 <- function(mean_R2 = 0.5, prec_R2 = 2, cons_D2 = 1, autoscale = TRUE) {
-  out <- deparse(match.call(), width.cutoff = 500L)
+  out <- deparse0(match.call())
   mean_R2 <- as_one_numeric(mean_R2)
   prec_R2 <- as_one_numeric(prec_R2)
   cons_D2 <- as.numeric(cons_D2)
@@ -2120,7 +2134,7 @@ R2D2 <- function(mean_R2 = 0.5, prec_R2 = 2, cons_D2 = 1, autoscale = TRUE) {
 #'
 #' @export
 lasso <- function(df = 1, scale = 1) {
-  out <- deparse(match.call(), width.cutoff = 500L)
+  out <- deparse0(match.call())
   df <- as.numeric(df)
   scale <- as.numeric(scale)
   if (!isTRUE(df > 0)) {

@@ -6,7 +6,7 @@
 #' @name diagnostic-quantities
 #' @aliases log_posterior nuts_params rhat neff_ratio
 #'
-#' @param object A \code{brmsfit} object.
+#' @param object,x A \code{brmsfit} object.
 #' @param pars An optional character vector of parameter names.
 #'   For \code{nuts_params} these will be NUTS sampler parameter
 #'   names rather than model parameters. If pars is omitted
@@ -54,12 +54,18 @@ nuts_params.brmsfit <- function(object, pars = NULL, ...) {
 }
 
 #' @rdname diagnostic-quantities
-#' @importFrom bayesplot rhat
+#' @importFrom posterior rhat
 #' @export rhat
 #' @export
-rhat.brmsfit <- function(object, pars = NULL, ...) {
-  contains_draws(object)
-  bayesplot::rhat(object$fit, pars = pars, ...)
+rhat.brmsfit <- function(x, pars = NULL, ...) {
+  contains_draws(x)
+  # bayesplot uses outdated rhat code from rstan
+  # bayesplot::rhat(object$fit, pars = pars, ...)
+  draws <- as_draws_array(x, variable = pars, ...)
+  tmp <- posterior::summarise_draws(draws, rhat = posterior::rhat)
+  rhat <- tmp$rhat
+  names(rhat) <- tmp$variable
+  rhat
 }
 
 #' @rdname diagnostic-quantities
@@ -68,7 +74,16 @@ rhat.brmsfit <- function(object, pars = NULL, ...) {
 #' @export
 neff_ratio.brmsfit <- function(object, pars = NULL, ...) {
   contains_draws(object)
-  bayesplot::neff_ratio(object$fit, pars = pars, ...)
+  # bayesplot uses outdated ess code from rstan
+  # bayesplot::neff_ratio(object$fit, pars = pars, ...)
+  draws <- as_draws_array(object, variable = pars, ...)
+  tmp <- posterior::summarise_draws(
+    draws, ess_bulk = posterior::ess_bulk, ess_tail = posterior::ess_tail
+  )
+  # min of ess_bulk and ess_tail mimics definition of posterior::rhat.default
+  ess <- matrixStats::rowMins(cbind(tmp$ess_bulk, tmp$ess_tail))
+  names(ess) <- tmp$variable
+  ess / ndraws(draws)
 }
 
 #' Extract Control Parameters of the NUTS Sampler

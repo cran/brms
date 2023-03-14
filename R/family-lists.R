@@ -292,7 +292,7 @@
     links = c("identity", "inverse"),
     dpars = c("mu", "sigma", "ndt"), type = "real",
     ybounds = c(0, Inf), closed = c(FALSE, NA),
-    ad = c("weights", "subset", "cens", "trunc", "mi", "index"),
+    ad = c("weights", "subset", "cens", "trunc", "index"),
     specials = "logscale"
   )
 }
@@ -476,6 +476,23 @@
     ad = c("weights", "subset", "cens", "trunc", "index"),
     include = "fun_hurdle_lognormal.stan",
     specials = c("logscale", "sbi_hu_logit"),
+    normalized = ""
+  )
+}
+
+.family_hurdle_cumulative <- function() {
+  list(
+    links = c(
+      "logit", "probit", "probit_approx",
+      "cloglog", "cauchit", "softit"
+    ),
+    dpars = c("mu", "hu", "disc"), type = "int",
+    ybounds = c(-Inf, Inf), closed = c(NA, NA),
+    ad = c("weights", "subset", "thres", "cat", "index"),
+    specials = c(
+      "ordinal", "ordered_thres", "thres_minus_eta",
+      "joint_link", "ocs", "sbi_logit", "extra_cat"
+    ),
     normalized = ""
   )
 }

@@ -55,9 +55,7 @@ stan_predictor.brmsterms <- function(x, data, prior, normalize, ...) {
     dp_comment <- stan_dpar_comments(dp, family = x$family)
     if (is.btl(dp_terms) || is.btnl(dp_terms)) {
       # distributional parameter is predicted
-      inv_link <- stan_eta_inv_link(dp, bterms = x, resp = resp)
-      dp_args <- list(dp_terms, inv_link = inv_link)
-      str_add_list(out) <- do_call(stan_predictor, c(dp_args, args))
+      str_add_list(out) <- do_call(stan_predictor, c(list(dp_terms), args))
     } else if (is.numeric(x$fdpars[[dp]]$value)) {
       # distributional parameter is fixed to constant
       if (is_mix_proportion(dp, family = x$family)) {
@@ -320,11 +318,14 @@ stan_fe <- function(bterms, data, prior, stanvars, threads, primitive,
       b_comment <- "population-level effects"
       if (has_special_b_prior) {
         stopif_prior_bound(prior, class = "b", ls = px)
+        b_def <- glue("  {b_type} b{p};  // {b_comment}\n")
         if (assign_b_tpar) {
           # only some special priors assign b in transformed parameters
-          str_add(out$tpar_def) <- glue("  {b_type} b{p};  // {b_comment}\n")
-          str_add(out$pll_args) <- glue(", vector b{p}")
+          str_add(out$tpar_def) <- b_def
+        } else {
+          str_add(out$par) <- b_def
         }
+        str_add(out$pll_args) <- glue(", vector b{p}")
       } else {
         str_add_list(out) <- stan_prior(
           prior, class = "b", coef = fixef, type = b_type,
@@ -338,11 +339,14 @@ stan_fe <- function(bterms, data, prior, stanvars, threads, primitive,
       b_suffix <- "Q"
       b_comment <- "regression coefficients at QR scale"
       if (has_special_b_prior) {
+        bQ_def <- glue("  {b_type} bQ{p};  // {b_comment}\n")
         if (assign_b_tpar) {
           # only some special priors assign b in transformed parameters
-          str_add(out$tpar_def) <- glue("  {b_type} bQ{p};  // {b_comment}\n")
-          str_add(out$pll_args) <- glue(", vector bQ{p}")
+          str_add(out$tpar_def) <- bQ_def
+        } else {
+          str_add(out$par) <- bQ_def
         }
+        str_add(out$pll_args) <- glue(", vector bQ{p}")
       } else {
         str_add_list(out) <- stan_prior(
           prior, class = "b", coef = fixef, type = b_type,
@@ -983,13 +987,17 @@ stan_sp <- function(bterms, data, prior, stanvars, ranef, meef, threads,
   # prepare special effects coefficients
   if (stan_has_special_b_prior(bterms, prior)) {
     stopif_prior_bound(prior, class = "b", ls = px)
+    bsp_def <- glue(
+      "  // special effects coefficients\n",
+      "  vector[Ksp{p}] bsp{p};\n"
+    )
     if (stan_assign_b_tpar(bterms, prior)) {
       # only some special priors assign b in transformed parameters
-      str_add(out$tpar_def) <- glue(
-        "  // special effects coefficients\n",
-        "  vector[Ksp{p}] bsp{p};\n"
-      )
+      str_add(out$tpar_def) <- bsp_def
+    } else {
+      str_add(out$par) <- bsp_def
     }
+    str_add(out$pll_args) <- glue(", vector bsp{p}")
   } else {
     str_add_list(out) <- stan_prior(
       prior, class = "b", coef = spef$coef,
@@ -1240,7 +1248,7 @@ stan_ac <- function(bterms, data, prior, threads, normalize, ...) {
   slice <- stan_slice(threads)
   has_natural_residuals <- has_natural_residuals(bterms)
   has_ac_latent_residuals <- has_ac_latent_residuals(bterms)
-  acef <- tidy_acef(bterms, data)
+  acef <- tidy_acef(bterms)
 
   if (has_ac_latent_residuals) {
     # families that do not have natural residuals require latent
@@ -1364,12 +1372,30 @@ stan_ac <- function(bterms, data, prior, threads, normalize, ...) {
     )
   }
 
+  acef_unstr <- subset2(acef, class = "unstr")
+  if (NROW(acef_unstr)) {
+    # unstructured correlation matrix
+    # most code is shared with ARMA covariance models
+    # define prior on the Cholesky scale to consistency across
+    # autocorrelation structures
+    str_add_list(out) <- stan_prior(
+      prior, class = "Lcortime", px = px, suffix = p,
+      type = glue("cholesky_factor_corr[n_unique_t{p}]"),
+      header_type = "matrix",
+      comment = "cholesky factor of unstructured autocorrelation matrix",
+      normalize = normalize
+    )
+  }
+
   acef_time_cov <- subset2(acef, dim = "time", cov = TRUE)
   if (NROW(acef_time_cov)) {
     # use correlation structures in covariance matrix parameterization
-    # optional for ARMA models and obligatory for COSY models
+    # optional for ARMA models and obligatory for COSY and UNSTR models
     # can only model one covariance structure at a time
     stopifnot(NROW(acef_time_cov) == 1)
+    if (use_threading(threads)) {
+      stop2("Threading is not supported for covariance-based autocorrelation models.")
+    }
     str_add(out$data) <- glue(
       "  // see the functions block for details\n",
       "  int<lower=1> N_tg{p};\n",
@@ -1377,46 +1403,75 @@ stan_ac <- function(bterms, data, prior, threads, normalize, ...) {
       "  int<lower=1> end_tg{p}[N_tg{p}];\n",
       "  int<lower=1> nobs_tg{p}[N_tg{p}];\n"
     )
+    str_add(out$pll_args) <- glue(
+      ", int[] begin_tg{p}, int[] end_tg{p}, int[] nobs_tg{p}"
+    )
     str_add(out$tdata_def) <- glue(
       "  int max_nobs_tg{p} = max(nobs_tg{p});",
       "  // maximum dimension of the autocorrelation matrix\n"
     )
-    if (!is.formula(bterms$adforms$se)) {
-      str_add(out$tdata_def) <- glue(
-        "  // no known standard errors specified by the user\n",
-        "  vector[N{resp}] se2{p} = rep_vector(0.0, N{resp});\n"
+    if (acef_time_cov$class == "unstr") {
+      # unstructured time-covariances require additional data and cannot
+      # be represented directly via Cholesky factors due to potentially
+      # different time subsets
+      str_add(out$data) <- glue(
+        "  int<lower=0> Jtime_tg{p}[N_tg{p}, max(nobs_tg{p})];\n",
+        "  int n_unique_t{p};  // total number of unique time points\n",
+        "  int n_unique_cortime{p};  // number of unique correlations\n"
       )
-    }
-    str_add(out$tpar_def) <- glue(
-      "  // cholesky factor of the autocorrelation matrix\n",
-      "  matrix[max_nobs_tg{p}, max_nobs_tg{p}] chol_cor{p};\n"
-    )
-    if (acef_time_cov$class == "arma") {
-      if (acef_time_cov$p > 0 && acef_time_cov$q == 0) {
-        cor_fun <- "ar1"
-        cor_args <- glue("ar{p}[1]")
-      } else if (acef_time_cov$p == 0 && acef_time_cov$q > 0) {
-        cor_fun <- "ma1"
-        cor_args <- glue("ma{p}[1]")
-      } else {
-        cor_fun <- "arma1"
-        cor_args <- glue("ar{p}[1], ma{p}[1]")
+      str_add(out$pll_args) <- glue(", int[,] Jtime_tg{p}")
+      if (has_ac_latent_residuals) {
+        str_add(out$tpar_comp) <- glue(
+          "  // compute correlated time-series residuals\n",
+          "  err{p} = scale_time_err_flex(",
+          "zerr{p}, sderr{p}, Lcortime{p}, nobs_tg{p}, begin_tg{p}, end_tg{p}, Jtime_tg{p});\n"
+        )
       }
-    } else if (acef_time_cov$class == "cosy") {
-      cor_fun <- "cosy"
-      cor_args <- glue("cosy{p}")
-    }
-    str_add(out$tpar_comp) <- glue(
-      "  // compute residual covariance matrix\n",
-      "  chol_cor{p} = cholesky_cor_{cor_fun}({cor_args}, max_nobs_tg{p});\n"
-    )
-    if (has_ac_latent_residuals) {
-      str_add(out$tpar_comp) <- glue(
-        "  // compute correlated time-series residuals\n",
-        "  err{p} = scale_time_err(",
-        "zerr{p}, sderr{p}, chol_cor{p}, nobs_tg{p}, begin_tg{p}, end_tg{p});\n"
+      str_add(out$gen_def) <- glue(
+        "  // compute group-level correlations\n",
+        "  corr_matrix[n_unique_t{p}] Cortime{p}",
+        " = multiply_lower_tri_self_transpose(Lcortime{p});\n",
+        "  vector<lower=-1,upper=1>[n_unique_cortime{p}] cortime{p};\n"
       )
+      str_add(out$gen_comp) <- stan_cor_gen_comp(
+        glue("cortime{p}"), glue("n_unique_t{p}")
+      )
+    } else {
+      # all other time-covariance structures can be represented directly
+      # through Cholesky factors of the correlation matrix
+      if (acef_time_cov$class == "arma") {
+        if (acef_time_cov$p > 0 && acef_time_cov$q == 0) {
+          cor_fun <- "ar1"
+          cor_args <- glue("ar{p}[1]")
+        } else if (acef_time_cov$p == 0 && acef_time_cov$q > 0) {
+          cor_fun <- "ma1"
+          cor_args <- glue("ma{p}[1]")
+        } else {
+          cor_fun <- "arma1"
+          cor_args <- glue("ar{p}[1], ma{p}[1]")
+        }
+      } else if (acef_time_cov$class == "cosy") {
+        cor_fun <- "cosy"
+        cor_args <- glue("cosy{p}")
+      }
+      str_add(out$tpar_def) <- glue(
+        "  // cholesky factor of the autocorrelation matrix\n",
+        "  matrix[max_nobs_tg{p}, max_nobs_tg{p}] Lcortime{p};\n"
+      )
+      str_add(out$pll_args) <- glue(", matrix Lcortime{p}")
+      str_add(out$tpar_comp) <- glue(
+        "  // compute residual covariance matrix\n",
+        "  Lcortime{p} = cholesky_cor_{cor_fun}({cor_args}, max_nobs_tg{p});\n"
+      )
+      if (has_ac_latent_residuals) {
+        str_add(out$tpar_comp) <- glue(
+          "  // compute correlated time-series residuals\n",
+          "  err{p} = scale_time_err(",
+          "zerr{p}, sderr{p}, Lcortime{p}, nobs_tg{p}, begin_tg{p}, end_tg{p});\n"
+        )
+      }
     }
+
   }
 
   acef_sar <- subset2(acef, class = "sar")
@@ -1611,9 +1666,7 @@ stan_offset <- function(bterms, threads, ...) {
 
 # Stan code for non-linear predictor terms
 # @param nlpars names of the non-linear parameters
-# @param inv_link character vector of length 2 defining the link to be applied
-stan_nl <- function(bterms, data, nlpars, threads, inv_link = rep("", 2), ...) {
-  stopifnot(length(inv_link) == 2L)
+stan_nl <- function(bterms, data, nlpars, threads, ...) {
   out <- list()
   resp <- usc(bterms$resp)
   par <- combine_prefix(bterms, keep_mu = TRUE, nlp = TRUE)
@@ -1656,7 +1709,7 @@ stan_nl <- function(bterms, data, nlpars, threads, inv_link = rep("", 2), ...) {
     ",", "==", "!=", "<=", ">=", "<", ">", "!", "&&", "||"
   )
   regex <- glue("(?<!\\.){escape_all(syms)}(?!=)")
-  eta <- rm_wsp(collapse(deparse(bterms$formula[[2]])))
+  eta <- rm_wsp(deparse0(bterms$formula[[2]]))
   eta <- wsp(rename(eta, regex, wsp(syms), fixed = FALSE, perl = TRUE))
   vars <- c(wsp(nlpars), wsp(covars), " ( ", " ) ")
   new_vars <- c(new_nlpars, new_covars, "(", ")")
@@ -1667,17 +1720,25 @@ stan_nl <- function(bterms, data, nlpars, threads, inv_link = rep("", 2), ...) {
     "  vector[N{resp}] {par};\n"
   )
   if (bterms$loop) {
+    inv_link <- stan_inv_link(
+      bterms$family$link, vectorize = FALSE,
+      transform = bterms$transform
+    )
     str_add(out$model_comp_dpar_link) <- glue(
       "  for (n in 1:N{resp}) {{\n",
       stan_nn_def(threads),
       "    // compute non-linear predictor values\n",
-      "    {par}[n] = {inv_link[1]}{eta}{inv_link[2]};\n",
+      "    {par}[n] = {inv_link}({eta});\n",
       "  }}\n"
     )
   } else {
+    inv_link <- stan_inv_link(
+      bterms$family$link, vectorize = TRUE,
+      transform = bterms$transform
+    )
     str_add(out$model_comp_dpar_link) <- glue(
       "  // compute non-linear predictor values\n",
-      "  {par} = {inv_link[1]}{eta}{inv_link[2]};\n"
+      "  {par} = {inv_link}({eta});\n"
     )
   }
   out
@@ -1799,12 +1860,10 @@ stan_Xme <- function(meef, prior, threads, normalize) {
 # @param bterms btl object
 # @param ranef output of tidy_ranef
 # @param primitive use Stan's GLM likelihood primitives?
-# @param inv_link character vector of length 2 defining the link to be applied
 # @param ... currently unused
 # @return list of character strings containing Stan code
-stan_eta_combine <- function(out, bterms, ranef, threads, primitive,
-                             inv_link = c("", ""), ...) {
-  stopifnot(is.list(out), is.btl(bterms), length(inv_link) == 2L)
+stan_eta_combine <- function(out, bterms, ranef, threads, primitive, ...) {
+  stopifnot(is.list(out), is.btl(bterms))
   if (primitive && !has_special_terms(bterms)) {
     # only overall effects and perhaps an intercept are present
     # which will be evaluated directly in the GLM primitive likelihood
@@ -1836,9 +1895,13 @@ stan_eta_combine <- function(out, bterms, ranef, threads, primitive,
   }
   out$loopeta <- NULL
   # possibly transform eta before it is passed to the likelihood
-  if (sum(nzchar(inv_link))) {
+  inv_link <- stan_inv_link(
+    bterms$family$link, vectorize = TRUE,
+    transform = bterms$transform
+  )
+  if (nzchar(inv_link)) {
     str_add(out$model_comp_dpar_link) <- glue(
-      "  {eta} = {inv_link[1]}{eta}{inv_link[2]};\n"
+      "  {eta} = {inv_link}({eta});\n"
     )
   }
   out
@@ -1929,27 +1992,11 @@ stan_eta_rsp <- function(r) {
   out
 }
 
-# does eta need to be transformed manually using the link functions
+# does eta need to be transformed manually using the inv_link function
 stan_eta_transform <- function(family, bterms) {
   no_transform <- family$link == "identity" ||
     has_joint_link(family) && !is.customfamily(family)
   !no_transform && !stan_has_built_in_fun(family, bterms)
-}
-
-# correctly apply inverse link to eta
-# @param dpar name of the parameter for which to define the link
-# @param bterms object of class 'brmsterms'
-# @param resp name of the response variable
-# @return a single character string
-stan_eta_inv_link <- function(dpar, bterms, resp = "") {
-  stopifnot(is.brmsterms(bterms))
-  out <- rep("", 2)
-  family <- bterms$dpars[[dpar]]$family
-  if (stan_eta_transform(family, bterms)) {
-    inv_link <- stan_inv_link(family$link)
-    out <- c(paste0(inv_link, "("), ")")
-  }
-  out
 }
 
 # indicate if the population-level design matrix should be centered
@@ -2092,7 +2139,7 @@ stan_dpar_transform <- function(bterms, prior, threads, normalize, ...) {
   }
   if (any(families %in% "logistic_normal")) {
     stopifnot(length(families) == 1L)
-    predcats <- get_predcats(bterms$family)
+    predcats <- make_stan_names(get_predcats(bterms$family))
     sigma_dpars <- glue("sigma{predcats}")
     reqn <- sigma_dpars %in% names(bterms$dpars)
     n <- ifelse(reqn, "[n]", "")

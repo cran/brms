@@ -2,11 +2,11 @@
 #'
 #' Specify autocorrelation terms in \pkg{brms} models. Currently supported terms
 #' are \code{\link{arma}}, \code{\link{ar}}, \code{\link{ma}},
-#' \code{\link{cosy}}, \code{\link{sar}}, \code{\link{car}}, and
-#' \code{\link{fcor}}. Terms can be directly specified within the formula, or
-#' passed to the \code{autocor} argument of \code{\link{brmsformula}} in the
-#' form of a one-sided formula. For deprecated ways of specifying
-#' autocorrelation terms, see \code{\link{cor_brms}}.
+#' \code{\link{cosy}}, \code{\link{unstr}}, \code{\link{sar}},
+#' \code{\link{car}}, and \code{\link{fcor}}. Terms can be directly specified
+#' within the formula, or passed to the \code{autocor} argument of
+#' \code{\link{brmsformula}} in the form of a one-sided formula. For deprecated
+#' ways of specifying autocorrelation terms, see \code{\link{cor_brms}}.
 #'
 #' @name autocor-terms
 #'
@@ -17,8 +17,8 @@
 #'
 #' @seealso \code{\link{brmsformula}}, \code{\link{acformula}},
 #'   \code{\link{arma}}, \code{\link{ar}}, \code{\link{ma}},
-#'   \code{\link{cosy}}, \code{\link{sar}}, \code{\link{car}},
-#'   \code{\link{fcor}}
+#'   \code{\link{cosy}}, \code{\link{unstr}}, \code{\link{sar}},
+#'   \code{\link{car}}, \code{\link{fcor}}
 #'
 #' @examples
 #' # specify autocor terms within the formula
@@ -72,9 +72,9 @@ NULL
 #'
 #' @export
 arma <- function(time = NA, gr = NA, p = 1, q = 1, cov = FALSE) {
-  label <- deparse(match.call())
-  time <- deparse(substitute(time))
-  gr <- deparse(substitute(gr))
+  label <- deparse0(match.call())
+  time <- deparse0(substitute(time))
+  gr <- deparse0(substitute(gr))
   .arma(time = time, gr = gr, p = p, q = q, cov = cov, label = label)
 }
 
@@ -102,9 +102,9 @@ arma <- function(time = NA, gr = NA, p = 1, q = 1, cov = FALSE) {
 #'
 #' @export
 ar <- function(time = NA, gr = NA, p = 1, cov = FALSE) {
-  label <- deparse(match.call())
-  time <- deparse(substitute(time))
-  gr <- deparse(substitute(gr))
+  label <- deparse0(match.call())
+  time <- deparse0(substitute(time))
+  gr <- deparse0(substitute(gr))
   .arma(time = time, gr = gr, p = p, q = 0, cov = cov, label = label)
 }
 
@@ -132,9 +132,9 @@ ar <- function(time = NA, gr = NA, p = 1, cov = FALSE) {
 #'
 #' @export
 ma <- function(time = NA, gr = NA, q = 1, cov = FALSE) {
-  label <- deparse(match.call())
-  time <- deparse(substitute(time))
-  gr <- deparse(substitute(gr))
+  label <- deparse0(match.call())
+  time <- deparse0(substitute(time))
+  gr <- deparse0(substitute(gr))
   .arma(time = time, gr = gr, p = 0, q = q, cov = cov, label = label)
 }
 
@@ -188,15 +188,47 @@ ma <- function(time = NA, gr = NA, q = 1, cov = FALSE) {
 #' }
 #'
 #' @export
-#' @export
 cosy <- function(time = NA, gr = NA) {
-  label <- deparse(match.call())
-  time <- deparse(substitute(time))
+  label <- deparse0(match.call())
+  time <- deparse0(substitute(time))
   time <- as_one_variable(time)
-  gr <- deparse(substitute(gr))
+  gr <- deparse0(substitute(gr))
   stopif_illegal_group(gr)
   out <- nlist(time, gr, label)
   class(out) <- c("cosy_term", "ac_term")
+  out
+}
+
+#' Set up UNSTR correlation structures
+#'
+#' Set up an unstructured (UNSTR) correlation term in \pkg{brms}. The function does
+#' not evaluate its arguments -- it exists purely to help set up a model with
+#' UNSTR terms.
+#'
+#' @inheritParams arma
+#'
+#' @return An object of class \code{'unstr_term'}, which is a list
+#'   of arguments to be interpreted by the formula
+#'   parsing functions of \pkg{brms}.
+#'
+#' @seealso \code{\link{autocor-terms}}
+#'
+#' @examples
+#' \dontrun{
+#' # add an unstructured correlation matrix for visits within the same patient
+#' fit <- brm(count ~ Trt + unstr(visit, patient), data = epilepsy)
+#' summary(fit)
+#' }
+#'
+#' @export
+unstr <- function(time, gr) {
+  label <- deparse0(match.call())
+  time <- deparse0(substitute(time))
+  time <- as_one_variable(time)
+  gr <- deparse0(substitute(gr))
+  stopif_illegal_group(gr)
+  out <- nlist(time, gr, label)
+  class(out) <- c("unstr_term", "ac_term")
   out
 }
 
@@ -247,11 +279,11 @@ cosy <- function(time = NA, gr = NA) {
 #'
 #' @export
 sar <- function(M, type = "lag") {
-  label <- deparse(match.call())
+  label <- deparse0(match.call())
   if (missing(M)) {
     stop2("Argument 'M' is missing in sar().")
   }
-  M <- deparse(substitute(M))
+  M <- deparse0(substitute(M))
   M <- as_one_variable(M)
   options <- c("lag", "error")
   type <- match.arg(type, options)
@@ -324,13 +356,13 @@ sar <- function(M, type = "lag") {
 #'
 #' @export
 car <- function(M, gr = NA, type = "escar") {
-  label <- deparse(match.call())
+  label <- deparse0(match.call())
   if (missing(M)) {
     stop2("Argument 'M' is missing in car().")
   }
-  M <- deparse(substitute(M))
+  M <- deparse0(substitute(M))
   M <- as_one_variable(M)
-  gr <- deparse(substitute(gr))
+  gr <- deparse0(substitute(gr))
   stopif_illegal_group(gr)
   options <- c("escar", "esicar", "icar", "bym2")
   type <- match.arg(type, options)
@@ -367,11 +399,11 @@ car <- function(M, gr = NA, type = "escar") {
 #'
 #' @export
 fcor <- function(M) {
-  label <- deparse(match.call())
+  label <- deparse0(match.call())
   if (missing(M)) {
     stop2("Argument 'M' is missing in fcor().")
   }
-  M <- deparse(substitute(M))
+  M <- deparse0(substitute(M))
   M <- as_one_variable(M)
   out <- nlist(M, label)
   class(out) <- c("fcor_term", "ac_term")
@@ -443,7 +475,7 @@ tidy_acef.brmsterms <- function(x, ...) {
 }
 
 #' @export
-tidy_acef.btl <- function(x, data = NULL, ...) {
+tidy_acef.btl <- function(x, ...) {
   form <- x[["ac"]]
   if (!is.formula(form)) {
     return(empty_acef())
@@ -471,6 +503,13 @@ tidy_acef.btl <- function(x, data = NULL, ...) {
     }
     if (is.cosy_term(ac)) {
       out$class[i] <- "cosy"
+      out$dim[i] <- "time"
+      out$time[i] <- ac$time
+      out$gr[i] <- ac$gr
+      out$cov[i] <- TRUE
+    }
+    if (is.unstr_term(ac)) {
+      out$class[i] <- "unstr"
       out$dim[i] <- "time"
       out$time[i] <- ac$time
       out$gr[i] <- ac$gr
@@ -638,6 +677,7 @@ validate_fcor_matrix <- function(M) {
 
 # regex to extract all parameter names of autocorrelation structures
 regex_autocor_pars <- function() {
+  # cortime is ignored here to allow custom renaming in summary.brmsfit
   p <- c("ar", "ma", "sderr", "cosy", "lagsar", "errorsar",
          "car", "sdcar", "rhocar")
   p <- paste0("(", p, ")", collapse = "|")
@@ -654,6 +694,10 @@ is.arma_term <- function(x) {
 
 is.cosy_term <- function(x) {
   inherits(x, "cosy_term")
+}
+
+is.unstr_term <- function(x) {
+  inherits(x, "unstr_term")
 }
 
 is.sar_term <- function(x) {

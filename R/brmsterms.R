@@ -128,6 +128,7 @@ brmsterms.brmsformula <- function(formula, check_response = TRUE,
       y$dpars[[dp]]$respform <- y$respform
       y$dpars[[dp]]$adforms <- y$adforms
     }
+    y$dpars[[dp]]$transform <- stan_eta_transform(y$dpars[[dp]]$family, y)
     check_cs(y$dpars[[dp]])
   }
 
@@ -230,7 +231,7 @@ brmsterms.mvbrmsformula <- function(formula, ...) {
   }
   out$allvars <- allvars_formula(lapply(out$terms, get_allvars))
   # required to find variables used solely in the response part
-  lhs_resp <- function(x) deparse_combine(lhs(x$respform)[[2]])
+  lhs_resp <- function(x) deparse0(lhs(x$respform)[[2]])
   out$respform <- paste0(ulapply(out$terms, lhs_resp), collapse = ",")
   out$respform <- formula(paste0("mvbind(", out$respform, ") ~ 1"))
   out$responses <- ulapply(out$terms, "[[", "resp")
@@ -510,7 +511,7 @@ terms_offset <- function(formula) {
     return(NULL)
   }
   vars <- attr(formula, "variables")
-  out <- ulapply(pos, function(i) deparse(vars[[i + 1]]))
+  out <- ulapply(pos, function(i) deparse0(vars[[i + 1]]))
   out <- str2formula(out)
   attr(out, "allvars") <- str2formula(all_vars(out))
   out
@@ -903,7 +904,7 @@ get_effect.btl <- function(x, target = "fe", ...) {
 
 #' @export
 get_effect.btnl <- function(x, target = "fe", ...) {
-  NULL
+  x[[target]]
 }
 
 all_terms <- function(x) {
@@ -924,7 +925,7 @@ regex_sp <- function(type = "all") {
   funs <- c(
     sm = "(s|(t2)|(te)|(ti))",
     gp = "gp", cs = "cse?", mmc = "mmc",
-    ac = "((arma)|(ar)|(ma)|(cosy)|(sar)|(car)|(fcor))"
+    ac = "((arma)|(ar)|(ma)|(cosy)|(unstr)|(sar)|(car)|(fcor))"
   )
   funs[all_sp_types()] <- all_sp_types()
   if ("sp" %in% type) {

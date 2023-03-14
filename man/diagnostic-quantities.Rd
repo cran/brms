@@ -16,12 +16,12 @@
 
 \method{nuts_params}{brmsfit}(object, pars = NULL, ...)
 
-\method{rhat}{brmsfit}(object, pars = NULL, ...)
+\method{rhat}{brmsfit}(x, pars = NULL, ...)
 
 \method{neff_ratio}{brmsfit}(object, pars = NULL, ...)
 }
 \arguments{
-\item{object}{A \code{brmsfit} object.}
+\item{object, x}{A \code{brmsfit} object.}
 
 \item{...}{Arguments passed to individual methods.}
 

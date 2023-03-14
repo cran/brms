@@ -667,6 +667,12 @@ test_that("pp_check has reasonable outputs", {
 
 test_that("posterior_epred has reasonable outputs", {
   expect_equal(dim(posterior_epred(fit1)), c(ndraws(fit1), nobs(fit1)))
+
+  # test that point_estimate produces identical draws
+  pe <- posterior_epred(fit1, point_estimate = "median",
+                        ndraws_point_estimate = 2)
+  expect_equal(nrow(pe), 2)
+  expect_true(all(pe[1, ] == pe[2, ]))
 })
 
 test_that("pp_mixture has reasonable outputs", {
@@ -980,10 +986,10 @@ test_that("waic has reasonable outputs", {
 })
 
 test_that("diagnostic convenience functions have reasonable outputs", {
-  expect_true(is(log_posterior(fit1), "data.frame"))
-  expect_true(is(nuts_params(fit1), "data.frame"))
-  expect_true(is(rhat(fit1), "numeric"))
-  expect_true(is(neff_ratio(fit1), "numeric"))
+  expect_true(is.data.frame(log_posterior(fit1)))
+  expect_true(is.data.frame(nuts_params(fit1)))
+  expect_true(is.numeric(rhat(fit1)))
+  expect_true(is.numeric(SW(neff_ratio(fit1))))
 })
 
 test_that("contrasts of grouping factors are not stored #214", {

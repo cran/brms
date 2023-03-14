@@ -2,8 +2,8 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using 'Stan'
-Version: 2.18.0
-Date: 2022-09-11
+Version: 2.19.0
+Date: 2023-03-13
 Authors@R: 
     c(person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
              role = c("aut", "cre")),
@@ -15,14 +15,15 @@ Authors@R:
       person("Frank", "Weber", role = c("ctb")),
       person("Mattan S.", "Ben-Shachar", role = c("ctb")),
       person("Hayden", "Rabel", role = c("ctb")),
-      person("Simon C.", "Mills", role = c("ctb")))
+      person("Simon C.", "Mills", role = c("ctb")),
+      person("Stephen", "Wild", role = c("ctb")))
 Depends: R (>= 3.5.0), Rcpp (>= 0.12.0), methods
 Imports: rstan (>= 2.19.2), ggplot2 (>= 2.0.0), loo (>= 2.3.1),
         posterior (>= 1.0.0), Matrix (>= 1.1.1), mgcv (>= 1.8-13),
         rstantools (>= 2.1.1), bayesplot (>= 1.5.0), shinystan (>=
-        2.4.0), bridgesampling (>= 0.3-0), glue (>= 1.3.0), future (>=
-        1.19.0), matrixStats, nleqslv, nlme, coda, abind, stats, utils,
-        parallel, grDevices, backports
+        2.4.0), bridgesampling (>= 0.3-0), glue (>= 1.3.0), rlang (>=
+        1.0.0), future (>= 1.19.0), matrixStats, nleqslv, nlme, coda,
+        abind, stats, utils, parallel, grDevices, backports
 Suggests: testthat (>= 0.9.1), emmeans (>= 1.4.2), cmdstanr (>= 0.5.0),
         projpred (>= 2.0.0), RWiener, rtdists, extraDistr, processx,
         mice, spdep, mnormt, lme4, MCMCglmm, splines2, ape, arm,
@@ -53,8 +54,8 @@ URL: https://github.com/paul-buerkner/brms,
 BugReports: https://github.com/paul-buerkner/brms/issues
 Additional_repositories: https://mc-stan.org/r-packages/
 VignetteBuilder: knitr, R.rsp
-RoxygenNote: 7.2.1
-Packaged: 2022-09-19 11:56:34 UTC; paul.buerkner
+RoxygenNote: 7.2.3
+Packaged: 2023-03-13 14:48:06 UTC; paul.buerkner
 Author: Paul-Christian Bürkner [aut, cre],
   Jonah Gabry [ctb],
   Sebastian Weber [ctb],
@@ -64,7 +65,8 @@ Author: Paul-Christian Bürkner [aut, cre],
   Frank Weber [ctb],
   Mattan S. Ben-Shachar [ctb],
   Hayden Rabel [ctb],
-  Simon C. Mills [ctb]
+  Simon C. Mills [ctb],
+  Stephen Wild [ctb]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2022-09-19 13:56:19 UTC
+Date/Publication: 2023-03-14 15:40:08 UTC

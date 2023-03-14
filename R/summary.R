@@ -98,9 +98,9 @@ summary.brmsfit <- function(object, priors = FALSE, prob = 0.95,
 
   variables <- variables(object)
   incl_classes <- c(
-    "b", "bs", "bcs", "bsp", "bmo", "bme", "bmi", "bm", 
-    valid_dpars(object), "delta", "lncor", "rescor", "ar", "ma", 
-    "sderr", "cosy", "lagsar", "errorsar", "car", "sdcar", "rhocar", 
+    "b", "bs", "bcs", "bsp", "bmo", "bme", "bmi", "bm",
+    valid_dpars(object), "delta", "lncor", "rescor", "ar", "ma", "sderr",
+    "cosy", "cortime", "lagsar", "errorsar", "car", "sdcar", "rhocar",
     "sd", "cor", "df", "sds", "sdgp", "lscale", "simo"
   )
   incl_regex <- paste0("^", regex_or(incl_classes), "(_|$|\\[)")
@@ -159,6 +159,13 @@ summary.brmsfit <- function(object, priors = FALSE, prob = 0.95,
   cor_pars <- variables[grepl(regex_autocor_pars(), variables)]
   out$cor_pars <- full_summary[cor_pars, , drop = FALSE]
   rownames(out$cor_pars) <- cor_pars
+  cortime_pars <- variables[grepl("^cortime_", variables)]
+  if (length(cortime_pars)) {
+    tmp <- full_summary[cortime_pars, , drop = FALSE]
+    cortime_pars <- sub("__", ",", sub("__", "(", cortime_pars))
+    rownames(tmp) <- paste0(cortime_pars, ")")
+    out$cor_pars <- rbind(out$cor_pars, tmp)
+  }
 
   # summary of group-level effects
   for (g in out$group) {
@@ -234,63 +241,70 @@ print.brmssummary <- function(x, digits = 2, ...) {
   ))
   if (!isTRUE(nzchar(x$sampler))) {
     cat("\nThe model does not contain posterior draws.\n")
-  } else {
+    return(invisible(x))
+  }
+  # TODO: make this option a user-facing argument?
+  short <- as_one_logical(getOption("brms.short_summary", FALSE))
+  if (!short) {
     total_ndraws <- ceiling((x$iter - x$warmup) / x$thin * x$chains)
     cat(paste0(
       "  Draws: ", x$chains, " chains, each with iter = ", x$iter,
       "; warmup = ", x$warmup, "; thin = ", x$thin, ";\n",
-      "         total post-warmup draws = ", total_ndraws, "\n\n"
+      "         total post-warmup draws = ", total_ndraws, "\n"
     ))
-    if (nrow(x$prior)) {
-      cat("Priors: \n")
-      print(x$prior, show_df = FALSE)
+  }
+  cat("\n")
+  if (nrow(x$prior)) {
+    cat("Priors: \n")
+    print(x$prior, show_df = FALSE)
+    cat("\n")
+  }
+  if (length(x$splines)) {
+    cat("Smooth Terms: \n")
+    print_format(x$splines, digits)
+    cat("\n")
+  }
+  if (length(x$gp)) {
+    cat("Gaussian Process Terms: \n")
+    print_format(x$gp, digits)
+    cat("\n")
+  }
+  if (nrow(x$cor_pars)) {
+    cat("Correlation Structures:\n")
+    # TODO: better printing for correlation structures?
+    print_format(x$cor_pars, digits)
+    cat("\n")
+  }
+  if (length(x$random)) {
+    cat("Group-Level Effects: \n")
+    for (i in seq_along(x$random)) {
+      g <- names(x$random)[i]
+      cat(paste0("~", g, " (Number of levels: ", x$ngrps[[g]], ") \n"))
+      print_format(x$random[[g]], digits)
       cat("\n")
     }
-    if (length(x$splines)) {
-      cat("Smooth Terms: \n")
-      print_format(x$splines, digits)
-      cat("\n")
-    }
-    if (length(x$gp)) {
-      cat("Gaussian Process Terms: \n")
-      print_format(x$gp, digits)
-      cat("\n")
-    }
-    if (nrow(x$cor_pars)) {
-      cat("Correlation Structures:\n")
-      # TODO: better printing for correlation structures?
-      print_format(x$cor_pars, digits)
-      cat("\n")
-    }
-    if (length(x$random)) {
-      cat("Group-Level Effects: \n")
-      for (i in seq_along(x$random)) {
-        g <- names(x$random)[i]
-        cat(paste0("~", g, " (Number of levels: ", x$ngrps[[g]], ") \n"))
-        print_format(x$random[[g]], digits)
-        cat("\n")
-      }
-    }
-    if (nrow(x$fixed)) {
-      cat("Population-Level Effects: \n")
-      print_format(x$fixed, digits)
-      cat("\n")
-    }
-    if (length(x$mo)) {
-      cat("Simplex Parameters: \n")
-      print_format(x$mo, digits)
-      cat("\n")
-    }
-    if (nrow(x$spec_pars)) {
-      cat("Family Specific Parameters: \n")
-      print_format(x$spec_pars, digits)
-      cat("\n")
-    }
-    if (length(x$rescor_pars)) {
-      cat("Residual Correlations: \n")
-      print_format(x$rescor, digits)
-      cat("\n")
-    }
+  }
+  if (nrow(x$fixed)) {
+    cat("Population-Level Effects: \n")
+    print_format(x$fixed, digits)
+    cat("\n")
+  }
+  if (length(x$mo)) {
+    cat("Simplex Parameters: \n")
+    print_format(x$mo, digits)
+    cat("\n")
+  }
+  if (nrow(x$spec_pars)) {
+    cat("Family Specific Parameters: \n")
+    print_format(x$spec_pars, digits)
+    cat("\n")
+  }
+  if (length(x$rescor_pars)) {
+    cat("Residual Correlations: \n")
+    print_format(x$rescor, digits)
+    cat("\n")
+  }
+  if (!short) {
     cat(paste0("Draws were sampled using ", x$sampler, ". "))
     if (x$algorithm == "sampling") {
       cat(paste0(

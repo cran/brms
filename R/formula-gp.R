@@ -117,9 +117,9 @@ gp <- function(..., by = NA, k = NA, cov = "exp_quad", iso = TRUE,
                gr = TRUE, cmc = TRUE, scale = TRUE, c = NULL) {
   cov <- match.arg(cov, choices = c("exp_quad"))
   call <- match.call()
-  label <- deparse(call)
+  label <- deparse0(call)
   vars <- as.list(substitute(list(...)))[-1]
-  by <- deparse(substitute(by))
+  by <- deparse0(substitute(by))
   cmc <- as_one_logical(cmc)
   if (is.null(call[["gr"]]) && require_old_default("2.12.8")) {
     # the default of 'gr' has changed in version 2.12.8
@@ -158,7 +158,7 @@ gp <- function(..., by = NA, k = NA, cov = "exp_quad", iso = TRUE,
     c <- NA
   }
   scale <- as_one_logical(scale)
-  term <- ulapply(vars, deparse, backtick = TRUE, width.cutoff = 500)
+  term <- ulapply(vars, deparse0, backtick = TRUE, width.cutoff = 500L)
   out <- nlist(term, label, by, cov, k, iso, gr, cmc, scale, c)
   structure(out, class = "gp_term")
 }

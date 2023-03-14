@@ -9,6 +9,10 @@
 #' @aliases bridge_sampler
 #'
 #' @param samples A \code{brmsfit} object.
+#' @param recompile Logical, indicating whether the Stan model should be
+#'   recompiled. This may be necessary if you are running bridge sampling on
+#'   another machine than the one used to fit the model. No recompilation
+#'   is done by default.
 #' @param ... Additional arguments passed to
 #'   \code{\link[bridgesampling:bridge_sampler]{bridge_sampler.stanfit}}.
 #'
@@ -62,7 +66,7 @@
 #' @importFrom bridgesampling bridge_sampler
 #' @export bridge_sampler
 #' @export
-bridge_sampler.brmsfit <- function(samples, ...) {
+bridge_sampler.brmsfit <- function(samples, recompile = FALSE, ...) {
   out <- get_criterion(samples, "marglik")
   if (inherits(out, "bridge") && !is.na(out$logml)) {
     # return precomputed criterion
@@ -81,13 +85,15 @@ bridge_sampler.brmsfit <- function(samples, ...) {
       "usable in method 'bridge_sampler'."
     )
   }
-  # otherwise bridge_sampler might not work in a new R session
-  samples <- update_misc_env(samples)
+  # otherwise bridge_sampler may fail in a new R session or on another machine
+  samples <- update_misc_env(samples, recompile = recompile)
   out <- try(bridge_sampler(samples$fit, ...))
   if (is(out, "try-error")) {
     stop2(
       "Bridgesampling failed. Perhaps you did not set ",
-      "'save_pars = save_pars(all = TRUE)' when fitting your model?"
+      "'save_pars = save_pars(all = TRUE)' when fitting your model? ",
+      "If you are running bridge sampling on another machine than the one ",
+      "used to fit the model, you may need to set recompile = TRUE."
     )
   }
   out
@@ -157,8 +163,8 @@ bridge_sampler.brmsfit <- function(samples, ...) {
 #' @export bayes_factor
 #' @export
 bayes_factor.brmsfit <- function(x1, x2, log = FALSE, ...) {
-  model_name_1 <- deparse_combine(substitute(x1))
-  model_name_2 <- deparse_combine(substitute(x2))
+  model_name_1 <- deparse0(substitute(x1))
+  model_name_2 <- deparse0(substitute(x2))
   match_response(list(x1, x2))
   bridge1 <- bridge_sampler(x1, ...)
   bridge2 <- bridge_sampler(x2, ...)

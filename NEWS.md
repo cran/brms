@@ -1,3 +1,27 @@
+# brms 2.19.0
+
+### New Features
+
+* Model unstructured autocorrelation matrices via the `unstr` term
+thanks to the help of Sebastian Weber. (#1435)
+* Model ordinal data with an extra category (non-response or similar)
+via the `hurdle_cumulative` family thanks to Stephen Wild. (#1448)
+* Improve user control over model recompilation via argument `recompile`
+in post-processing methods that require a compiled Stan model.
+* Extend control over the `point_estimate` feature in `prepare_predictions`
+via the new argument `ndraws_point_estimate`.
+* Add support for the latent projection available in 
+**projpred** versions >= 2.4.0. (#1451)
+
+### Bug Fixes
+
+* Fix a Stan syntax error in threaded models with `lasso` priors. (#1427)
+* Fix Stan compilation issues for some of the more special 
+link functions such as `cauchit` or `softplus`.
+* Fix a bug for predictions in **projpred**, previously requiring more variables
+in `newdata` than necessary. (#1457, #1459, #1460)
+
+
 # brms 2.18.0
 
 ### New Features

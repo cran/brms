@@ -12,7 +12,7 @@
 
 <meta name="author" content="Paul Bürkner" />
 
-<meta name="date" content="2022-09-19" />
+<meta name="date" content="2023-03-13" />
 
 <title>Parameterization of Response Distributions in brms</title>
 
@@ -31,13 +31,13 @@ document.addEventListener('DOMContentLoaded', function(e) {
 </script>
 
 <style type="text/css">
-  code{white-space: pre-wrap;}
-  span.smallcaps{font-variant: small-caps;}
-  span.underline{text-decoration: underline;}
-  div.column{display: inline-block; vertical-align: top; width: 50%;}
-  div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-  ul.task-list{list-style: none;}
-    </style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
 
 
 
@@ -240,24 +240,26 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 <h1 class="title toc-ignore">Parameterization of Response Distributions
 in brms</h1>
 <h4 class="author">Paul Bürkner</h4>
-<h4 class="date">2022-09-19</h4>
+<h4 class="date">2023-03-13</h4>
 
 
 <div id="TOC">
 <ul>
-<li><a href="#notation">Notation</a></li>
-<li><a href="#location-shift-models">Location shift models</a></li>
-<li><a href="#binary-and-count-data-models">Binary and count data
+<li><a href="#notation" id="toc-notation">Notation</a></li>
+<li><a href="#location-shift-models" id="toc-location-shift-models">Location shift models</a></li>
+<li><a href="#binary-and-count-data-models" id="toc-binary-and-count-data-models">Binary and count data
 models</a></li>
-<li><a href="#time-to-event-models">Time-to-event models</a></li>
-<li><a href="#extreme-value-models">Extreme value models</a></li>
-<li><a href="#response-time-models">Response time models</a></li>
-<li><a href="#quantile-regression">Quantile regression</a></li>
-<li><a href="#probability-models">Probability models</a></li>
-<li><a href="#circular-models">Circular models</a></li>
-<li><a href="#ordinal-and-categorical-models">Ordinal and categorical
+<li><a href="#time-to-event-models" id="toc-time-to-event-models">Time-to-event models</a></li>
+<li><a href="#extreme-value-models" id="toc-extreme-value-models">Extreme value models</a></li>
+<li><a href="#response-time-models" id="toc-response-time-models">Response time models</a></li>
+<li><a href="#quantile-regression" id="toc-quantile-regression">Quantile
+regression</a></li>
+<li><a href="#probability-models" id="toc-probability-models">Probability models</a></li>
+<li><a href="#circular-models" id="toc-circular-models">Circular
 models</a></li>
-<li><a href="#zero-inflated-and-hurdle-models">Zero-inflated and hurdle
+<li><a href="#ordinal-and-categorical-models" id="toc-ordinal-and-categorical-models">Ordinal and categorical
+models</a></li>
+<li><a href="#zero-inflated-and-hurdle-models" id="toc-zero-inflated-and-hurdle-models">Zero-inflated and hurdle
 models</a></li>
 </ul>
 </div>

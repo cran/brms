@@ -316,7 +316,7 @@ test_that("link functions appear in the Stan code", {
                               family = skew_normal("log")),
                "mu_y = exp(mu_y);")
   expect_match2(make_stancode(y ~ x, dat, family = von_mises(tan_half)),
-               "mu = inv_tan_half(mu);")
+               "mu = inv_tan_half_vector(mu);")
   expect_match2(make_stancode(y ~ x, dat, family = weibull()),
                 "mu = exp(mu);")
   expect_match2(make_stancode(y ~ x, dat, family = poisson("sqrt")),
@@ -328,6 +328,11 @@ test_that("link functions appear in the Stan code", {
   expect_match2(scode, "mu = inv_logit(mu);")
   scode <- make_stancode(y ~ x, dat, family = beta_binomial('cloglog'))
   expect_match2(scode, "mu = inv_cloglog(mu);")
+  scode <- make_stancode(y ~ x, dat, family = beta_binomial('cauchit'))
+  expect_match2(scode, "mu = inv_cauchit_vector(mu);")
+
+  scode <- make_stancode(y ~ x, dat, family = cumulative('cauchit'))
+  expect_match2(scode, "p = inv_cauchit(disc * (thres[1] - mu));")
 })
 
 test_that("Stan GLM primitives are applied correctly", {
@@ -444,27 +449,27 @@ test_that("self-defined functions appear in the Stan code", {
   # cauchit link
   scode <- make_stancode(rating ~ treat, data = inhaler,
                          family = bernoulli("cauchit"))
-  expect_match2(scode, "vector inv_cauchit(vector y)")
+  expect_match2(scode, "real inv_cauchit(real y)")
 
   # softplus link
   scode <- make_stancode(rating ~ treat, data = inhaler,
                          family = brmsfamily("poisson", "softplus"))
-  expect_match2(scode, "vector log_expm1(vector x)")
+  expect_match2(scode, "vector log_expm1_vector(vector x)")
 
   # squareplus link
   scode <- make_stancode(rating ~ treat, data = inhaler,
                          family = brmsfamily("poisson", "squareplus"))
-  expect_match2(scode, "vector squareplus(vector x)")
+  expect_match2(scode, "real squareplus(real x)")
 
   # tan_half link
   expect_match2(make_stancode(rating ~ treat, data = inhaler,
                               family = von_mises("tan_half")),
-               "vector inv_tan_half(vector y)")
+               "vector inv_tan_half_vector(vector y)")
 
   # logm1 link
   expect_match2(make_stancode(rating ~ treat, data = inhaler,
                               family = frechet()),
-                "vector expp1(vector y)")
+                "real expp1(real y)")
 
   # inverse gaussian models
   scode <- make_stancode(time | cens(censored) ~ age, data = kidney,
@@ -761,7 +766,7 @@ test_that("Stan code for ARMA models is correct", {
 
   bform <- bf(y ~ x, sigma ~ x) + acformula(~arma(time, cov = TRUE))
   scode <- make_stancode(bform, dat, family = student)
-  expect_match2(scode, "student_t_time_het_lpdf(Y | nu, mu, sigma, chol_cor")
+  expect_match2(scode, "student_t_time_het_lpdf(Y | nu, mu, sigma, Lcortime")
 
   bform <- bf(y ~ exp(eta) - 1, eta ~ x, autocor = ~ar(time), nl = TRUE)
   scode <- make_stancode(bform, dat, family = student,
@@ -773,9 +778,9 @@ test_that("Stan code for ARMA models is correct", {
     y ~ x + ar(time, cov = TRUE), dat, family = poisson,
     prior = prior(cauchy(0, 10), class = sderr)
   )
-  expect_match2(scode, "chol_cor = cholesky_cor_ar1(ar[1], max_nobs_tg);")
+  expect_match2(scode, "Lcortime = cholesky_cor_ar1(ar[1], max_nobs_tg);")
   expect_match2(scode,
-    "err = scale_time_err(zerr, sderr, chol_cor, nobs_tg, begin_tg, end_tg);"
+    "err = scale_time_err(zerr, sderr, Lcortime, nobs_tg, begin_tg, end_tg);"
   )
   expect_match2(scode, "mu += Intercept + Xc * b + err;")
   expect_match2(scode, "lprior += cauchy_lpdf(sderr | 0, 10)")
@@ -798,14 +803,53 @@ test_that("Stan code for compound symmetry models is correct", {
     prior = prior(normal(0, 2), cosy)
   )
   expect_match2(scode, "real<lower=0,upper=1> cosy;")
-  expect_match2(scode, "chol_cor = cholesky_cor_cosy(cosy, max_nobs_tg);")
+  expect_match2(scode, "Lcortime = cholesky_cor_cosy(cosy, max_nobs_tg);")
   expect_match2(scode, "lprior += normal_lpdf(cosy | 0, 2)")
 
   scode <- make_stancode(bf(y ~ x + cosy(time), sigma ~ x), dat)
-  expect_match2(scode, "normal_time_het_lpdf(Y | mu, sigma, chol_cor")
+  expect_match2(scode, "normal_time_het_lpdf(Y | mu, sigma, Lcortime")
 
   scode <- make_stancode(y ~ x + cosy(time), dat, family = poisson)
-  expect_match2(scode, "chol_cor = cholesky_cor_cosy(cosy, max_nobs_tg);")
+  expect_match2(scode, "Lcortime = cholesky_cor_cosy(cosy, max_nobs_tg);")
+})
+
+test_that("Stan code for UNSTR covariance terms is correct", {
+  dat <- data.frame(y = 1:12, x = rnorm(12), tim = c(5:1, 1:5, c(0, 4)),
+                    g = c(rep(3:4, 5), rep(2, 2)))
+
+  scode <- make_stancode(y ~ x + unstr(tim, g), data = dat)
+  expect_match2(scode, "normal_time_hom_flex_lpdf(Y | mu, sigma, Lcortime, nobs_tg, begin_tg, end_tg, Jtime_tg);")
+  expect_match2(scode, "cortime[choose(k - 1, 2) + j] = Cortime[j, k];")
+  expect_match2(scode, "lprior += lkj_corr_cholesky_lpdf(Lcortime | 1);")
+
+  scode <- make_stancode(
+    y ~ x + unstr(tim, g), data = dat,
+    family = student(), prior = prior(lkj(4), cortime)
+  )
+  expect_match2(scode, "student_t_time_hom_flex_lpdf(Y | nu, mu, sigma, Lcortime, nobs_tg, begin_tg, end_tg, Jtime_tg);")
+  expect_match2(scode, "lprior += lkj_corr_cholesky_lpdf(Lcortime | 4);")
+
+  # test standard error
+  scode <- make_stancode(
+    y | se(1, sigma = TRUE) ~ x + unstr(tim, g),
+    data = dat, family = gaussian(),
+  )
+  expect_match2(scode, "normal_time_hom_se_flex_lpdf(Y | mu, sigma, se2, Lcortime, nobs_tg, begin_tg, end_tg, Jtime_tg);")
+
+  # test latent representation
+  scode <- make_stancode(
+    y ~ x + unstr(tim, g), data = dat,
+    family = poisson()
+  )
+  expect_match2(scode, "err = scale_time_err_flex(zerr, sderr, Lcortime, nobs_tg, begin_tg, end_tg,")
+  expect_match2(scode, "mu += Intercept + Xc * b + err;")
+
+  # non-linear model
+  scode <- make_stancode(
+    bf(y ~ a, a ~ x, autocor = ~ unstr(tim, g), nl = TRUE),
+    data = dat, family = student(), prior = prior(normal(0,1), nlpar = a)
+  )
+  expect_match2(scode, "student_t_time_hom_flex_lpdf(Y | nu, mu, sigma, Lcortime, nobs_tg, begin_tg, end_tg, Jtime_tg);")
 })
 
 test_that("Stan code for intercept only models is correct", {
@@ -970,6 +1014,55 @@ test_that("grouped ordinal thresholds appear in the Stan code", {
   expect_match2(scode, "merged_Intercept_y[Kthres_start_y[2]:Kthres_end_y[2]] = Intercept_y_2;")
 })
 
+
+test_that("Stan code of hurdle cumulative model is correct", {
+  dat <- data.frame(y = rep(0:4, 2),
+                    x1 = rnorm(10),
+                    x2 = rnorm(10),
+                    g = factor(rep(1:2, 5)))
+
+  scode <- make_stancode(
+    y ~ x1, dat, family = hurdle_cumulative(),
+    prior = prior(normal(0, 2), Intercept, coef = 2)
+  )
+  expect_match2(scode,
+    "target += hurdle_cumulative_ordered_logistic_lpmf(Y[n] | mu[n], hu, disc, Intercept);"
+  )
+
+  scode <- make_stancode(
+    bf(y ~ x1, hu ~ x2), dat,
+    hurdle_cumulative("probit", threshold = "equidistant"),
+    prior = prior(normal(0, 2), Intercept)
+  )
+
+  expect_match2(scode, "real hurdle_cumulative_probit_lpmf(int y")
+  expect_match2(scode, "p = Phi(disc * (thres[1] - mu)) * (1 - hu);")
+  expect_match2(scode, "Intercept[k] = first_Intercept + (k - 1.0) * delta;")
+
+
+  # sum-to-zero thresholds
+  scode <- make_stancode(
+    bf(y ~ x1, hu ~ x2, disc ~ g), dat,
+    hurdle_cumulative("cloglog", threshold = "sum_to_zero"),
+    prior = prior(normal(0, 2), Intercept)
+  )
+  expect_match2(scode, "Intercept_stz = Intercept - mean(Intercept);")
+  expect_match2(scode, "hurdle_cumulative_cloglog_lpmf(Y[n] | mu[n], hu[n], disc[n], Intercept_stz);")
+  expect_match2(scode, "vector[nthres] b_Intercept = Intercept_stz;")
+
+
+  # non-linear ordinal models
+  scode <- make_stancode(
+    bf(y ~ eta, eta ~ x1, nl = TRUE),
+    dat,
+    family = hurdle_cumulative(),
+    prior = prior(normal(0, 2), nlpar = eta)
+  )
+  expect_match2(scode,
+    "target += hurdle_cumulative_ordered_logistic_lpmf(Y[n] | mu[n], hu, disc, Intercept);"
+  )
+})
+
 test_that("monotonic effects appear in the Stan code", {
   dat <- data.frame(y = rpois(120, 10), x1 = rep(1:4, 30),
                     x2 = factor(rep(c("a", "b", "c"), 40), ordered = TRUE),
@@ -1037,7 +1130,7 @@ test_that("Stan code for non-linear models is correct", {
     data = data, prior = prior
   )
   expect_match2(scode,
-    "mu[n] = nlp_a[n] - exp(nlp_b[n] ^ C_1[n]) * (C_1[n] <= nlp_a[n]) * C_2[n];"
+    "mu[n] = (nlp_a[n] - exp(nlp_b[n] ^ C_1[n]) * (C_1[n] <= nlp_a[n]) * C_2[n]);"
   )
   expect_match2(scode, "vector[N] C_1;")
   expect_match2(scode, "int C_2[N];")
@@ -1046,14 +1139,14 @@ test_that("Stan code for non-linear models is correct", {
   scode <- make_stancode(bf(y ~ a - exp(b + z), flist = flist,
                             nl = TRUE, loop = FALSE),
                          data = data, prior = prior)
-  expect_match2(scode, "mu = nlp_a - exp(nlp_b + C_1);")
+  expect_match2(scode, "mu = (nlp_a - exp(nlp_b + C_1));")
 
   # check if that also works with threading
   scode <- make_stancode(bf(y ~ a - exp(b + z), flist = flist,
                             nl = TRUE, loop = FALSE),
                          data = data, prior = prior,
                          threads = threading(2), parse = FALSE)
-  expect_match2(scode, "mu = nlp_a - exp(nlp_b + C_1[start:end]);")
+  expect_match2(scode, "mu = (nlp_a - exp(nlp_b + C_1[start:end]));")
 
 
   flist <- list(a1 ~ 1, a2 ~ z + (x|g))
@@ -1098,9 +1191,9 @@ test_that("Stan code for nested non-linear parameters is correct", {
   bprior <- prior(normal(0, 1), nlpar = "a") +
     prior(normal(0, 1), nlpar = "b")
   scode <- make_stancode(bform, dat, prior = bprior)
-  expect_match2(scode, "nlp_lb[n] = inv_logit(nlp_a[n] / C_lb_1[n]);")
+  expect_match2(scode, "nlp_lb[n] = (inv_logit(nlp_a[n] / C_lb_1[n]));")
   expect_match2(scode,
-    "mu[n] = nlp_lb[n] + (1 - nlp_lb[n]) * inv_logit(nlp_b[n] * C_1[n]);"
+    "mu[n] = (nlp_lb[n] + (1 - nlp_lb[n]) * inv_logit(nlp_b[n] * C_1[n]));"
   )
 })
 
@@ -1545,6 +1638,11 @@ test_that("Stan code of addition term 'rate' is correct", {
   scode <- make_stancode(y | rate(time) ~ x, data, negbinomial())
   expect_match2(scode, "target += neg_binomial_2_log_lpmf(Y | mu + log_denom, shape * denom);")
 
+  bform <- bf(y | rate(time) ~ mi(x), shape ~ mi(x), family = negbinomial()) +
+    bf(x | mi() ~ 1, family = gaussian())
+  scode <- make_stancode(bform, data)
+  expect_match2(scode, "target += neg_binomial_2_log_lpmf(Y_y | mu_y + log_denom_y, shape_y .* denom_y);")
+
   scode <- make_stancode(y | rate(time) ~ x, data, brmsfamily("negbinomial2"))
   expect_match2(scode, "target += neg_binomial_2_log_lpmf(Y | mu + log_denom, inv(sigma) * denom);")
 
@@ -1683,8 +1781,8 @@ test_that("Stan code of mixture model is correct", {
   bprior <- prior(normal(0, 1), nlpar = "eta") +
     prior(normal(0, 1), nlpar = "a")
   scode <- make_stancode(bform, data = data, prior = bprior)
-  expect_match2(scode, "mu1[n] = nlp_eta[n] ^ 2;")
-  expect_match2(scode, "mu2[n] = log(nlp_eta[n]) + nlp_a[n];")
+  expect_match2(scode, "mu1[n] = (nlp_eta[n] ^ 2);")
+  expect_match2(scode, "mu2[n] = (log(nlp_eta[n]) + nlp_a[n]);")
 })
 
 test_that("sparse matrix multiplication is applied correctly", {
