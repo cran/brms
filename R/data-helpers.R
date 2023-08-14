@@ -20,7 +20,7 @@ validate_data <- function(data, bterms, data2 = list(), knots = NULL,
     knots <- get_knots(data)
   }
   data <- try(as.data.frame(data), silent = TRUE)
-  if (is(data, "try-error")) {
+  if (is_try_error(data)) {
     stop2("Argument 'data' must be coercible to a data.frame.")
   }
   if (!isTRUE(nrow(data) > 0L)) {
@@ -115,7 +115,7 @@ validate_data2 <- function(data2, bterms, ...) {
     attr(data2[[M]], "obs_based_matrix") <- TRUE
   }
   # validate within-group covariance matrices
-  cov_names <- ulapply(get_re(bterms)$gcall, "[[", "cov")
+  cov_names <- ufrom_list(get_re(bterms)$gcall, "cov")
   cov_names <- cov_names[nzchar(cov_names)]
   for (cov in cov_names) {
     data2[[cov]] <- validate_recov_matrix(get_from_data2(cov, data2))
@@ -264,6 +264,7 @@ subset_data <- function(data, bterms) {
     # cross-formula indexing is no longer trivial for subsetted models
     check_cross_formula_indexing(bterms)
     data <- data[subset, , drop = FALSE]
+    attr(data, "subset") <- subset
   }
   if (!NROW(data)) {
     stop2(
@@ -395,7 +396,7 @@ validate_newdata <- function(
   incl_autocor = TRUE, group_vars = NULL, req_vars = NULL, ...
 ) {
   newdata <- try(as.data.frame(newdata), silent = TRUE)
-  if (is(newdata, "try-error")) {
+  if (is_try_error(newdata)) {
     stop2("Argument 'newdata' must be coercible to a data.frame.")
   }
   object <- restructure(object)
@@ -416,7 +417,7 @@ validate_newdata <- function(
     # variables not used in the included model parts
     # do not need to be specified in newdata
     resp <- validate_resp(resp, bterms$responses)
-    form_req_vars <- lapply(bterms$terms[resp], "[[", "allvars")
+    form_req_vars <- from_list(bterms$terms[resp], "allvars")
     form_req_vars <- allvars_formula(form_req_vars)
     req_vars <- intersect(req_vars, all.vars(form_req_vars))
   }
@@ -617,10 +618,13 @@ validate_newdata2 <- function(newdata2, object, ...) {
 }
 
 # extract the current data
-current_data <- function(object, newdata = NULL, ...) {
+current_data <- function(object, newdata = NULL, skip_validation = FALSE, ...) {
   stopifnot(is.brmsfit(object))
+  skip_validation <- as_one_logical(skip_validation)
   if (is.null(newdata)) {
     data <- object$data
+  } else if (skip_validation) {
+    data <- newdata
   } else {
     data <- validate_newdata(newdata, object = object, ...)
   }
@@ -628,10 +632,13 @@ current_data <- function(object, newdata = NULL, ...) {
 }
 
 # extract the current data2
-current_data2 <- function(object, newdata2 = NULL, ...) {
+current_data2 <- function(object, newdata2 = NULL, skip_validation = FALSE, ...) {
   stopifnot(is.brmsfit(object))
+  skip_validation <- as_one_logical(skip_validation)
   if (is.null(newdata2)) {
     data2 <- object$data2
+  } else if (skip_validation) {
+    data2 <- newdata2
   } else {
     data2 <- validate_newdata2(newdata2, object = object, ...)
   }

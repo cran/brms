@@ -21,6 +21,9 @@
 #'   \code{TRUE} requires a \pkg{projpred} version >= 2.4.0.
 #' @param brms_seed A seed used to infer seeds for \code{\link{kfold.brmsfit}}
 #'   and for sampling group-level effects for new levels (in multilevel models).
+#'   If \code{NULL}, then \code{\link{set.seed}} is not called at all. If not
+#'   \code{NULL}, then the pseudorandom number generator (PRNG) state is reset
+#'   (to the state before calling this function) upon exiting this function.
 #' @param ... Further arguments passed to
 #' \code{\link[projpred:init_refmodel]{init_refmodel}}.
 #'
@@ -52,11 +55,13 @@
 #' summary(cv_vs)
 #' plot(cv_vs)
 #' }
+#' @exportS3Method projpred::get_refmodel brmsfit
 get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
                                  cvfun = NULL, dis = NULL, latent = FALSE,
                                  brms_seed = NULL, ...) {
   require_package("projpred")
   object <- restructure(object)
+  stopifnot_resp(object, resp)
   resp <- validate_resp(resp, object, multiple = FALSE)
   formula <- formula(object)
   if (!is.null(resp)) {
@@ -66,9 +71,11 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
   # Infer "sub-seeds":
   if (exists(".Random.seed", envir = .GlobalEnv)) {
     rng_state_old <- get(".Random.seed", envir = .GlobalEnv)
-    on.exit(assign(".Random.seed", rng_state_old, envir = .GlobalEnv))
   }
   if (!is.null(brms_seed)) {
+    if (exists(".Random.seed", envir = .GlobalEnv)) {
+      on.exit(assign(".Random.seed", rng_state_old, envir = .GlobalEnv))
+    }
     set.seed(brms_seed)
   }
   kfold_seed <- sample.int(.Machine$integer.max, 1)
@@ -182,10 +189,15 @@ get_refmodel.brmsfit <- function(object, newdata = NULL, resp = NULL,
       brms_seed_k <- brms_seed + cvfit$projpred_k
     }
     projpred::get_refmodel(cvfit, resp = resp, dis = dis, latent = latent,
-                           brms_seed = brms_seed_k, ...)
+                           brms_seed = brms_seed_k,
+                           called_from_cvrefbuilder = TRUE, ...)
   }
 
   # prepare data passed to projpred
+  if (!is.null(newdata)) {
+    warning2("Argument 'newdata' of get_refmodel.brmsfit() is deprecated and ",
+             "will be removed in the future.")
+  }
   data <- current_data(
     object, newdata, resp = resp, check_response = TRUE,
     allow_new_levels = TRUE

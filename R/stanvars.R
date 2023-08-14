@@ -31,6 +31,10 @@
 #'
 #' @return An object of class \code{stanvars}.
 #'
+#' @details
+#' The \code{stanvar} function is not vectorized. Instead, multiple
+#' \code{stanvars} objects can be added together via \code{+} (see Examples).
+#'
 #' @examples
 #' bprior <- prior(normal(mean_intercept, 10), class = "Intercept")
 #' stanvars <- stanvar(5, name = "mean_intercept")
@@ -183,16 +187,16 @@ collapse_stanvars <- function(x, block = NULL, position = NULL) {
   if (!length(x)) {
     return("")
   }
-  collapse(wsp(nsp = 2), ulapply(x, "[[", "scode"), "\n")
+  collapse(wsp(nsp = 2), ufrom_list(x, "scode"), "\n")
 }
 
-# collapse partial lpg-lik code provided in a stanvars object
+# collapse partial log-lik code provided in a stanvars object
 collapse_stanvars_pll_args <- function(x) {
   x <- validate_stanvars(x)
   if (!length(x)) {
     return(character(0))
   }
-  out <- ulapply(x, "[[", "pll_args")
+  out <- ufrom_list(x, "pll_args")
   if (!length(out)) {
     return("")
   }

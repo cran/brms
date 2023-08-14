@@ -150,7 +150,7 @@ brmsterms.brmsformula <- function(formula, check_response = TRUE,
       y$nlpars[[nlp]]$resp <- resp
       check_cs(y$nlpars[[nlp]])
     }
-    used_nlpars <- ulapply(c(y$dpars, y$nlpars), "[[", "used_nlpars")
+    used_nlpars <- ufrom_list(c(y$dpars, y$nlpars), "used_nlpars")
     unused_nlpars <- setdiff(nlpars, used_nlpars)
     if (length(unused_nlpars)) {
       stop2(
@@ -160,7 +160,7 @@ brmsterms.brmsformula <- function(formula, check_response = TRUE,
       )
     }
     # sort non-linear parameters after dependency
-    used_nlpars <- lapply(y$nlpars, "[[", "used_nlpars")
+    used_nlpars <- from_list(y$nlpars, "used_nlpars")
     sorted_nlpars <- sort_dependencies(used_nlpars)
     y$nlpars <- y$nlpars[sorted_nlpars]
   }
@@ -202,16 +202,17 @@ brmsterms.brmsformula <- function(formula, check_response = TRUE,
   y$allvars <- allvars_formula(
     lhsvars, advars, lapply(y$dpars, get_allvars),
     lapply(y$nlpars, get_allvars), y$time$allvars,
-    get_unused_arg_vars(y)
+    get_unused_arg_vars(y),
+    .env = environment(formula)
   )
   if (check_response) {
     # add y$respform to the left-hand side of y$allvars
     # avoid using update.formula as it is inefficient for longer formulas
     formula_allvars <- y$respform
     formula_allvars[[3]] <- y$allvars[[2]]
+    environment(formula_allvars) <- environment(y$allvars)
     y$allvars <- formula_allvars
   }
-  environment(y$allvars) <- environment(formula)
   y
 }
 
@@ -229,12 +230,15 @@ brmsterms.mvbrmsformula <- function(formula, ...) {
     x$forms[[i]]$mv <- TRUE
     out$terms[[i]] <- brmsterms(x$forms[[i]], ...)
   }
-  out$allvars <- allvars_formula(lapply(out$terms, get_allvars))
+  list_allvars <- lapply(out$terms, get_allvars)
+  out$allvars <- allvars_formula(
+    list_allvars, .env = environment(list_allvars[[1]])
+  )
   # required to find variables used solely in the response part
   lhs_resp <- function(x) deparse0(lhs(x$respform)[[2]])
   out$respform <- paste0(ulapply(out$terms, lhs_resp), collapse = ",")
   out$respform <- formula(paste0("mvbind(", out$respform, ") ~ 1"))
-  out$responses <- ulapply(out$terms, "[[", "resp")
+  out$responses <- ufrom_list(out$terms, "resp")
   out$rescor <- x$rescor
   out$mecor <- x$mecor
   out$cov_ranef <- x$cov_ranef
@@ -262,7 +266,6 @@ terms_lf <- function(formula) {
     get_allvars(y$sm), get_allvars(y$gp),
     get_allvars(y$ac), get_allvars(y$offset)
   )
-  environment(y$allvars) <- environment(formula)
   structure(y, class = "btl")
 }
 
@@ -286,7 +289,6 @@ terms_nlf <- function(formula, nlpars, resp = "") {
     y$ac <- terms_ac(attr(formula, "autocor"))
   }
   y$allvars <- allvars_formula(covars, get_allvars(y$ac))
-  environment(y$allvars) <- environment(formula)
   y$loop <- loop
   structure(y, class = "btnl")
 }
@@ -434,9 +436,9 @@ terms_sp <- function(formula) {
   if (!length(out)) {
     return(NULL)
   }
-  uni_mo <- trim_wsp(get_matches_expr(regex_sp("mo"), out))
-  uni_me <- trim_wsp(get_matches_expr(regex_sp("me"), out))
-  uni_mi <- trim_wsp(get_matches_expr(regex_sp("mi"), out))
+  uni_mo <- get_matches_expr(regex_sp("mo"), out)
+  uni_me <- get_matches_expr(regex_sp("me"), out)
+  uni_mi <- get_matches_expr(regex_sp("mi"), out)
   # remove the intercept as it is handled separately
   out <- str2formula(c("0", out))
   attr(out, "int") <- FALSE
@@ -471,8 +473,8 @@ terms_gp <- function(formula) {
     return(NULL)
   }
   eterms <- lapply(out, eval2, envir = environment())
-  covars <- lapply(eterms, "[[", "term")
-  byvars <- lapply(eterms, "[[", "by")
+  covars <- from_list(eterms, "term")
+  byvars <- from_list(eterms, "by")
   allvars <- str2formula(unlist(c(covars, byvars)))
   allvars <- str2formula(all_vars(allvars))
   if (!length(all_vars(allvars))) {
@@ -492,8 +494,8 @@ terms_ac <- function(formula) {
   }
   eterms <- lapply(out, eval2, envir = environment())
   allvars <- unlist(c(
-    lapply(eterms, "[[", "time"),
-    lapply(eterms, "[[", "gr")
+    from_list(eterms, "time"),
+    from_list(eterms, "gr")
   ))
   allvars <- str2formula(all_vars(allvars))
   out <- str2formula(out)
@@ -705,7 +707,7 @@ check_fdpars <- function(x) {
 # combine all variables in one formuula
 # @param x (list of) formulas or character strings
 # @return a formula with all variables on the right-hand side
-allvars_formula <- function(...) {
+allvars_formula <- function(..., .env = parent.frame()) {
   out <- rmNULL(c(...))
   out <- collapse(ulapply(out, plus_rhs))
   all_vars <- all_vars(out)
@@ -714,7 +716,7 @@ allvars_formula <- function(...) {
     stop2("The following variable names are invalid: ",
           collapse_comma(invalid_vars))
   }
-  str2formula(c(out, all_vars))
+  str2formula(c(out, all_vars), env = .env)
 }
 
 # conveniently extract a formula of all relevant variables
@@ -803,7 +805,7 @@ combine_formulas <- function(formula1, formula2, lhs = "", update = FALSE) {
 has_terms <- function(formula) {
   stopifnot(is.formula(formula))
   terms <- try(terms(rhs(formula)), silent = TRUE)
-  is(terms, "try-error") ||
+  is_try_error(terms) ||
     length(attr(terms, "term.labels")) ||
     length(attr(terms, "offset"))
 }
@@ -919,6 +921,7 @@ all_terms <- function(x) {
 
 # generate a regular expression to extract special terms
 # @param type one or more special term types to be extracted
+# TODO: rule out expressions such as mi(y) + mi(x)
 regex_sp <- function(type = "all") {
   choices <- c("all", "sp", "sm", "gp", "cs", "mmc", "ac", all_sp_types())
   type <- unique(match.arg(type, choices, several.ok = TRUE))
@@ -954,7 +957,7 @@ find_terms <- function(x, type, complete = TRUE, ranef = FALSE) {
   if (is.formula(x)) {
     x <- all_terms(x)
   } else {
-    x <- as.character(x)
+    x <- trim_wsp(as.character(x))
   }
   complete <- as_one_logical(complete)
   ranef <- as_one_logical(ranef)
@@ -967,13 +970,14 @@ find_terms <- function(x, type, complete = TRUE, ranef = FALSE) {
   if (complete) {
     matches <- lapply(out, get_matches_expr, pattern = regex)
     # each term may contain only one special function call
-    inv <- out[lengths(matches) > 1L]
-    if (!length(inv)) {
+    invalid <- out[lengths(matches) > 1L]
+    if (!length(invalid)) {
       # each term must be exactly equal to the special function call
-      inv <- out[trim_wsp(unlist(matches)) != out]
+      invalid <- out[unlist(matches) != out]
     }
-    if (length(inv)) {
-      stop2("The term '", inv[1], "' is invalid in brms syntax.")
+    # TODO: some terms can be part of I() calls (#1520); reflect this here?
+    if (length(invalid)) {
+      stop2("The term '", invalid[1], "' is invalid in brms syntax.")
     }
   }
   out
@@ -1008,7 +1012,7 @@ has_intercept <- function(formula) {
   } else {
     formula <- as.formula(formula)
     try_terms <- try(terms(formula), silent = TRUE)
-    if (is(try_terms, "try-error")) {
+    if (is_try_error(try_terms)) {
       out <- FALSE
     } else {
       out <- as.logical(attr(try_terms, "intercept"))
@@ -1034,12 +1038,12 @@ has_rsv_intercept <- function(formula, has_intercept = NULL) {
     return(.has_rsv_intercept(formula, has_intercept))
   }
   formula <- try(as.formula(formula), silent = TRUE)
-  if (is(formula, "try-error")) {
+  if (is_try_error(formula)) {
     return(FALSE)
   }
   if (is.null(has_intercept)) {
     try_terms <- try(terms(formula), silent = TRUE)
-    if (is(try_terms, "try-error")) {
+    if (is_try_error(try_terms)) {
       return(FALSE)
     }
     has_intercept <- has_intercept(try_terms)

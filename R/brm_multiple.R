@@ -75,7 +75,9 @@ brm_multiple <- function(formula, data, family = gaussian(), prior = NULL,
                          stan_funs = NULL, silent = 1, recompile = FALSE,
                          combine = TRUE, fit = NA,
                          algorithm = getOption("brms.algorithm", "sampling"),
-                         seed = NA, file = NULL, file_refit = "never", ...) {
+                         seed = NA, file = NULL, file_compress = TRUE,
+                         file_refit = getOption("brms.file_refit", "never"),
+                         ...) {
 
   combine <- as_one_logical(combine)
   file_refit <- match.arg(file_refit, file_refit_options())
@@ -167,7 +169,7 @@ brm_multiple <- function(formula, data, family = gaussian(), prior = NULL,
     class(fits) <- c("brmsfit_multiple", class(fits))
   }
   if (!is.null(file)) {
-    fits <- write_brmsfit(fits, file)
+    fits <- write_brmsfit(fits, file, compress = file_compress)
   }
   fits
 }
@@ -220,9 +222,15 @@ combine_models <- function(..., mlist = NULL, check_data = TRUE) {
       )
     }
   }
-  sflist <- lapply(models, "[[", "fit")
-  models[[1]]$fit <- rstan::sflist2stanfit(sflist)
-  models[[1]]
+  sflist <- from_list(models, "fit")
+  out <- models[[1]]
+  out$fit <- rstan::sflist2stanfit(sflist)
+  if (out$backend == "cmdstanr") {
+    att <- attributes(models[[1]]$fit)
+    attributes(out$fit)$CmdStanModel <- att$CmdStanModel
+    attributes(out$fit)$metadata <- att$metadata
+  }
+  out
 }
 
 # validity check for 'data' input of 'brm_multiple'

@@ -538,7 +538,7 @@ plot.brmshypothesis <- function(x, N = 5, ignore_prior = FALSE,
   }
 
   .plot_fun <- function(samples) {
-    gg <- ggplot(samples, aes_string(x = "values")) +
+    gg <- ggplot(samples, aes(x = .data[["values"]])) +
       facet_wrap("ind", ncol = 1, scales = "free") +
       xlab("") + ylab("") + theme +
       theme(axis.text.y = element_blank(),
@@ -548,7 +548,7 @@ plot.brmshypothesis <- function(x, N = 5, ignore_prior = FALSE,
         geom_density(alpha = 0.7, fill = colors[1], na.rm = TRUE)
     } else {
       gg <- gg +
-        geom_density(aes_string(fill = "Type"), alpha = 0.7, na.rm = TRUE) +
+        geom_density(aes(fill = .data[["Type"]]), alpha = 0.7, na.rm = TRUE) +
         scale_fill_manual(values = colors)
     }
     return(gg)
@@ -565,6 +565,9 @@ plot.brmshypothesis <- function(x, N = 5, ignore_prior = FALSE,
     devAskNewPage(ask = FALSE)
   }
   hyps <- limit_chars(x$hypothesis$Hypothesis, chars = chars)
+  if (!is.null(x$hypothesis$Group)) {
+    hyps <- paste0(x$hypothesis$Group, ":  ", hyps)
+  }
   names(samples)[seq_along(hyps)] <- hyps
   nplots <- ceiling(length(hyps) / N)
   plots <- vector(mode = "list", length = nplots)

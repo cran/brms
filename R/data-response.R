@@ -86,11 +86,17 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
   if (is_binary(x$family)) {
     bin_levels <- basis$resp_levels
     if (is.null(bin_levels)) {
-      bin_levels <- sort(unique(out$Y))
+      bin_levels <- levels(as.factor(out$Y))
     }
-    # fixes issue #1298
-    if (is.numeric(out$Y) && length(bin_levels) == 1L && !0 %in% bin_levels) {
-      bin_levels <- c(0, bin_levels)
+    # fixes issues #1298 and #1511
+    if (is.numeric(out$Y) && length(bin_levels) == 1L) {
+      if (0 %in% bin_levels) {
+        # 1 as default event level
+        bin_levels <- c(0, 1)
+      } else {
+        # 0 as default non-event level
+        bin_levels <- c(0, bin_levels)
+      }
     }
     out$Y <- as.integer(as_factor(out$Y, levels = bin_levels)) - 1
   }
@@ -167,31 +173,17 @@ data_response.brmsterms <- function(x, data, check_response = TRUE,
   # data for addition arguments of the response
   if (has_trials(x$family) || is.formula(x$adforms$trials)) {
     if (!length(x$adforms$trials)) {
-      if (is_multinomial(x$family)) {
-        stop2("Specifying 'trials' is required in multinomial models.")
-      }
-      trials <- round(max(out$Y, na.rm = TRUE))
-      if (isTRUE(is.finite(trials))) {
-        message("Using the maximum response value as the number of trials.")
-        warning2(
-          "Using 'binomial' families without specifying 'trials' ",
-          "on the left-hand side of the model formula is deprecated."
-        )
-      } else if (!is.null(basis$trials)) {
-        trials <- max(basis$trials)
-      } else {
-        stop2("Could not compute the number of trials.")
-      }
-    } else if (is.formula(x$adforms$trials)) {
-      trials <- get_ad_values(x, "trials", "trials", data)
-      if (!is.numeric(trials)) {
-        stop2("Number of trials must be numeric.")
-      }
-      if (any(!is_wholenumber(trials) | trials < 0)) {
-        stop2("Number of trials must be non-negative integers.")
-      }
-    } else {
+      stop2("Specifying 'trials' is required for this model.")
+    }
+    if (!is.formula(x$adforms$trials)) {
       stop2("Argument 'trials' is misspecified.")
+    }
+    trials <- get_ad_values(x, "trials", "trials", data)
+    if (!is.numeric(trials)) {
+      stop2("Number of trials must be numeric.")
+    }
+    if (any(!is_wholenumber(trials) | trials < 0)) {
+      stop2("Number of trials must be non-negative integers.")
     }
     if (length(trials) == 1L) {
       trials <- rep(trials, nrow(data))

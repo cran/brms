@@ -46,8 +46,7 @@ make_standata <- function(formula, data, family = gaussian(), prior = NULL,
   )
   prior <- .validate_prior(
     prior, bterms = bterms, data = data,
-    sample_prior = sample_prior,
-    require_nlpar_prior = FALSE
+    sample_prior = sample_prior
   )
   stanvars <- validate_stanvars(stanvars)
   threads <- validate_threads(threads)
@@ -83,11 +82,13 @@ make_standata <- function(formula, data, family = gaussian(), prior = NULL,
     ranef <- tidy_ranef(bterms, data, old_levels = basis$levels)
     meef <- tidy_meef(bterms, data, old_levels = basis$levels)
     index <- tidy_index(bterms, data)
+    # pass as sdata so that data_special_prior knows about data_gr_global
+    sdata_gr_global <- data_gr_global(ranef, data2 = data2)
     c(out) <- data_predictor(
-      bterms, data = data, prior = prior, data2 = data2,
-      ranef = ranef, index = index, basis = basis
+      bterms, data = data, prior = prior, data2 = data2, ranef = ranef,
+      sdata = sdata_gr_global, index = index, basis = basis
     )
-    c(out) <- data_gr_global(ranef, data2 = data2)
+    c(out) <- sdata_gr_global
     c(out) <- data_Xme(meef, data = data)
   }
   out$prior_only <- as.integer(is_prior_only(prior))
@@ -105,7 +106,7 @@ make_standata <- function(formula, data, family = gaussian(), prior = NULL,
       stop2("Cannot overwrite existing variables: ",
             collapse_comma(inv_names))
     }
-    out[names(stanvars)] <- lapply(stanvars, "[[", "sdata")
+    out[names(stanvars)] <- from_list(stanvars, "sdata")
   }
   if (internal) {
     # allows to recover the original order of the data
@@ -154,10 +155,12 @@ standata.brmsfit <- function(object, newdata = NULL, re_formula = NULL,
   )
   stanvars <- add_newdata_stanvars(object$stanvars, data2)
 
-  basis <- NULL
-  if (!is.null(newdata)) {
-    # 'basis' contains information from original Stan data
-    # required to correctly predict from new data
+  basis <- object$basis
+  if (is.null(basis)) {
+    # this case should not happen actually, perhaps when people use
+    # the 'empty' feature. But computing it here will be fine
+    # for almost all models, only causing potential problems for processing
+    # of splines on new machines (#1465)
     basis <- standata_basis(bterms, data = object$data)
   }
   .make_standata(
@@ -174,6 +177,8 @@ standata <- function(object, ...) {
 }
 
 # prepare basis data required for correct predictions from new data
+# TODO: eventually export this function if we want to ensure full compatibility
+#   with the 'empty' feature. see ?rename_pars for an example
 standata_basis <- function(x, data, ...) {
   UseMethod("standata_basis")
 }
@@ -205,12 +210,6 @@ standata_basis.brmsterms <- function(x, data, ...) {
   }
   # old levels are required to select the right indices for new levels
   out$levels <- get_levels(tidy_meef(x, data), tidy_ranef(x, data))
-  if (has_trials(x$family)) {
-    # trials should not be computed based on new data
-    datr <- data_response(x, data, check_response = FALSE, internal = TRUE)
-    # partially match via $ to be independent of the response suffix
-    out$trials <- datr$trials
-  }
   if (is_binary(x$family) || is_categorical(x$family)) {
     y <- model.response(model.frame(x$respform, data, na.action = na.pass))
     out$resp_levels <- levels(as.factor(y))
@@ -251,7 +250,13 @@ standata_basis_sm <- function(x, data, ...) {
     )
     for (i in seq_along(smterms)) {
       sc_args <- c(list(eval2(smterms[i])), gam_args)
-      out[[i]] <- do_call(smoothCon, sc_args)
+      sm <- do_call(smoothCon, sc_args)
+      re <- vector("list", length(sm))
+      for (j in seq_along(sm)) {
+        re[[j]] <- mgcv::smooth2random(sm[[j]], names(data), type = 2)
+      }
+      out[[i]]$sm <- sm
+      out[[i]]$re <- re
     }
   }
   out

@@ -53,7 +53,7 @@ extract <- function(x, ..., drop = FALSE, drop_dim = NULL) {
   }
   keep <- dim(out) > 1L | !drop_dim
   new_dim <- dim(out)[keep]
-  if (length(new_dim) == 1L) {
+  if (length(new_dim) <= 1L) {
     # use vectors instead of 1D arrays
     new_dim <- NULL
   }
@@ -135,7 +135,7 @@ find_elements <- function(x, ..., ls = list(), fun = '%in%') {
     stop("Argument 'ls' must be named.")
   }
   for (name in names(ls)) {
-    tmp <- lapply(x, "[[", name)
+    tmp <- from_list(x, name)
     out <- out & do_call(fun, list(tmp, ls[[name]]))
   }
   out
@@ -418,6 +418,18 @@ plapply <- function(X, FUN, cores = 1, ...) {
     }
   }
   out
+}
+
+# extract objects stored in each element of a list
+# @param x a list-like object
+# @param name name of the object to extract
+from_list <- function(x, name, ...) {
+  lapply(x, "[[", name, ...)
+}
+
+# unlist from_list output
+ufrom_list <- function(x, name, ..., recursive = TRUE, use.names = TRUE) {
+  unlist(from_list(x, name, ...), recursive, use.names)
 }
 
 # check if the operating system is Windows
@@ -755,7 +767,7 @@ eval_silent <- function(expr, type = "output", try = FALSE,
       try_out <- try(utils::capture.output(
         out <- eval(expr, envir), type = type, ...
       ))
-      if (is(try_out, "try-error")) {
+      if (is_try_error(try_out)) {
         # try again without suppressing error messages
         out <- eval(expr, envir)
       }
@@ -859,7 +871,7 @@ get_matches_expr <- function(pattern, expr, ...) {
   out <- NULL
   for (i in seq_along(expr)) {
     sexpr <- try(expr[[i]], silent = TRUE)
-    if (!is(sexpr, "try-error")) {
+    if (!is_try_error(sexpr)) {
       sexpr_char <- deparse0(sexpr)
       out <- c(out, get_matches(pattern, sexpr_char, ...))
     }
@@ -867,7 +879,7 @@ get_matches_expr <- function(pattern, expr, ...) {
       out <- c(out, get_matches_expr(pattern, sexpr, ...))
     }
   }
-  unique(out)
+  trim_wsp(unique(out))
 }
 
 # like 'grepl' but handles (parse trees of) expressions
@@ -1013,6 +1025,11 @@ warn_deprecated <- function(new, old = as.character(sys.call(sys.parent()))[1]) 
   invisible(NULL)
 }
 
+# check if x is a try-error resulting from try()
+is_try_error <- function(x) {
+  inherits(x, "try-error")
+}
+
 # check if verbose mode is activated
 is_verbose <- function() {
   as_one_logical(getOption("brms.verbose", FALSE))
@@ -1024,69 +1041,6 @@ viridis6 <- function() {
 
 expect_match2 <- function(object, regexp, ..., all = TRUE) {
   testthat::expect_match(object, regexp, fixed = TRUE, ..., all = all)
-}
-
-# Copied from package 'vctrs' (more precisely:
-# <https://github.com/r-lib/vctrs/blob/master/R/register-s3.R>, version
-# 0.3.8.9001; identical to the code from version 0.3.8), as offered on the help
-# page for vctrs::s3_register() (version 0.3.8):
-s3_register_cp <- function(generic, class, method = NULL) {
-  stopifnot(is.character(generic), length(generic) == 1)
-  stopifnot(is.character(class), length(class) == 1)
-
-  pieces <- strsplit(generic, "::")[[1]]
-  stopifnot(length(pieces) == 2)
-  package <- pieces[[1]]
-  generic <- pieces[[2]]
-
-  caller <- parent.frame()
-
-  get_method_env <- function() {
-    top <- topenv(caller)
-    if (isNamespace(top)) {
-      asNamespace(environmentName(top))
-    } else {
-      caller
-    }
-  }
-  get_method <- function(method, env) {
-    if (is.null(method)) {
-      get(paste0(generic, ".", class), envir = get_method_env())
-    } else {
-      method
-    }
-  }
-
-  register <- function(...) {
-    envir <- asNamespace(package)
-
-    # Refresh the method each time, it might have been updated by
-    # `devtools::load_all()`
-    method_fn <- get_method(method)
-    stopifnot(is.function(method_fn))
-
-
-    # Only register if generic can be accessed
-    if (exists(generic, envir)) {
-      registerS3method(generic, class, method_fn, envir = envir)
-    } else if (identical(Sys.getenv("NOT_CRAN"), "true")) {
-      warning(sprintf(
-        "Can't find generic `%s` in package %s to register S3 method.",
-        generic,
-        package
-      ))
-    }
-  }
-
-  # Always register hook in case package is later unloaded & reloaded
-  setHook(packageEvent(package, "onLoad"), register)
-
-  # Avoid registration failures during loading (pkgload or regular)
-  if (isNamespaceLoaded(package)) {
-    register()
-  }
-
-  invisible()
 }
 
 # startup messages for brms
@@ -1109,11 +1063,6 @@ s3_register_cp <- function(generic, class, method = NULL) {
   if (requireNamespace("emmeans", quietly = TRUE) &&
       utils::packageVersion("emmeans") >= "1.4.0") {
     emmeans::.emm_register("brmsfit", pkgname)
-  }
-  # dynamically register the 'get_refmodel.brmsfit' method for the
-  # 'get_refmodel' generic from 'projpred', if that package is installed
-  if (requireNamespace("projpred", quietly = TRUE)) {
-    s3_register_cp("projpred::get_refmodel", "brmsfit")
   }
   invisible(NULL)
 }

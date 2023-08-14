@@ -968,7 +968,7 @@ mvbrmsformula <- function(..., flist = NULL, rescor = NULL) {
   if (!is.null(rescor)) {
     rescor <- as_one_logical(rescor)
   }
-  responses <- ulapply(forms, "[[", "resp")
+  responses <- ufrom_list(forms, "resp")
   if (any(duplicated(responses))) {
     stop2("Cannot use the same response variable twice in the same model.")
   }
@@ -1035,10 +1035,10 @@ allow_rescor <- function(x) {
     return(FALSE)
   }
   parts <- if (is.mvbrmsformula(x)) x$forms else x$terms
-  families <- lapply(parts, "[[", "family")
+  families <- from_list(parts, "family")
   has_rescor <- ulapply(families, has_rescor)
   is_mixture <- ulapply(families, is.mixfamily)
-  family_names <- ulapply(families, "[[", "family")
+  family_names <- ufrom_list(families, "family")
   all(has_rescor) && !any(is_mixture) &&
     length(unique(family_names)) == 1L
 }
@@ -1180,7 +1180,7 @@ decomp_opts <- function() {
 validate_par_formula <- function(formula, par = NULL, rsv_pars = NULL) {
   stopifnot(length(par) <= 1L)
   try_formula <- try(as_formula(formula), silent = TRUE)
-  if (is(try_formula, "try-error")) {
+  if (is_try_error(try_formula)) {
     if (length(formula) != 1L) {
       stop2("Expecting a single value when fixing parameter '", par, "'.")
     }
@@ -1235,7 +1235,7 @@ validate_resp_formula <- function(x, empty_ok = TRUE) {
   }
   out <- gsub("\\|+[^~]*~", "~", formula2str(out))
   out <- try(formula(out), silent = TRUE)
-  if (is(out, "try-error")) {
+  if (is_try_error(out)) {
     str_x <- formula2str(x, space = "trim")
     stop2("Incorrect use of '|' on the left-hand side of ", str_x)
   }
@@ -1287,7 +1287,7 @@ validate_formula.brmsformula <- function(
     # thresholds and category names are data dependent
     try_terms <- try(stats::terms(out$formula), silent = TRUE)
     intercept <- attr(try_terms, "intercept", TRUE)
-    if (!is(try_terms, "try-error") && isTRUE(intercept == 0)) {
+    if (!is_try_error(try_terms) && isTRUE(intercept == 0)) {
       stop2("Cannot remove the intercept in an ordinal model.")
     }
     if (!is.null(data)) {
@@ -1631,16 +1631,14 @@ lhs <- function(x) {
 # convert a string to a formula
 # @param x vector of strings to be converted
 # @param ... passed to formula()
-str2formula <- function(x, ..., collapse = "+") {
+str2formula <- function(x, env = parent.frame(), collapse = "+") {
   has_chars <- nzchar(x)
   if (length(x) && any(has_chars)) {
     out <- paste(x[has_chars], collapse = collapse)
   } else {
     out <- "1"
   }
-  out <- formula(paste("~", out), ...)
-  environment(out) <- parent.frame()
-  out
+  as.formula(paste("~", out), env = env)
 }
 
 # convert a formula to a character string
@@ -1700,7 +1698,7 @@ expand_dot_formula <- function(formula, data = NULL) {
       stats::terms(formula, data = data),
       silent = TRUE
     )
-    if (!is(try_terms, "try-error")) {
+    if (!is_try_error(try_terms)) {
       formula <- formula(try_terms)
     }
     attributes(formula) <- att

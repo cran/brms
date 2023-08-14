@@ -67,14 +67,17 @@ recover_data.brmsfit <- function(object, data, resp = NULL, dpar = NULL,
     object, resp = resp, dpar = dpar, nlpar = nlpar,
     re_formula = re_formula, epred = epred
   )
-  trms <- terms(bterms$allvars, data = object$data)
+  data <- rm_attr(object$data, "terms")
+  # use of model.frame fixes issue #1531
+  mf <- model.frame(bterms$allvars, data = data)
+  trms <- attr(mf, "terms")
   # brms has no call component so the call is just a dummy for the most part
   cl <- call("brms")
   if (epred) {
     # fixes issue #1360 for in-formula response transformations
     cl$formula <- bterms$respform
   }
-  emmeans::recover_data(cl, trms, "na.omit", data = object$data, ...)
+  emmeans::recover_data(cl, trms, "na.omit", data = data, ...)
 }
 
 # Calculate the basis for making predictions. In some sense, this is
@@ -179,7 +182,7 @@ emm_basis.brmsfit <- function(object, trms, xlev, grid, vcov., resp = NULL,
     out$terms[[i]] <- .extract_par_terms(out$terms[[i]], epred = epred, ...)
   }
   out$allvars <- allvars_formula(lapply(out$terms, get_allvars))
-  misc_list <- unique(lapply(out$terms, "[[", ".misc"))
+  misc_list <- unique(from_list(out$terms, ".misc"))
   if (length(misc_list) > 1L){
     stop2("brms' emmeans support for multivariate models is limited ",
           "to cases where all univariate models have the same family.")

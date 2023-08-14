@@ -67,7 +67,8 @@ model_poisson <- brm(
   prior = prior(normal(0,1), class = b) +
     prior(constant(1), class = sd, group = g),
   backend = "cmdstanr",
-  threads = threading(4)
+  threads = threading(4),
+  save_pars = save_pars(all = TRUE)
 )
 
 ## ---- benchmark, include=FALSE----------------------------------------------------------
@@ -116,8 +117,7 @@ benchmark_reference <- function(model, iter=100, init=0) {
     init <- list(extract_draw(sims, 1))
 
     ref_model <- update(
-        model, refresh = 0,
-        threads = NULL,
+        model, refresh = 0, threads = NULL,
         chains = 1, iter = 2, backend = "cmdstanr"
     )
 
@@ -148,8 +148,9 @@ extract_warmup_info <- function(bfit) {
     list(step_size=step_size, inv_metric=inv_metric)
 }
 
-extract_draw <- function(sims, draw) lapply(sims, abind::asub, idx=draw, dim=1, drop=FALSE)
-
+extract_draw <- function(sims, draw) {
+  lapply(sims, brms:::slice, dim = 1, i = draw, drop = TRUE)
+}
 
 ## ---- eval=FALSE------------------------------------------------------------------------
 #  fit_serial <- brm(
@@ -177,7 +178,8 @@ kable(head(fake, 10), digits = 3)
 #    prior = prior(normal(0,1), class = b) +
 #      prior(constant(1), class = sd, group = g),
 #    backend = "cmdstanr",
-#    threads = threading(4)
+#    threads = threading(4),
+#    save_pars = save_pars(all = TRUE)
 #  )
 
 ## ---- chunking-scale, message=FALSE, warning=FALSE, results='hide'----------------------
@@ -342,7 +344,8 @@ kable(scaling_cores, digits = 2)
 #    prior = prior(normal(0,1), class = b) +
 #      prior(constant(1), class = sd, group = g),
 #    backend = "cmdstanr",
-#    threads = threading(4)
+#    threads = threading(4),
+#    save_pars = save_pars(all = TRUE)
 #  )
 
 ## ---- eval=FALSE------------------------------------------------------------------------
@@ -391,8 +394,7 @@ kable(scaling_cores, digits = 2)
 #      init <- list(extract_draw(sims, 1))
 #  
 #      ref_model <- update(
-#          model, refresh = 0,
-#          threads = NULL,
+#          model, refresh = 0, threads = NULL,
 #          chains = 1, iter = 2, backend = "cmdstanr"
 #      )
 #  
@@ -423,8 +425,9 @@ kable(scaling_cores, digits = 2)
 #      list(step_size=step_size, inv_metric=inv_metric)
 #  }
 #  
-#  extract_draw <- function(sims, draw) lapply(sims, abind::asub, idx=draw, dim=1, drop=FALSE)
-#  
+#  extract_draw <- function(sims, draw) {
+#    lapply(sims, brms:::slice, dim = 1, i = draw, drop = TRUE)
+#  }
 
 ## ---- eval=FALSE------------------------------------------------------------------------
 #  scaling_chunking <- merge(scaling_chunking, chunking_bench, by = "grainsize")
