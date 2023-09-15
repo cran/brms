@@ -661,7 +661,7 @@ test_that("Stan code for multinomial models is correct", {
     prior(normal(0, 2), "Intercept", dpar = muy3)
   scode <- make_stancode(bf(y | trials(size)  ~ 1, muy2 ~ x), data = dat,
                          family = multinomial(), prior = prior)
-  expect_match2(scode, "int Y[N, ncat];")
+  expect_match2(scode, "array[N, ncat] int Y;")
   expect_match2(scode, "target += multinomial_logit2_lpmf(Y[n] | mu[n]);")
   expect_match2(scode, "muy2 += Intercept_muy2 + Xc_muy2 * b_muy2;")
   expect_match2(scode, "lprior += normal_lpdf(b_muy2 | 0, 10);")
@@ -681,7 +681,7 @@ test_that("Stan code for dirichlet models is correct", {
     prior(exponential(10), "phi")
   scode <- make_stancode(bf(y ~ 1, muy3 ~ x), data = dat,
                          family = dirichlet(), prior = prior)
-  expect_match2(scode, "vector[ncat] Y[N];")
+  expect_match2(scode, "array[N] vector[ncat] Y;")
   expect_match2(scode, "target += dirichlet_logit_lpdf(Y[n] | mu[n], phi);")
   expect_match2(scode, "muy3 += Intercept_muy3 + Xc_muy3 * b_muy3;")
   expect_match2(scode, "lprior += normal_lpdf(b_muy3 | 0, 5);")
@@ -697,7 +697,7 @@ test_that("Stan code for dirichlet models is correct", {
   prior <- prior(normal(0, 5), class = "b", dpar = "muy3")
   scode <- make_stancode(bf(y ~ 1, muy3 ~ x), data = dat,
                          family = brmsfamily("dirichlet2"), prior = prior)
-  expect_match2(scode, "vector[ncat] Y[N];")
+  expect_match2(scode, "array[N] vector[ncat] Y;")
   expect_match2(scode, "muy3 = exp(muy3);")
   expect_match2(scode, "target += dirichlet_lpdf(Y[n] | mu[n]);")
   expect_match2(scode, "muy3 += Intercept_muy3 + Xc_muy3 * b_muy3;")
@@ -719,7 +719,7 @@ test_that("Stan code for logistic_normal models is correct", {
   scode <- make_stancode(bf(y ~ x), data = dat,
                          family = logistic_normal(refcat = "y2"),
                          prior = prior)
-  expect_match2(scode, "vector[ncat] Y[N];")
+  expect_match2(scode, "array[N] vector[ncat] Y;")
   expect_match2(scode, "mu[n] = transpose([muy1[n], muy3[n]]);")
   expect_match2(scode, "vector[ncat-1] sigma = transpose([sigmay1, sigmay3]);")
   expect_match2(scode, "target += logistic_normal_cholesky_cor_lpdf(Y[n] | mu[n], sigma, Llncor, 2);")
@@ -733,7 +733,7 @@ test_that("Stan code for logistic_normal models is correct", {
   scode <- make_stancode(bf(y ~ 1, muy3 ~ x, sigmay2 ~ x), data = dat,
                          family = logistic_normal(),
                          prior = prior)
-  expect_match2(scode, "vector[ncat] Y[N];")
+  expect_match2(scode, "array[N] vector[ncat] Y;")
   expect_match2(scode, "mu[n] = transpose([muy2[n], muy3[n]]);")
   expect_match2(scode, "sigma[n] = transpose([sigmay2[n], sigmay3]);")
   expect_match2(scode, "target += logistic_normal_cholesky_cor_lpdf(Y[n] | mu[n], sigma[n], Llncor, 1);")
@@ -971,7 +971,7 @@ test_that("grouped ordinal thresholds appear in the Stan code", {
     y | thres(th, gr) ~ x, data = dat,
     family = sratio(), prior = prior
   )
-  expect_match2(scode, "int<lower=1> nthres[ngrthres];")
+  expect_match2(scode, "array[ngrthres] int<lower=1> nthres;")
   expect_match2(scode, "merged_Intercept[Kthres_start[1]:Kthres_end[1]] = Intercept_1;")
   expect_match2(scode, "target += sratio_logit_merged_lpmf(Y[n]")
   expect_match2(scode, "lprior += normal_lpdf(Intercept_2 | 0, 1);")
@@ -1076,7 +1076,7 @@ test_that("monotonic effects appear in the Stan code", {
              prior(dirichlet(c(1,0.5,2)), simo, coef = mox11),
              prior(dirichlet(c(1,0.5,2)), simo, coef = mox21))
   scode <- make_stancode(y ~ y*mo(x1)*mo(x2), dat, prior = prior)
-  expect_match2(scode, "int Xmo_3[N];")
+  expect_match2(scode, "array[N] int Xmo_3;")
   expect_match2(scode, "simplex[Jmo[1]] simo_1;")
   expect_match2(scode, "(bsp[2]) * mo(simo_2, Xmo_2[n])")
   expect_match2(scode,
@@ -1137,7 +1137,7 @@ test_that("Stan code for non-linear models is correct", {
     "mu[n] = (nlp_a[n] - exp(nlp_b[n] ^ C_1[n]) * (C_1[n] <= nlp_a[n]) * C_2[n]);"
   )
   expect_match2(scode, "vector[N] C_1;")
-  expect_match2(scode, "int C_2[N];")
+  expect_match2(scode, "array[N] int C_2;")
 
   # non-linear predictor can be computed outside a loop
   scode <- make_stancode(bf(y ~ a - exp(b + z), flist = flist,
@@ -1224,7 +1224,7 @@ test_that("make_stancode is correct for non-linear matrix covariates", {
   nlstanvar <- stanvar(scode = nlfun_stan_int, block = "functions")
   bform <- bf(y~nlfun(a, b, c, X2), a~1, b~1, c~1, nl = TRUE)
   scode <- make_stancode(bform, dat, stanvars = nlstanvar)
-  expect_match2(scode, "int C_1[N, 2];")
+  expect_match2(scode, "array[N, 2] int C_1;")
 })
 
 test_that("make_stancode accepts very long non-linear formulas", {
@@ -2150,7 +2150,7 @@ test_that("Missing value terms can be combined with 'subset'", {
   expect_match2(scode, "(bsp_y[1]) * Yl_x[idxl_y_x_1[n]]")
   expect_match2(scode, "(bsp_y[2]) * Yl_z[n]")
   expect_match2(scode, "(bsp_y[3]) * Yl_x[idxl_y_x_1[n]] * Yl_z[n]")
-  expect_match2(scode, "int idxl_y_x_1[N_y];")
+  expect_match2(scode, "array[N_y] int idxl_y_x_1;")
 })
 
 test_that("Stan code for advanced count data distribution is correct", {
@@ -2299,7 +2299,7 @@ test_that("custom families are handled correctly", {
     prior = prior(gamma(0.1, 0.1), class = "tau"),
     stanvars = stanvars
   )
-  expect_match2(scode, "int vint1[N];")
+  expect_match2(scode, "array[N] int vint1;")
   expect_match2(scode, "real<lower=0> tau;")
   expect_match2(scode, "mu = inv_logit(mu);")
   expect_match2(scode, "lprior += gamma_lpdf(tau | 0.1, 0.1);")
@@ -2447,7 +2447,7 @@ test_that("threaded Stan code is correct", {
   # only run if cmdstan >= 2.29 can be found on the system
   # otherwise the canonicalized code will cause test failures
   cmdstan_version <- try(cmdstanr::cmdstan_version(), silent = TRUE)
-  found_cmdstan <- !is_try_error(cmdstan_version)
+  found_cmdstan <- !brms:::is_try_error(cmdstan_version)
   skip_if_not(found_cmdstan && cmdstan_version >= "2.29.0")
   options(brms.backend = "cmdstanr")
 
@@ -2523,7 +2523,7 @@ test_that("Un-normalized Stan code is correct", {
   # only run if cmdstan >= 2.29 can be found on the system
   # otherwise the canonicalized code will cause test failures
   cmdstan_version <- try(cmdstanr::cmdstan_version(), silent = TRUE)
-  found_cmdstan <- !is_try_error(cmdstan_version)
+  found_cmdstan <- !brms:::is_try_error(cmdstan_version)
   skip_if_not(found_cmdstan && cmdstan_version >= "2.29.0")
   options(brms.backend = "cmdstanr")
 
@@ -2593,49 +2593,50 @@ test_that("Un-normalized Stan code is correct", {
   expect_match2(scode, "gamma_lupdf(tau | 0.1, 0.1);")
 })
 
-test_that("Canonicalizing Stan code is correct", {
-  # tests require cmdstanr which is not yet on CRAN
-  skip_on_cran()
-
-  # only run if cmdstan >= 2.29 can be found on the system
-  # otherwise the canonicalized code will cause test failures
-  cmdstan_version <- try(cmdstanr::cmdstan_version(), silent = TRUE)
-  found_cmdstan <- !is_try_error(cmdstan_version)
-  skip_if_not(found_cmdstan && cmdstan_version >= "2.29.0")
-  options(brms.backend = "cmdstanr")
-
-  scode <- make_stancode(
-    count ~ zAge + zBase * Trt + (1|patient) + (1|obs),
-    data = epilepsy, family = poisson(),
-    prior = prior(student_t(5,0,10), class = b) +
-      prior(cauchy(0,2), class = sd),
-    normalize = FALSE
-  )
-  expect_match2(scode, "array[M_1] vector[N_1] z_1;")
-  expect_match2(scode, "array[M_2] vector[N_2] z_2;")
-
-  model <- "
-  data {
-    int a[5];
-    real b[5];
-    vector[5] c[4];
-  }
-  parameters {
-    real d[5];
-    vector[5] e[4];
-  }
-  "
-  stan_file <- cmdstanr::write_stan_file(model)
-  canonicalized_code <- .canonicalize_stan_model(stan_file, overwrite_file = FALSE)
-  expect_match2(canonicalized_code, "array[5] int a;")
-  expect_match2(canonicalized_code, "array[5] real b;")
-  expect_match2(canonicalized_code, "array[4] vector[5] c;")
-  expect_match2(canonicalized_code, "array[5] real d;")
-  expect_match2(canonicalized_code, "array[4] vector[5] e;")
-
-})
+# the new array syntax is now used throughout brms
+# test_that("Canonicalizing Stan code is correct", {
+#   # tests require cmdstanr which is not yet on CRAN
+#   skip_on_cran()
+#
+#   # only run if cmdstan >= 2.29 can be found on the system
+#   # otherwise the canonicalized code will cause test failures
+#   cmdstan_version <- try(cmdstanr::cmdstan_version(), silent = TRUE)
+#   found_cmdstan <- !is_try_error(cmdstan_version)
+#   skip_if_not(found_cmdstan && cmdstan_version >= "2.29.0")
+#   options(brms.backend = "cmdstanr")
+#
+#   scode <- make_stancode(
+#     count ~ zAge + zBase * Trt + (1|patient) + (1|obs),
+#     data = epilepsy, family = poisson(),
+#     prior = prior(student_t(5,0,10), class = b) +
+#       prior(cauchy(0,2), class = sd),
+#     normalize = FALSE
+#   )
+#   expect_match2(scode, "array[M_1] vector[N_1] z_1;")
+#   expect_match2(scode, "array[M_2] vector[N_2] z_2;")
+#
+#   model <- "
+#   data {
+#     int a[5];
+#     real b[5];
+#     vector[5] c[4];
+#   }
+#   parameters {
+#     real d[5];
+#     vector[5] e[4];
+#   }
+#   "
+#   stan_file <- cmdstanr::write_stan_file(model)
+#   canonicalized_code <- .canonicalize_stan_model(stan_file, overwrite_file = FALSE)
+#   expect_match2(canonicalized_code, "array[5] int a;")
+#   expect_match2(canonicalized_code, "array[5] real b;")
+#   expect_match2(canonicalized_code, "array[4] vector[5] c;")
+#   expect_match2(canonicalized_code, "array[5] real d;")
+#   expect_match2(canonicalized_code, "array[4] vector[5] e;")
+# })
 
 test_that("Normalizing Stan code works correctly", {
+  normalize_stancode <- brms:::normalize_stancode
   expect_equal(
     normalize_stancode("// a\nb;\n  b + c = 4; // kde\ndata"),
     normalize_stancode("// dasflkjldl\n   // adsfadsfa\n b;\n\n  \n  \t\rb + c = 4;\ndata")
