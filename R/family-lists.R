@@ -11,6 +11,7 @@
 #   normalized: suffixes of Stan lpdfs or lpmfs which only exist as normalized
 #     versions; can also be "" in which case the family is always normalized
 #   specials: character vector specialties of some families
+#     TODO: create an overview of all specials
 
 .family_gaussian <- function() {
   list(
@@ -181,7 +182,14 @@
     dpars = c("mu", "shape"), type = "int",
     ybounds = c(0, Inf), closed = c(TRUE, NA),
     ad = c("weights", "subset", "cens", "trunc", "rate", "index"),
-    specials = "sbi_log"
+    specials = "sbi_log",
+    # experimental use of default priors stored in families #1614
+    prior = function(dpar, link = "identity", ...) {
+      if (dpar == "shape" && link == "identity") {
+        return("inv_gamma(0.4, 0.3)")
+      }
+      NULL
+    }
   )
 }
 
@@ -192,7 +200,13 @@
     dpars = c("mu", "sigma"), type = "int",
     ybounds = c(0, Inf), closed = c(TRUE, NA),
     ad = c("weights", "subset", "cens", "trunc", "rate", "index"),
-    specials = "sbi_log"
+    specials = "sbi_log",
+    prior = function(dpar, link = "identity", ...) {
+      if (dpar == "sigma" && link == "identity") {
+        return("gamma(0.4, 0.3)")
+      }
+      NULL
+    }
   )
 }
 
@@ -463,7 +477,7 @@
     ybounds = c(0, Inf), closed = c(TRUE, NA),
     ad = c("weights", "subset", "cens", "trunc", "index"),
     include = "fun_hurdle_gamma.stan",
-    specials = "sbi_hu_logit",
+    specials = c("sbi_hu_logit", "cont_hurdle"),
     normalized = ""
   )
 }
@@ -475,7 +489,7 @@
     ybounds = c(0, Inf), closed = c(TRUE, NA),
     ad = c("weights", "subset", "cens", "trunc", "index"),
     include = "fun_hurdle_lognormal.stan",
-    specials = c("logscale", "sbi_hu_logit"),
+    specials = c("logscale", "sbi_hu_logit", "cont_hurdle"),
     normalized = ""
   )
 }
@@ -563,7 +577,7 @@
     ybounds = c(0, 1), closed = c(TRUE, FALSE),
     ad = c("weights", "subset", "cens", "trunc", "index"),
     include = "fun_zero_inflated_beta.stan",
-    specials = "sbi_zi_logit",
+    specials = c("sbi_zi_logit", "cont_hurdle"),
     normalized = ""
   )
 }
@@ -578,7 +592,7 @@
     ybounds = c(0, 1), closed = c(TRUE, TRUE),
     ad = c("weights", "subset", "index"),
     include = "fun_zero_one_inflated_beta.stan",
-    specials = "sbi_zi_logit",
+    specials = c("sbi_zi_logit", "cont_hurdle"),
     normalized = ""
   )
 }

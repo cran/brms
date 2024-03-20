@@ -19,7 +19,7 @@ brm(
   stanvars = NULL,
   stan_funs = NULL,
   fit = NA,
-  save_pars = NULL,
+  save_pars = getOption("brms.save_pars", NULL),
   save_ranef = NULL,
   save_mevars = NULL,
   save_all_pars = NULL,
@@ -70,7 +70,7 @@ linear \code{gaussian} model is applied. In multivariate models,
 
 \item{prior}{One or more \code{brmsprior} objects created by
 \code{\link{set_prior}} or related functions and combined using the
-\code{c} method or the \code{+} operator. See also  \code{\link{get_prior}}
+\code{c} method or the \code{+} operator. See also \code{\link[brms:default_prior.default]{default_prior}}
 for more help.}
 
 \item{autocor}{(Deprecated) An optional \code{\link{cor_brms}} object
@@ -160,7 +160,8 @@ very large \R objects even for models of moderate size and complexity.}
 variables defined in Stan's \code{parameters} block should be saved
 (default is \code{FALSE}). Saving these draws is required in order to
 apply the methods \code{bridge_sampler}, \code{bayes_factor}, and
-\code{post_prob}.}
+\code{post_prob}. Can be set globally for the current \R session via the
+\code{"brms.save_pars"} option (see \code{\link{options}}).}
 
 \item{init}{Initial values for the sampler. If \code{NULL} (the default) or
 \code{"random"}, Stan will randomly generate initial values for parameters
@@ -362,7 +363,7 @@ Fit a generalized (non-)linear multivariate multilevel model via
   \code{\link[brms:set_prior]{set_prior}} function. Its documentation
   contains detailed information on how to correctly specify priors. To find
   out on which parameters or parameter classes priors can be defined, use
-  \code{\link[brms:get_prior]{get_prior}}. Default priors are chosen to be
+  \code{\link[brms:default_prior.default]{default_prior}}. Default priors are chosen to be
   non or very weakly informative so that their influence on the results will
   be negligible and you usually don't have to worry about them. However,
   after getting more familiar with Bayesian statistics, I recommend you to
@@ -397,18 +398,18 @@ Fit a generalized (non-)linear multivariate multilevel model via
 \examples{
 \dontrun{
 # Poisson regression for the number of seizures in epileptic patients
-# using normal priors for population-level effects
-# and half-cauchy priors for standard deviations of group-level effects
-prior1 <- prior(normal(0,10), class = b) +
-  prior(cauchy(0,2), class = sd)
-fit1 <- brm(count ~ zAge + zBase * Trt + (1|patient),
-            data = epilepsy, family = poisson(), prior = prior1)
+fit1 <- brm(
+  count ~ zBase * Trt + (1|patient),
+  data = epilepsy, family = poisson(),
+  prior = prior(normal(0, 10), class = b) +
+    prior(cauchy(0, 2), class = sd)
+)
 
 # generate a summary of the results
 summary(fit1)
 
 # plot the MCMC chains as well as the posterior distributions
-plot(fit1, ask = FALSE)
+plot(fit1)
 
 # predict responses based on the fitted model
 head(predict(fit1))
@@ -492,13 +493,13 @@ conditional_effects(fit7)
 
 # use the future package for more flexible parallelization
 library(future)
-plan(multiprocess)
+plan(multisession, workers = 4)
 fit7 <- update(fit7, future = TRUE)
 
 
 # fit a model manually via rstan
-scode <- make_stancode(count ~ Trt, data = epilepsy)
-sdata <- make_standata(count ~ Trt, data = epilepsy)
+scode <- stancode(count ~ Trt, data = epilepsy)
+sdata <- standata(count ~ Trt, data = epilepsy)
 stanfit <- rstan::stan(model_code = scode, data = sdata)
 # feed the Stan model back into brms
 fit8 <- brm(count ~ Trt, data = epilepsy, empty = TRUE)

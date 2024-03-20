@@ -31,7 +31,7 @@
 #'   \code{family} might also be a list of families.
 #' @param prior One or more \code{brmsprior} objects created by
 #'   \code{\link{set_prior}} or related functions and combined using the
-#'   \code{c} method or the \code{+} operator. See also  \code{\link{get_prior}}
+#'   \code{c} method or the \code{+} operator. See also \code{\link[brms:default_prior.default]{default_prior}}
 #'   for more help.
 #' @param data2 A named \code{list} of objects containing data, which
 #'   cannot be passed via argument \code{data}. Required for some objects
@@ -76,7 +76,8 @@
 #'   variables defined in Stan's \code{parameters} block should be saved
 #'   (default is \code{FALSE}). Saving these draws is required in order to
 #'   apply the methods \code{bridge_sampler}, \code{bayes_factor}, and
-#'   \code{post_prob}.
+#'   \code{post_prob}. Can be set globally for the current \R session via the
+#'   \code{"brms.save_pars"} option (see \code{\link{options}}).
 #' @param sample_prior Indicate if draws from priors should be drawn
 #'   additionally to the posterior draws. Options are \code{"no"} (the
 #'   default), \code{"yes"}, and \code{"only"}. Among others, these draws can
@@ -270,7 +271,7 @@
 #'   \code{\link[brms:set_prior]{set_prior}} function. Its documentation
 #'   contains detailed information on how to correctly specify priors. To find
 #'   out on which parameters or parameter classes priors can be defined, use
-#'   \code{\link[brms:get_prior]{get_prior}}. Default priors are chosen to be
+#'   \code{\link[brms:default_prior.default]{default_prior}}. Default priors are chosen to be
 #'   non or very weakly informative so that their influence on the results will
 #'   be negligible and you usually don't have to worry about them. However,
 #'   after getting more familiar with Bayesian statistics, I recommend you to
@@ -317,18 +318,18 @@
 #' @examples
 #' \dontrun{
 #' # Poisson regression for the number of seizures in epileptic patients
-#' # using normal priors for population-level effects
-#' # and half-cauchy priors for standard deviations of group-level effects
-#' prior1 <- prior(normal(0,10), class = b) +
-#'   prior(cauchy(0,2), class = sd)
-#' fit1 <- brm(count ~ zAge + zBase * Trt + (1|patient),
-#'             data = epilepsy, family = poisson(), prior = prior1)
+#' fit1 <- brm(
+#'   count ~ zBase * Trt + (1|patient),
+#'   data = epilepsy, family = poisson(),
+#'   prior = prior(normal(0, 10), class = b) +
+#'     prior(cauchy(0, 2), class = sd)
+#' )
 #'
 #' # generate a summary of the results
 #' summary(fit1)
 #'
 #' # plot the MCMC chains as well as the posterior distributions
-#' plot(fit1, ask = FALSE)
+#' plot(fit1)
 #'
 #' # predict responses based on the fitted model
 #' head(predict(fit1))
@@ -412,13 +413,13 @@
 #'
 #' # use the future package for more flexible parallelization
 #' library(future)
-#' plan(multiprocess)
+#' plan(multisession, workers = 4)
 #' fit7 <- update(fit7, future = TRUE)
 #'
 #'
 #' # fit a model manually via rstan
-#' scode <- make_stancode(count ~ Trt, data = epilepsy)
-#' sdata <- make_standata(count ~ Trt, data = epilepsy)
+#' scode <- stancode(count ~ Trt, data = epilepsy)
+#' sdata <- standata(count ~ Trt, data = epilepsy)
 #' stanfit <- rstan::stan(model_code = scode, data = sdata)
 #' # feed the Stan model back into brms
 #' fit8 <- brm(count ~ Trt, data = epilepsy, empty = TRUE)
@@ -436,8 +437,8 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
                 autocor = NULL, data2 = NULL, cov_ranef = NULL,
                 sample_prior = "no", sparse = NULL, knots = NULL,
                 drop_unused_levels = TRUE, stanvars = NULL, stan_funs = NULL,
-                fit = NA, save_pars = NULL, save_ranef = NULL,
-                save_mevars = NULL, save_all_pars = NULL,
+                fit = NA, save_pars = getOption("brms.save_pars", NULL),
+                save_ranef = NULL, save_mevars = NULL, save_all_pars = NULL,
                 init = NULL, inits = NULL, chains = 4, iter = 2000,
                 warmup = floor(iter / 2), thin = 1,
                 cores = getOption("mc.cores", 1),
@@ -536,7 +537,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     )
     ranef <- tidy_ranef(bterms, data = data)
     # generate Stan code
-    model <- .make_stancode(
+    model <- .stancode(
       bterms, data = data, prior = prior,
       stanvars = stanvars, save_model = save_model,
       backend = backend, threads = threads, opencl = opencl,
@@ -555,7 +556,7 @@ brm <- function(formula, data, family = gaussian(), prior = NULL,
     exclude <- exclude_pars(x)
     # generate Stan data before compiling the model to avoid
     # unnecessary compilations in case of invalid data
-    sdata <- .make_standata(
+    sdata <- .standata(
       bterms, data = data, prior = prior, data2 = data2,
       stanvars = stanvars, threads = threads
     )

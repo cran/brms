@@ -385,6 +385,7 @@ family_info.default <- function(x, y, ...) {
   out
 }
 
+#' @export
 family_info.NULL <- function(x, y, ...) {
   NULL
 }
@@ -927,7 +928,7 @@ acat <- function(link = "logit", link_disc = "log",
 #' pp_check(fit4)
 #'
 #' ## compare model fit
-#' LOO(fit1, fit2, fit3, fit4)
+#' loo(fit1, fit2, fit3, fit4)
 #' }
 #'
 #' @export
@@ -1122,7 +1123,7 @@ mixture <- function(..., flist = NULL, nmix = 1, order = NULL) {
 #'
 #' # define the corresponding Stan density function
 #' stan_density_vec <- "
-#'   real beta_binomial2_lpmf(int[] y, vector mu, real phi, int[] N) {
+#'   real beta_binomial2_lpmf(array[] int y, vector mu, real phi, array[] int N) {
 #'     return beta_binomial_lpmf(y | N, mu * phi, (1 - mu) * phi);
 #'   }
 #' "
@@ -1641,7 +1642,8 @@ conv_cats_dpars <- function(family) {
 
 # check if mixtures of the given families are allowed
 no_mixture <- function(family) {
-  is_categorical(family) || is_multinomial(family) || is_simplex(family)
+  is_categorical(family) || is_multinomial(family) || is_simplex(family) ||
+    is_cont_hurdle(family)
 }
 
 # indicate if the response should consist of multiple columns
@@ -1653,6 +1655,11 @@ has_multicol <- function(family) {
 # even if formally the link function is not 'log'
 has_logscale <- function(family) {
   "logscale" %in% family_info(family, "specials")
+}
+
+# indicate if the family is a continuous zi/hu family
+is_cont_hurdle <- function(family) {
+  "cont_hurdle" %in% family_info(family, "specials")
 }
 
 # indicate if family makes use of argument trials

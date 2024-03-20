@@ -127,7 +127,7 @@ rmulti_normal <- function(n, mu, Sigma, check = FALSE) {
     }
   }
   draws <- matrix(rnorm(n * p), nrow = n, ncol = p)
-  mu + draws %*% chol(Sigma)
+  sweep(draws %*% chol(Sigma), 2, mu, "+")
 }
 
 #' The Multivariate Student-t Distribution
@@ -301,7 +301,13 @@ pskew_normal <- function(q, mu = 0, sigma = 1, alpha = 0,
     delta[is_alpha_inf] <- sign(alpha[is_alpha_inf])
     out <- numeric(nz)
     for (k in seq_len(nz)) {
-      if (is_alpha_inf[k]) {
+      if (is.infinite(z[k])) {
+        if (z[k] > 0) {
+          out[k] <- 1
+        } else {
+          out[k] <- 0
+        }
+      } else if (is_alpha_inf[k]) {
         if (alpha[k] > 0) {
           out[k] <- 2 * (pnorm(pmax(z[k], 0)) - 0.5)
         } else {
@@ -456,7 +462,7 @@ pinvgamma <- function(q, shape, rate, lower.tail = TRUE, log.p = FALSE) {
 #' @name VonMises
 #'
 #' @inheritParams StudentT
-#' @param x,q Vector of quantiles.
+#' @param x,q Vector of quantiles between \code{-pi} and \code{pi}.
 #' @param kappa Vector of precision values.
 #' @param acc Accuracy of numerical approximations.
 #'

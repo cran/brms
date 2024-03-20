@@ -60,13 +60,13 @@
 #'
 #'  Below, we describe the currently supported covariance kernels:
 #'  \itemize{
-#'    \item{"exp_quad": }{The exponentiated-quadratic kernel is defined as
+#'    \item "exp_quad": The exponentiated quadratic kernel is defined as
 #'    \eqn{k(x_i, x_j) = sdgp^2 \exp(- || x_i - x_j ||^2 / (2 lscale^2))},
 #'    where \eqn{|| . ||} is the Euclidean norm, \eqn{sdgp} is a
 #'    standard deviation parameter, and \eqn{lscale} is characteristic
 #'    length-scale parameter. The latter practically measures how close two
 #'    points \eqn{x_i} and \eqn{x_j} have to be to influence each other
-#'    substantially.}
+#'    substantially.
 #'  }
 #'
 #'  In the current implementation, \code{"exp_quad"} is the only supported
@@ -100,7 +100,7 @@
 #' plot(me3, ask = FALSE, points = TRUE)
 #'
 #' # compare model fit
-#' LOO(fit1, fit2, fit3)
+#' loo(fit1, fit2, fit3)
 #'
 #' # simulate data with a factor covariate
 #' dat2 <- mgcv::gamSim(4, n = 90, scale = 2)
@@ -114,7 +114,7 @@
 #' @seealso \code{\link{brmsformula}}
 #' @export
 gp <- function(..., by = NA, k = NA, cov = "exp_quad", iso = TRUE,
-               gr = TRUE, cmc = TRUE, scale = TRUE, c = NULL) {
+               gr = TRUE, cmc = TRUE, scale = TRUE, c = 5/4) {
   cov <- match.arg(cov, choices = c("exp_quad"))
   call <- match.call()
   label <- deparse0(call)
@@ -136,13 +136,6 @@ gp <- function(..., by = NA, k = NA, cov = "exp_quad", iso = TRUE,
     k <- as.integer(as_one_numeric(k))
     if (k < 1L) {
       stop2("'k' must be positive.")
-    }
-    if (is.null(c)) {
-      stop2(
-        "'c' must be specified for approximate GPs. ",
-        "A good default could be c = 5/4 but we are still ",
-        "working on providing better recommendations."
-      )
     }
     c <- as.numeric(c)
     if (length(c) == 1L) {
