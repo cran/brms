@@ -1,7 +1,7 @@
 params <-
 list(EVAL = TRUE)
 
-## ---- SETTINGS-knitr, include=FALSE-----------------------------------------------------
+## ----SETTINGS-knitr, include=FALSE------------------------------------------------------
 stopifnot(require(knitr))
 options(width = 90)
 opts_chunk$set(
@@ -20,7 +20,7 @@ library(ggplot2)
 library(brms)
 theme_set(theme_default())
 
-## ---- fake-data-sim, include=FALSE, eval=TRUE-------------------------------------------
+## ----fake-data-sim, include=FALSE, eval=TRUE--------------------------------------------
 set.seed(54647)
 # number of observations
 N <- 1E4
@@ -57,7 +57,7 @@ fake <- fake[sample.int(N, N),]
 # drop not needed row names
 rownames(fake) <- NULL
 
-## ---- model-poisson, include=FALSE------------------------------------------------------
+## ----model-poisson, include=FALSE-------------------------------------------------------
 model_poisson <- brm(
   y ~ 1 + x1 + x2 + (1 | g),
   data = fake,
@@ -71,7 +71,7 @@ model_poisson <- brm(
   save_pars = save_pars(all = TRUE)
 )
 
-## ---- benchmark, include=FALSE----------------------------------------------------------
+## ----benchmark, include=FALSE-----------------------------------------------------------
 # Benchmarks given model with cross-product of tuning parameters CPU
 # cores, grainsize and iterations. Models are run with either static
 # or non-static scheduler and initial values are set by default to 0 on the
@@ -152,14 +152,14 @@ extract_draw <- function(sims, draw) {
   lapply(sims, brms:::slice, dim = 1, i = draw, drop = TRUE)
 }
 
-## ---- eval=FALSE------------------------------------------------------------------------
+## ----eval=FALSE-------------------------------------------------------------------------
 #  fit_serial <- brm(
 #    count ~ zAge + zBase * Trt + (1|patient),
 #    data = epilepsy, family = poisson(),
 #    chains = 4, cores = 4, backend = "cmdstanr"
 #  )
 
-## ---- eval=FALSE------------------------------------------------------------------------
+## ----eval=FALSE-------------------------------------------------------------------------
 #  fit_parallel <- update(
 #    fit_serial, chains = 2, cores = 2,
 #    backend = "cmdstanr", threads = threading(2)
@@ -168,7 +168,7 @@ extract_draw <- function(sims, draw) {
 ## ---------------------------------------------------------------------------------------
 kable(head(fake, 10), digits = 3)
 
-## ---- eval=FALSE------------------------------------------------------------------------
+## ----eval=FALSE-------------------------------------------------------------------------
 #  model_poisson <- brm(
 #    y ~ 1 + x1 + x2 + (1 | g),
 #    data = fake,
@@ -182,7 +182,7 @@ kable(head(fake, 10), digits = 3)
 #    save_pars = save_pars(all = TRUE)
 #  )
 
-## ---- chunking-scale, message=FALSE, warning=FALSE, results='hide'----------------------
+## ----chunking-scale, message=FALSE, warning=FALSE, results='hide'-----------------------
 chunking_bench <- transform(
     data.frame(chunks = 4^(0:3)),
     grainsize = ceiling(N / chunks)
@@ -202,7 +202,7 @@ ref <- benchmark_reference(model_poisson, iter_test)
 
 # for additional data munging please refer to the appendix
 
-## ---- munge-chunking-scaling, include=FALSE---------------------------------------------
+## ----munge-chunking-scaling, include=FALSE----------------------------------------------
 scaling_chunking <- merge(scaling_chunking, chunking_bench, by = "grainsize")
 
 single_chunk  <- transform(
@@ -241,7 +241,7 @@ ggplot(scaling_chunking) +
 
 
 
-## ---- speedup-scale, message=FALSE, warning=FALSE, results='hide'-----------------------
+## ----speedup-scale, message=FALSE, warning=FALSE, results='hide'------------------------
 num_cpu <- parallel::detectCores(logical = FALSE)
 num_cpu_logical <- parallel::detectCores(logical = TRUE)
 grainsize_default <- ceiling(N / (2 * num_cpu))
@@ -297,7 +297,7 @@ ggplot(scaling_cores) +
 ## ---------------------------------------------------------------------------------------
 kable(scaling_cores, digits = 2)
 
-## ---- eval=FALSE------------------------------------------------------------------------
+## ----eval=FALSE-------------------------------------------------------------------------
 #  set.seed(54647)
 #  # number of observations
 #  N <- 1E4
@@ -334,7 +334,7 @@ kable(scaling_cores, digits = 2)
 #  # drop not needed row names
 #  rownames(fake) <- NULL
 
-## ---- eval=FALSE------------------------------------------------------------------------
+## ----eval=FALSE-------------------------------------------------------------------------
 #  model_poisson <- brm(
 #    y ~ 1 + x1 + x2 + (1 | g),
 #    data = fake,
@@ -348,7 +348,7 @@ kable(scaling_cores, digits = 2)
 #    save_pars = save_pars(all = TRUE)
 #  )
 
-## ---- eval=FALSE------------------------------------------------------------------------
+## ----eval=FALSE-------------------------------------------------------------------------
 #  # Benchmarks given model with cross-product of tuning parameters CPU
 #  # cores, grainsize and iterations. Models are run with either static
 #  # or non-static scheduler and initial values are set by default to 0 on the
@@ -429,7 +429,7 @@ kable(scaling_cores, digits = 2)
 #    lapply(sims, brms:::slice, dim = 1, i = draw, drop = TRUE)
 #  }
 
-## ---- eval=FALSE------------------------------------------------------------------------
+## ----eval=FALSE-------------------------------------------------------------------------
 #  scaling_chunking <- merge(scaling_chunking, chunking_bench, by = "grainsize")
 #  
 #  single_chunk  <- transform(

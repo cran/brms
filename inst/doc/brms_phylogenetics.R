@@ -1,7 +1,7 @@
 params <-
 list(EVAL = TRUE)
 
-## ---- SETTINGS-knitr, include=FALSE-----------------------------------------------------
+## ----SETTINGS-knitr, include=FALSE------------------------------------------------------
 stopifnot(require(knitr))
 options(width = 90)
 opts_chunk$set(
@@ -30,7 +30,7 @@ head(data_simple)
 ## ---------------------------------------------------------------------------------------
 A <- ape::vcv.phylo(phylo)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 model_simple <- brm(
   phen ~ cofactor + (1|gr(phylo, cov = A)),
   data = data_simple,
@@ -63,7 +63,7 @@ data_repeat$spec_mean_cf <-
   with(data_repeat, sapply(split(cofactor, phylo), mean)[phylo])
 head(data_repeat)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 model_repeat1 <- brm(
   phen ~ spec_mean_cf + (1|gr(phylo, cov = A)) + (1|species),
   data = data_repeat,
@@ -93,7 +93,7 @@ plot(hyp)
 ## ---------------------------------------------------------------------------------------
 data_repeat$within_spec_cf <- data_repeat$cofactor - data_repeat$spec_mean_cf
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 model_repeat2 <- update(
   model_repeat1, formula = ~ . + within_spec_cf,
   newdata = data_repeat, chains = 2, cores = 2,
@@ -118,7 +118,7 @@ data_fisher <- read.table(
 data_fisher$obs <- 1:nrow(data_fisher)
 head(data_fisher)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 model_fisher <- brm(
   Zr | se(sqrt(1 / (N - 3))) ~ 1 + (1|gr(phylo, cov = A)) + (1|obs),
   data = data_fisher, family = gaussian(),
@@ -143,7 +143,7 @@ data_pois <- read.table(
 data_pois$obs <- 1:nrow(data_pois)
 head(data_pois)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 model_pois <- brm(
   phen_pois ~ cofactor + (1|gr(phylo, cov = A)) + (1|obs),
   data = data_pois, family = poisson("log"),
@@ -156,7 +156,7 @@ model_pois <- brm(
 summary(model_pois)
 plot(conditional_effects(model_pois), points = TRUE)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 model_normal <- brm(
   phen_pois ~ cofactor + (1|gr(phylo, cov = A)),
   data = data_pois, family = gaussian(),

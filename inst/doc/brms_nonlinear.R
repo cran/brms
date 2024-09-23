@@ -1,7 +1,7 @@
 params <-
 list(EVAL = TRUE)
 
-## ---- SETTINGS-knitr, include=FALSE-----------------------------------------------------
+## ----SETTINGS-knitr, include=FALSE------------------------------------------------------
 stopifnot(require(knitr))
 options(width = 90)
 opts_chunk$set(
@@ -25,7 +25,7 @@ x <- rnorm(100)
 y <- rnorm(100, mean = b[1] * exp(b[2] * x))
 dat1 <- data.frame(x, y)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 prior1 <- prior(normal(1, 2), nlpar = "b1") +
   prior(normal(0, 2), nlpar = "b2")
 fit1 <- brm(bf(y ~ b1 * exp(b2 * x), b1 + b2 ~ 1, nl = TRUE),
@@ -36,7 +36,7 @@ summary(fit1)
 plot(fit1)
 plot(conditional_effects(fit1), points = TRUE)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 fit2 <- brm(y ~ x, data = dat1)
 
 ## ---------------------------------------------------------------------------------------
@@ -53,7 +53,7 @@ loo(fit1, fit2)
 data(loss)
 head(loss)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 fit_loss <- brm(
   bf(cum ~ ult * (1 - exp(-(dev/theta)^omega)),
      ult ~ 1 + (1|AY), omega ~ 1, theta ~ 1,
@@ -88,14 +88,14 @@ p <- 0.33 + 0.67 * inv_logit(ability)
 answer <- ifelse(runif(300, 0, 1) < p, 1, 0)
 dat_ir <- data.frame(ability, answer)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 fit_ir1 <- brm(answer ~ ability, data = dat_ir, family = bernoulli())
 
 ## ---------------------------------------------------------------------------------------
 summary(fit_ir1)
 plot(conditional_effects(fit_ir1), points = TRUE)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 fit_ir2 <- brm(
   bf(answer ~ 0.33 + 0.67 * inv_logit(eta),
      eta ~ ability, nl = TRUE),
@@ -110,7 +110,7 @@ plot(conditional_effects(fit_ir2), points = TRUE)
 ## ---------------------------------------------------------------------------------------
 loo(fit_ir1, fit_ir2)
 
-## ---- results='hide'--------------------------------------------------------------------
+## ----results='hide'---------------------------------------------------------------------
 fit_ir3 <- brm(
   bf(answer ~ guess + (1 - guess) * inv_logit(eta),
     eta ~ 0 + ability, guess ~ 1, nl = TRUE),

@@ -1,7 +1,7 @@
 params <-
 list(EVAL = TRUE)
 
-## ---- SETTINGS-knitr, include=FALSE-----------------------------------------------------
+## ----SETTINGS-knitr, include=FALSE------------------------------------------------------
 stopifnot(require(knitr))
 options(width = 90)
 opts_chunk$set(
