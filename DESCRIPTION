@@ -2,8 +2,8 @@ Package: brms
 Encoding: UTF-8
 Type: Package
 Title: Bayesian Regression Models using 'Stan'
-Version: 2.22.0
-Date: 2024-09-20
+Version: 2.23.0
+Date: 2025-09-08
 Authors@R: 
     c(person("Paul-Christian", "Bürkner", email = "paul.buerkner@gmail.com",
              role = c("aut", "cre")),
@@ -18,7 +18,13 @@ Authors@R:
       person("Hayden", "Rabel", role = c("ctb")),
       person("Simon C.", "Mills", role = c("ctb")),
       person("Stephen", "Wild", role = c("ctb")),
-      person("Ven", "Popov", role = c("ctb")))
+      person("Ven", "Popov", role = c("ctb")),
+      person("Ioannis", "Kosmidis", role = c("ctb")),
+      person("Ben", "Schneider", role = c("ctb")),
+      person("Noa", "Kallioinen", role = c("ctb")),
+      person("Wellington J.", "Silva", role = c("ctb")),
+      person("Luiz", "Carvalho", role = c("ctb")),
+      person("Sermet", "Pekin", role = c("ctb")))
 Depends: R (>= 3.6.0), Rcpp (>= 0.12.0), methods
 Imports: rstan (>= 2.29.0), ggplot2 (>= 2.0.0), loo (>= 2.8.0),
         posterior (>= 1.6.0), Matrix (>= 1.1.1), mgcv (>= 1.8-13),
@@ -26,12 +32,12 @@ Imports: rstan (>= 2.29.0), ggplot2 (>= 2.0.0), loo (>= 2.8.0),
         0.3-0), glue (>= 1.3.0), rlang (>= 1.0.0), future (>= 1.19.0),
         future.apply (>= 1.0.0), matrixStats, nleqslv, nlme, coda,
         abind, stats, utils, parallel, grDevices, backports
-Suggests: testthat (>= 0.9.1), emmeans (>= 1.4.2), cmdstanr (>= 0.5.0),
+Suggests: testthat (>= 3.1.9), emmeans (>= 1.4.2), cmdstanr (>= 0.5.0),
         projpred (>= 2.0.0), priorsense (>= 1.0.0), shinystan (>=
         2.4.0), splines2 (>= 0.5.0), RWiener, rtdists, extraDistr,
         processx, mice, spdep, mnormt, lme4, MCMCglmm, ape, arm,
-        statmod, digest, diffobj, R.rsp, gtable, shiny, knitr,
-        rmarkdown
+        statmod, digest, diffobj, betareg, R.rsp, gtable, shiny, knitr,
+        rmarkdown, ragg, colorspace, mirai, future.mirai
 Description: Fit Bayesian generalized (non-)linear multivariate multilevel models
     using 'Stan' for full Bayesian inference. A wide range of distributions
     and link functions are supported, allowing users to fit -- among others --
@@ -56,9 +62,10 @@ URL: https://github.com/paul-buerkner/brms,
         https://discourse.mc-stan.org/, https://paulbuerkner.com/brms/
 BugReports: https://github.com/paul-buerkner/brms/issues
 Additional_repositories: https://stan-dev.r-universe.dev/
+SystemRequirements: pngquant
 VignetteBuilder: knitr, R.rsp
 RoxygenNote: 7.3.2
-Packaged: 2024-09-23 05:27:41 UTC; paul-buerkner
+Packaged: 2025-09-09 07:25:22 UTC; paulbuerkner
 Author: Paul-Christian Bürkner [aut, cre],
   Jonah Gabry [ctb],
   Sebastian Weber [ctb],
@@ -71,7 +78,13 @@ Author: Paul-Christian Bürkner [aut, cre],
   Hayden Rabel [ctb],
   Simon C. Mills [ctb],
   Stephen Wild [ctb],
-  Ven Popov [ctb]
+  Ven Popov [ctb],
+  Ioannis Kosmidis [ctb],
+  Ben Schneider [ctb],
+  Noa Kallioinen [ctb],
+  Wellington J. Silva [ctb],
+  Luiz Carvalho [ctb],
+  Sermet Pekin [ctb]
 Maintainer: Paul-Christian Bürkner <paul.buerkner@gmail.com>
 Repository: CRAN
-Date/Publication: 2024-09-23 13:00:29 UTC
+Date/Publication: 2025-09-09 10:50:02 UTC

@@ -67,9 +67,14 @@ validate_data <- function(data, bterms, data2 = list(), knots = NULL,
     stop2("All observations in the data were removed ",
           "presumably because of NA values.")
   }
+  if (any(ulapply(data, is.infinite))) {
+    warning2("Found infinite values in the data, ",
+             "which may cause issues for Stan.")
+  }
   groups <- get_group_vars(bterms)
   data <- combine_groups(data, groups)
   data <- fix_factor_contrasts(data, ignore = groups)
+  data <- order_data(data, bterms = bterms)
   attr(data, "knots") <- knots
   attr(data, "drop_unused_levels") <- drop_unused_levels
   attr(data, "data_name") <- data_name
@@ -457,6 +462,10 @@ validate_newdata <- function(
     if (is_like_factor(mf[[i]])) {
       mf[[i]] <- as.factor(mf[[i]])
     }
+  }
+  pw_vars <- ufrom_list(get_re(bterms)$gcall, "pw")
+  for (v in setdiff(pw_vars, names(newdata))) {
+    newdata[[v]] <- 1
   }
   # fixes issue #279
   newdata <- data_rsv_intercept(newdata, bterms)

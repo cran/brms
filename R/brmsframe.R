@@ -36,6 +36,9 @@ brmsframe.brmsterms <- function(x, data, frame = NULL, basis = NULL, ...) {
     x$frame <- frame
     x$frame$re <- subset2(x$frame$re, resp = x$resp)
   }
+  if (!is.null(basis)) {
+    x$frame$basis <- basis[c("resp_levels")]
+  }
   data <- subset_data(data, x)
   x$frame$resp <- frame_resp(x, data = data)
   x$frame$ac <- frame_ac(x, data = data)
@@ -247,12 +250,16 @@ get_levels.list <- function(x, ...) {
   out <- vector("list", length(x))
   for (i in seq_along(out)) {
     levels <- get_levels(x[[i]], ...)
+    if (!length(levels)) {
+      next
+    }
     if (is.list(levels)) {
       stopifnot(!is.null(names(levels)))
       out[[i]] <- as.list(levels)
-    } else if (!is.null(levels)) {
-      stopifnot(isTRUE(nzchar(names(x)[i])))
-      out[[i]] <- setNames(list(levels), names(x)[[i]])
+    } else if (is.vector(levels)) {
+      name_i <- names(x)[i]
+      stopifnot(isTRUE(nzchar(name_i)))
+      out[[i]] <- setNames(list(levels), name_i)
     }
   }
   out <- unlist(out, recursive = FALSE)
@@ -267,7 +274,7 @@ get_levels.brmsterms <- function(x, data = NULL, ...) {
     return(out)
   }
   if (!is.null(data)) {
-    ls <- list(frame_re(x, data), frame_me(x, data))
+    ls <- list(frame_re_levels_only(x, data), frame_me(x, data))
     out <- get_levels(ls)
   }
   out
@@ -377,7 +384,7 @@ frame_basis_sm <- function(x, data, ...) {
 frame_basis_gp <- function(x, data, ...) {
   stopifnot(is.btl(x))
   out <- data_gp(x, data, internal = TRUE)
-  out <- out[grepl("^((Xgp)|(dmax)|(cmeans))", names(out))]
+  out <- out[grepl("^((Xgp)|(dmax)|(cmeans)|(L))", names(out))]
   out
 }
 

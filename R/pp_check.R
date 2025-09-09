@@ -125,6 +125,7 @@ pp_check.brmsfit <- function(object, type, ndraws = NULL, prefix = c("ppc", "ppd
       "intervals", "intervals_grouped",
       "loo_intervals", "loo_pit", "loo_pit_overlay",
       "loo_pit_qq", "loo_ribbon",
+      "loo_pit_ecdf",
       'pit_ecdf', 'pit_ecdf_grouped',
       "ribbon", "ribbon_grouped",
       "rootogram", "scatter_avg", "scatter_avg_grouped",
@@ -198,11 +199,20 @@ pp_check.brmsfit <- function(object, type, ndraws = NULL, prefix = c("ppc", "ppd
   # censored responses are misleading when displayed in pp_check
   bterms <- brmsterms(object$formula)
   cens <- get_cens(bterms, data, resp = resp)
-  if (!is.null(cens) & type != 'km_overlay') {
-    warning2("Censored responses are not shown in 'pp_check'.")
-    take <- !cens
+  is_censoring_type <- type %in% c("km_overlay", "km_overlay_grouped")
+  if (!is.null(cens)) {
+    if (is_censoring_type) {
+      if (any(cens %in% c(-1, 2))) {
+        warning2("Left and interval censored responses are not included.")
+      }
+      take <- cens %in% c(0, 1)
+      ppc_args$status_y <- 1 - cens[take]
+    } else {
+      warning2("Censored responses are not included.")
+      take <- !cens
+    }
     if (!any(take)) {
-      stop2("No non-censored responses found.")
+      stop2("No valid responses found to include.")
     }
     ppc_args$y <- ppc_args$y[take]
     ppc_args$yrep <- ppc_args$yrep[, take, drop = FALSE]
@@ -217,6 +227,9 @@ pp_check.brmsfit <- function(object, type, ndraws = NULL, prefix = c("ppc", "ppd
     } else if (!is.null(ppc_args$psis_object)) {
       ppc_args$psis_object <- subset(ppc_args$psis_object, take)
     }
+  } else if (is_censoring_type) {
+    # status_y is mandatory for some ppc types
+    ppc_args$status_y <- rep(1, length(ppc_args$y))
   }
 
   # most ... arguments are meant for the prediction function

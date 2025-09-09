@@ -4,17 +4,20 @@ list(EVAL = TRUE)
 ## ----SETTINGS-knitr, include=FALSE------------------------------------------------------
 stopifnot(require(knitr))
 options(width = 90)
+knit_hooks$set(pngquant = knitr::hook_pngquant)
 opts_chunk$set(
   comment = NA,
   message = FALSE,
   warning = FALSE,
   eval = if (isTRUE(exists("params"))) params$EVAL else FALSE,
-  dev = "jpeg",
-  dpi = 100,
+  dev = "ragg_png",
+  dpi = 72,
+  fig.retina = 1.5,
   fig.asp = 0.8,
   fig.width = 5,
   out.width = "60%",
-  fig.align = "center"
+  fig.align = "center",
+  pngquant = "--speed=1 --quality=50"
 )
 library(brms)
 ggplot2::theme_set(theme_default())
@@ -63,7 +66,7 @@ conditional_effects(fit_imp2, "age:chl", resp = "bmi")
 nhanes$se <- rexp(nrow(nhanes), 2)
 
 ## ----results = 'hide', message = FALSE, eval = FALSE------------------------------------
-#  bform <- bf(bmi | mi() ~ age * mi(chl)) +
-#    bf(chl | mi(se) ~ age) + set_rescor(FALSE)
-#  fit_imp3 <- brm(bform, data = nhanes)
+# bform <- bf(bmi | mi() ~ age * mi(chl)) +
+#   bf(chl | mi(se) ~ age) + set_rescor(FALSE)
+# fit_imp3 <- brm(bform, data = nhanes)
 

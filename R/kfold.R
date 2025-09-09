@@ -33,10 +33,10 @@
 #' @param joint Indicates which observations' log likelihoods shall be
 #'   considered jointly in the ELPD computation. If \code{"obs"} or \code{FALSE}
 #'   (the default), each observation is considered separately. This enables
-#'   comparability of \code{kfold} with \code{loo}. If \code{"fold"}, the joint
-#'   log likelihoods per fold are used. If \code{"group"}, the joint log
-#'   likelihoods per group within folds are used (only available if argument
-#'   \code{group} is specified).
+#'   comparability of \code{kfold} with \code{loo}. If \code{"fold"} or
+#'   \code{TRUE}, the joint log likelihoods per fold are used. If
+#'   \code{"group"}, the joint log likelihoods per group within folds are used
+#'   (only available if argument \code{group} is specified).
 #' @param save_fits If \code{TRUE}, a component \code{fits} is added to
 #'   the returned object to store the cross-validated \code{brmsfit}
 #'   objects and the indices of the omitted observations for each fold.
@@ -47,7 +47,8 @@
 #' @param future_args A list of further arguments passed to
 #'   \code{\link[future:future]{future}} for additional control over parallel
 #'   execution if activated.
-#' @param ... Further arguments passed to \code{\link{brm}}.
+#' @param ... Further arguments passed to \code{\link{brm}} and
+#'    \code{\link{log_lik}}.
 #'
 #' @return \code{kfold} returns an object that has a similar structure as the
 #'   objects returned by the \code{loo} and \code{waic} methods and
@@ -95,6 +96,9 @@
 #'   executable to a temporary directory. To avoid that, set option
 #'   \code{"cmdstanr_write_stan_file_dir"} to a nontemporary path of your choice
 #'   before creating the original \code{brmsfit} (see section 'Examples' below).
+#'
+#' @template details-sample_new_levels_gaussian
+#' @template parallelization
 #'
 #' @examples
 #' \dontrun{

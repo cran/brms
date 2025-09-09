@@ -19,7 +19,11 @@
 #' @param id Optional character string. All group-level terms across the model
 #'   with the same \code{id} will be modeled as correlated (if \code{cor} is
 #'   \code{TRUE}). See \code{\link{brmsformula}} for more details.
-#' @param cov An optional matrix which is proportional to the withon-group
+#' @param pw Optional numeric variable specifying prior weights. They weight the
+#'   contribution of each group to the log-prior of the group-level
+#'   coefficients. Should have one distinct value for each level of the
+#'   grouping variable.
+#' @param cov An optional matrix which is proportional to the within-group
 #'   covariance matrix of the group-level effects. All levels of the grouping
 #'   factor should appear as rownames of the corresponding matrix. This argument
 #'   can be used, among others, to model pedigrees and phylogenetic effects. See
@@ -43,10 +47,16 @@
 #' # include Trt as a by variable
 #' fit3 <- brm(count ~ Trt + (1|gr(patient, by = Trt)), data = epilepsy)
 #' summary(fit3)
+#'
+#' # include a group-level weight variable
+#' epilepsy[['patient_samp_wgt']] <- c(1, rep(c(0.9, 1.1), each = 29))
+#' fit4 <- brm(count ~ Trt + (1|gr(patient, pw = patient_samp_wgt)),
+#'             data = epilepsy)
+#' summary(fit4)
 #' }
 #'
 #' @export
-gr <- function(..., by = NULL, cor = TRUE, id = NA,
+gr <- function(..., by = NULL, cor = TRUE, id = NA, pw = NULL,
                cov = NULL, dist = "gaussian") {
   label <- deparse0(match.call())
   groups <- as.character(as.list(substitute(list(...)))[-1])
@@ -62,6 +72,12 @@ gr <- function(..., by = NULL, cor = TRUE, id = NA,
   } else {
     by <- ""
   }
+  pw <- substitute(pw)
+  if (!is.null(pw)) {
+    pw <- deparse0(pw)
+  } else {
+    pw <- ""
+  }
   cov <- substitute(cov)
   if (!is.null(cov)) {
     cov <- all.vars(cov)
@@ -73,8 +89,9 @@ gr <- function(..., by = NULL, cor = TRUE, id = NA,
   }
   dist <- match.arg(dist, c("gaussian", "student"))
   byvars <- all_vars(by)
-  allvars <- str2formula(c(groups, byvars))
-  nlist(groups, allvars, label, by, cor, id, cov, dist, type = "")
+  pwvars <- all_vars(pw)
+  allvars <- str2formula(c(groups, byvars, pwvars))
+  nlist(groups, allvars, label, by, cor, id, pw, cov, dist, type = "")
 }
 
 #' Set up multi-membership grouping terms in \pkg{brms}
@@ -84,7 +101,7 @@ gr <- function(..., by = NULL, cor = TRUE, id = NA,
 #' it exists purely to help set up a model with grouping terms.
 #'
 #' @inheritParams gr
-#' @param weights A matrix specifying the weights of each member.
+#' @param weights A matrix specifying the membership weights of each member.
 #'  It should have as many columns as grouping terms specified in \code{...}.
 #'  If \code{NULL} (the default), equally weights are used.
 #' @param by An optional factor matrix, specifying sub-populations of the
@@ -92,11 +109,14 @@ gr <- function(..., by = NULL, cor = TRUE, id = NA,
 #'   \code{...}. For each level of the \code{by} variable, a separate
 #'   variance-covariance matrix will be fitted. Levels of the grouping factor
 #'   must be nested in levels of the \code{by} variable matrix.
+#' @param pw Optional numeric matrix specifying prior weights. They weight the
+#'   contribution of each group to the log-prior of the group-level
+#'   coefficients. Should have as many columns as grouping terms specified in
+#'   \code{...} and one distinct value for each group level.
 #' @param scale Logical; if \code{TRUE} (the default),
-#'  weights are standardized in order to sum to one per row.
+#'  membership weights are standardized in order to sum to one per row.
 #'  If negative weights are specified, \code{scale} needs
 #'  to be set to \code{FALSE}.
-#'
 #' @seealso \code{\link{brmsformula}}, \code{\link{mmc}}
 #'
 #' @examples
@@ -124,8 +144,9 @@ gr <- function(..., by = NULL, cor = TRUE, id = NA,
 #' }
 #'
 #' @export
-mm <- function(..., weights = NULL, scale = TRUE, by = NULL, cor = TRUE,
-               id = NA, cov = NULL, dist = "gaussian") {
+mm <- function(..., weights = NULL, scale = TRUE,
+               by = NULL, cor = TRUE, id = NA,  pw = NULL,
+               cov = NULL, dist = "gaussian") {
   label <- deparse0(match.call())
   groups <- as.character(as.list(substitute(list(...)))[-1])
   if (length(groups) < 2) {
@@ -142,6 +163,12 @@ mm <- function(..., weights = NULL, scale = TRUE, by = NULL, cor = TRUE,
   } else {
     by <- ""
   }
+  pw <- substitute(pw)
+  if (!is.null(pw)) {
+    pw <- deparse0(pw)
+  } else {
+    pw <- ""
+  }
   cov <- substitute(cov)
   if (!is.null(cov)) {
     cov <- all.vars(cov)
@@ -155,8 +182,9 @@ mm <- function(..., weights = NULL, scale = TRUE, by = NULL, cor = TRUE,
   scale <- as_one_logical(scale)
   weights <- substitute(weights)
   weightvars <- all_vars(weights)
+  pwvars <- all_vars(pw)
   byvars <- all_vars(by)
-  allvars <- str2formula(c(groups, weightvars, byvars))
+  allvars <- str2formula(c(groups, weightvars, pwvars, byvars))
   if (!is.null(weights)) {
     weights <- str2formula(deparse_no_string(weights))
     attr(weights, "scale") <- scale
@@ -164,7 +192,7 @@ mm <- function(..., weights = NULL, scale = TRUE, by = NULL, cor = TRUE,
   }
   nlist(
     groups, weights, weightvars, allvars, label,
-    by, cor, id, cov, dist, type = "mm"
+    by, cor, id, pw, cov, dist, type = "mm"
   )
 }
 
@@ -708,6 +736,25 @@ frame_re <- function(bterms, data, old_levels = NULL) {
   out
 }
 
+# like frame_re but only returns its levels attribute
+# this avoids issue #1221 and likely some other edge cases
+frame_re_levels_only <- function(bterms, data) {
+  out <- empty_reframe()
+  data <- combine_groups(data, get_group_vars(bterms))
+  re <- get_re(bterms)
+  re <- re[!duplicated(re$group), ]
+  levels <- named_list(re$group)
+  for (i in seq_along(levels)) {
+    # combine levels of all grouping factors within one grouping term
+    levels[[i]] <- unique(ulapply(
+      re$gcall[[i]]$groups,
+      function(g) extract_levels(get(g, data))
+    ))
+  }
+  set_levels(out) <- levels
+  out
+}
+
 empty_reframe <- function() {
   out <- data.frame(
     id = numeric(0), group = character(0), gn = numeric(0),
@@ -762,7 +809,7 @@ get_group_vars.mvbrmsterms <- function(x, ...) {
 }
 
 .get_group_vars <- function(x, ...) {
-  out <- c(get_re_groups(x), get_me_groups(x), get_ac_groups(x))
+  out <- c(get_re_group_vars(x), get_me_group_vars(x), get_ac_group_vars(x))
   out <- out[nzchar(out)]
   if (length(out)) {
     c(out) <- unlist(strsplit(out, ":"))
@@ -771,13 +818,14 @@ get_group_vars.mvbrmsterms <- function(x, ...) {
   out
 }
 
-# get names of grouping variables of re terms
-get_re_groups <- function(x, ...) {
+# get names of grouping variables from re terms
+get_re_group_vars <- function(x, ...) {
   ufrom_list(get_re(x)$gcall, "groups")
 }
 
-# extract information about groups with a certain distribution
-get_dist_groups <- function(reframe, dist) {
+# extract information about groups with a certain distribution from an reframe
+subset_reframe_dist <- function(reframe, dist) {
+  stopifnot(is.reframe(reframe))
   out <- subset2(reframe, dist = dist)
   out[!duplicated(out$group), c("group", "ggn", "id")]
 }

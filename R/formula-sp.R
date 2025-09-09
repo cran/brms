@@ -297,8 +297,7 @@ frame_me <- function(x, data, old_levels = NULL) {
     term = uni_me, xname = "", grname = "",
     stringsAsFactors = FALSE
   )
-  unique_grnames <- unique(out$grname)
-  levels <- named_list(unique_grnames)
+  levels <- list()
   for (i in seq_rows(out)) {
     tmp <- eval2(out$term[i])
     out$xname[i] <- tmp$term
@@ -313,7 +312,7 @@ frame_me <- function(x, data, old_levels = NULL) {
   out$cor <- isTRUE(x$mecor)
   if (!is.null(old_levels)) {
     # for newdata numeration has to depend on the original levels
-    set_levels(out) <- old_levels[[unique_grnames]]
+    set_levels(out) <- old_levels
     set_levels(out, "used") <- levels
   } else {
     set_levels(out) <- levels
@@ -366,6 +365,15 @@ frame_sp <- function(x, data) {
   }
   mm <- sp_model_matrix(form, data, rename = FALSE)
   out <- data.frame(term = colnames(mm), stringsAsFactors = FALSE)
+
+  # fixes issue #1754
+  try_parse <- try(parse(text = out$term))
+  if (is_try_error(try_parse)) {
+    stop2("Cannot parse special effects terms (see above error message). ",
+          "Likely this is because of factor levels with special symbols ",
+          "such as '$' or '@'.")
+  }
+
   out$coef <- rename(out$term)
   calls_cols <- c(paste0("calls_", all_sp_types()), "joint_call")
   list_cols <- c("vars_mi", "idx_mi", "idx2_mi", "ids_mo", "Imo")
@@ -445,9 +453,9 @@ frame_sp <- function(x, data) {
 
   # extract information on covariates
   # only non-zero covariates are relevant to consider
-  not_one <- apply(mm, 2, function(x) any(x != 1))
-  cumsum_not_one <- cumsum(not_one)
-  out$Ic <- ifelse(not_one, cumsum_not_one, 0)
+  has_covars <- attr(mm, "covars")
+  cumsum_covars <- cumsum(has_covars)
+  out$Ic <- ifelse(has_covars, cumsum_covars, 0)
   class(out) <- spframe_class()
   out
 }
@@ -497,8 +505,8 @@ get_sdy <- function(x, data = NULL) {
   sdy
 }
 
-# names of grouping variables used in measurement error terms
-get_me_groups <- function(x) {
+# get names of grouping variables from me terms
+get_me_group_vars <- function(x) {
   uni_me <- get_uni_me(x)
   out <- lapply(uni_me, eval2)
   out <- ufrom_list(out, "gr")
@@ -521,7 +529,7 @@ sp_model_matrix <- function(formula, data, types = all_sp_types(), ...) {
   terms_replace <- terms_unique[grepl_expr(regex, terms_unique)]
   dummies <- paste0("dummy", seq_along(terms_replace), "__")
   data[dummies] <- list(1)
-  terms_comb <- rep(NA, length(terms_split))
+  terms_comb <- covars <- rep(NA, length(terms_split))
   # loop over terms and add dummy variables
   for (i in seq_along(terms_split)) {
     replace_i <- grepl_expr(regex, terms_split[[i]])
@@ -529,6 +537,8 @@ sp_model_matrix <- function(formula, data, types = all_sp_types(), ...) {
     dummies_i <- dummies[match(terms_i_replace, terms_replace)]
     terms_split[[i]][replace_i] <- dummies_i
     terms_comb[i] <- paste0(terms_split[[i]], collapse = ":")
+    # non-special covariates are part of the term
+    covars[i] <- !all(replace_i)
   }
   new_formula <- str2formula(terms_comb)
   attributes(new_formula) <- attributes(formula)
@@ -537,6 +547,7 @@ sp_model_matrix <- function(formula, data, types = all_sp_types(), ...) {
   colnames(out) <- rm_wsp(colnames(out))
   # recover original column names
   colnames(out) <- rename(colnames(out), dummies, terms_replace)
+  attr(out, "covars") <- covars
   out
 }
 

@@ -373,6 +373,17 @@ test_that("formula has reasonable ouputs", {
   expect_true(is.brmsformula(formula(fit1)))
 })
 
+test_that("inits has reasonable ouputs", {
+  # rstan backend
+  inits1 <- inits(fit1)
+  expect_type(inits1, "list")
+  expect_length(inits1, nchains(fit1))
+
+  inits2 <- inits(fit2)
+  expect_type(inits2, "list")
+  expect_length(inits2, nchains(fit2))
+})
+
 test_that("hypothesis has reasonable ouputs", {
   hyp <- hypothesis(fit1, c("Age > Trt1", "Trt1:Age = -1"))
   expect_equal(dim(hyp$hypothesis), c(2, 8))
@@ -670,7 +681,7 @@ test_that("pp_check has reasonable outputs", {
                  group = "visit", newdata = fit1$data[1:10, ])
   expect_ggplot(pp)
 
-  pp <- SW(pp_check(fit1, type = "loo_pit", cores = 1))
+  pp <- SW(pp_check(fit1, type = "loo_pit_qq", cores = 1))
   expect_ggplot(pp)
 
   # ppd plots work
@@ -905,7 +916,7 @@ test_that("update has reasonable outputs", {
   new_data <- data.frame(
     Age = rnorm(18), visit = rep(c(3, 2, 4), 6),
     Trt = rep(0:1, 9), count = rep(c(5, 17, 28), 6),
-    patient = 1, Exp = 4, volume = 0
+    patient = rep(1:6, each = 3), Exp = 4, volume = 0
   )
   up <- update(fit1, newdata = new_data, save_pars = save_pars(group = FALSE),
                testmode = TRUE)

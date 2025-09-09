@@ -28,7 +28,7 @@ prepare_predictions.brmsfit <- function(
   resp <- validate_resp(resp, x)
   draw_ids <- validate_draw_ids(x, draw_ids, ndraws)
   draws <- as_draws_matrix(x)
-  draws <- suppressMessages(subset_draws(draws, draw = draw_ids))
+  draws <- suppressMessages(subset_draws(draws, draw = draw_ids, unique = FALSE))
   draws <- point_draws(draws, point_estimate, ndraws_point_estimate)
 
   sdata <- standata(
@@ -1178,7 +1178,7 @@ is.bprepnl <- function(x) {
 
 #' Prepare Predictions
 #'
-#' This method helps in preparing \pkg{brms} models for certin post-processing
+#' This method helps in preparing \pkg{brms} models for certain post-processing
 #' tasks most notably various forms of predictions. Unless you are a package
 #' developer, you will rarely need to call \code{prepare_predictions} directly.
 #'

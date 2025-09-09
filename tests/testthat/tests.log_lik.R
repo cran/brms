@@ -176,7 +176,63 @@ test_that("log_lik for FCOR models runs without errors", {
   expect_equal(dim(ll), c(ns, nobs))
 })
 
+test_that("log_lik for FCOR student-t models works as expected", {
+  ns <- 3
+  nobs <- 4  
+  prep <- structure(list(ndraws = ns, nobs = nobs), class = "brmsprep")
+  prep$data$Y <- rnorm(nobs)
+  prep$dpars <- list(
+    mu = matrix(rnorm(nobs * ns), nrow = ns),
+    sigma = rgamma(ns, 2),
+    nu = rgamma(ns, 5)
+  )
+  
+  # Set up acframe for fcor
+  A <- matrix(rnorm(nobs^2), nobs, nobs)
+  M <- t(A) %*% A + diag(nobs) * 0.1
+  s_diag <- sqrt(diag(M))
+  Mfcor <- M / (s_diag %*% t(s_diag))
+  acframe <- data.frame(class = "fcor", cov = TRUE, stringsAsFactors = FALSE)
+  class(acframe) <- c("acframe", "data.frame")
+  prep$ac <- list(Mfcor = Mfcor, acframe = acframe)
+  
+  ll <- brms:::log_lik_student_fcor(1, prep = prep)
+  
+  # Naively compute log-likelihoods using
+  # https://en.wikipedia.org/wiki/Multivariate_t-distribution#Conditional_Distribution
+  ll_student <- matrix(0, ns, nobs)
+  for (s in 1:ns) {
+    df <- prep$dpars$nu[s]
+    mu <- prep$dpars$mu[s, ]
+    sigma <- prep$dpars$sigma[s]
+    Sigma <- sigma^2 * prep$ac$Mfcor
+
+    dfloo <- df + nobs - 1
+    
+    for (i in 1:nobs) {
+      e_ic <- (prep$data$Y[-i] - mu[-i])
+      Sigma_ic <- Sigma[-i, -i]
+      Sigma_i_ic <- Sigma[i, -i]
+      inv_Sigma_ic_e <- solve(Sigma_ic, e_ic)
+      
+      d_ic <- t(e_ic) %*% inv_Sigma_ic_e
+      sigma_scale <- (df + d_ic) / dfloo
+      schur <- Sigma[i, i] - Sigma_i_ic %*% solve(Sigma_ic, Sigma_i_ic)
+
+      mu_cond_i <- mu[i] + Sigma_i_ic %*% inv_Sigma_ic_e
+      sigma_cond_i <- sqrt(sigma_scale * schur)
+      y_i <- prep$data$Y[i]
+      
+      ll_student[s, i] <- dstudent_t(y_i, dfloo, mu_cond_i, sigma_cond_i, log = TRUE)
+    }
+  }
+  
+  expect_equal(ll, ll_student)
+})
+
 test_that("log_lik for count and survival models works correctly", {
+  skip_if_not_installed("extraDistr")
+
   ns <- 25
   nobs <- 10
   trials <- sample(10:30, nobs, replace = TRUE)
@@ -337,6 +393,7 @@ test_that("log_lik for circular models runs without errors", {
 })
 
 test_that("log_lik for zero-inflated and hurdle models runs without erros", {
+  skip_if_not_installed("extraDistr")
   ns <- 50
   nobs <- 8
   trials <- sample(10:30, nobs, replace = TRUE)
@@ -422,6 +479,7 @@ test_that("log_lik for ordinal models runs without erros", {
 })
 
 test_that("log_lik for categorical and related models runs without erros", {
+  skip_if_not_installed("extraDistr")
   ns <- 50
   nobs <- 8
   ncat <- 3
@@ -443,6 +501,12 @@ test_that("log_lik for categorical and related models runs without erros", {
   prep$data$trials <- sample(1:20, nobs)
   prep$family <- multinomial()
   ll <- sapply(1:nobs, brms:::log_lik_multinomial, prep = prep)
+  expect_equal(dim(ll), c(ns, nobs))
+
+  prep$data$trials <- sample(1:20, nobs)
+  prep$dpars$phi <- rexp(ns, 10)
+  prep$family <- dirichlet_multinomial()
+  ll <- sapply(1:nobs, brms:::log_lik_dirichlet_multinomial, prep = prep)
   expect_equal(dim(ll), c(ns, nobs))
 
   prep$data$Y <- prep$data$Y / rowSums(prep$data$Y)
@@ -487,6 +551,7 @@ test_that("censored and truncated log_lik run without errors", {
 })
 
 test_that("log_lik for the wiener diffusion model runs without errors", {
+  skip_if_not_installed("RWiener")
   ns <- 5
   nobs <- 3
   prep <- structure(list(ndraws = ns, nobs = nobs), class = "brmsprep")
@@ -498,6 +563,21 @@ test_that("log_lik for the wiener diffusion model runs without errors", {
   prep$data <- list(Y = abs(rnorm(ns)) + 0.5, dec = c(1, 0, 1))
   i <- sample(1:nobs, 1)
   expect_equal(length(brms:::log_lik_wiener(i, prep)), ns)
+})
+
+test_that("log_lik for the xbeta model runs without errors", {
+  skip_if_not_installed("betareg")
+  ns <- 50
+  nobs <- 8
+  prep <- structure(list(ndraws = ns, nobs = nobs), class = "brmsprep")
+  prep$dpars <- list(
+    mu = matrix(rbeta(ns * nobs, 1.2, 2.3), ncol = nobs),
+    phi = rexp(ns, 0.01),
+    kappa = rexp(ns, 2)
+  )
+  prep$data <- list(Y = rbeta(nobs, 2, 3))
+  ll <- brms:::log_lik_xbeta(3, prep = prep)
+  expect_equal(length(ll), ns)
 })
 
 test_that("log_lik_custom runs without errors", {

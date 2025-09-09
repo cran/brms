@@ -471,7 +471,7 @@ stan_re <- function(bframe, prior, normalize, ...) {
   out <- list()
   # special handling of student-t group effects as their 'df' parameters
   # are defined on a per-group basis instead of a per-ID basis
-  reframe_t <- get_dist_groups(reframe, "student")
+  reframe_t <- subset_reframe_dist(reframe, "student")
   if (has_rows(reframe_t)) {
     str_add(out$par) <-
       "  // parameters for student-t distributed group-level effects\n"
@@ -515,6 +515,7 @@ stan_re <- function(bframe, prior, normalize, ...) {
   stopifnot(is.reframe(r))
   has_cov <- nzchar(r$cov[1])
   has_by <- nzchar(r$by[[1]])
+  has_pw <- isTRUE(nzchar(r$gcall[[1]]$pw))
   Nby <- seq_along(r$bylevels[[1]])
   ng <- seq_along(r$gcall[[1]]$groups)
   px <- check_prefix(r)
@@ -558,6 +559,12 @@ stan_re <- function(bframe, prior, normalize, ...) {
     str_add(out$data) <- glue(
       "  matrix[N_{id}, N_{id}] Lcov_{id};",
       "  // cholesky factor of known covariance matrix\n"
+    )
+  }
+  if (has_pw) {
+    str_add(out$data) <- glue(
+      "  vector[N_{id}] PW_{id};",
+      "  // weights for group contribution to the prior\n"
     )
   }
   J <- seq_rows(r)
@@ -619,7 +626,7 @@ stan_re <- function(bframe, prior, normalize, ...) {
 
   # define group-level coefficients
   dfm <- ""
-  tr <- get_dist_groups(r, "student")
+  tr <- subset_reframe_dist(r, "student")
   if (nrow(r) > 1L && r$cor[1]) {
     # multiple correlated group-level effects
     str_add(out$data) <- glue(
@@ -629,9 +636,18 @@ stan_re <- function(bframe, prior, normalize, ...) {
       "  matrix[M_{id}, N_{id}] z_{id};",
       "  // standardized group-level effects\n"
     )
-    str_add(out$model_prior) <- glue(
-      "  target += std_normal_{lpdf}(to_vector(z_{id}));\n"
-    )
+    if (has_pw) {
+      str_add(out$model_prior) <- glue(
+        "  for (j in 1:N_{id}) {{\n",
+        "    target += PW_{id}[j] * std_normal_{lpdf}(z_{id}[, j]);\n",
+        "  }\n"
+      )
+    } else {
+      str_add(out$model_prior) <- glue(
+        "  target += std_normal_{lpdf}(to_vector(z_{id}));\n"
+      )
+    }
+
     if (has_rows(tr)) {
       dfm <- glue("rep_matrix(dfm_{tr$ggn[1]}, M_{id}) .* ")
     }
@@ -720,9 +736,18 @@ stan_re <- function(bframe, prior, normalize, ...) {
       "  array[M_{id}] vector[N_{id}] z_{id};",
       "  // standardized group-level effects\n"
     )
-    str_add(out$model_prior) <- cglue(
-      "  target += std_normal_{lpdf}(z_{id}[{seq_rows(r)}]);\n"
-    )
+    if (has_pw) {
+      str_add(out$model_prior) <- glue(
+        "  for (j in 1:N_{id}) {{\n",
+        cglue("    target += PW_{id}[j] * std_normal_{lpdf}(z_{id}[{seq_rows(r)}, j]);\n"),
+        "  }\n"
+      )
+    } else {
+      str_add(out$model_prior) <- cglue(
+        "  target += std_normal_{lpdf}(z_{id}[{seq_rows(r)}]);\n"
+      )
+    }
+
     Lcov <- str_if(has_cov, glue("Lcov_{id} * "))
     if (has_rows(tr)) {
       dfm <- glue("dfm_{tr$ggn[1]} .* ")
@@ -967,7 +992,7 @@ stan_sp <- function(bframe, prior, stanvars, threads, normalize, ...) {
       str_add(eta) <- glue(" * Csp{p}_{spframe$Ic[i]}{n}")
     }
     r <- subset2(reframe, coef = spframe_coef[i])
-    rpars <- str_if(nrow(r), cglue(" + {stan_eta_rsp(r)}"))
+    rpars <- str_if(nrow(r), cglue(" + {stan_eta_rsp(r, threads)}"))
     str_add(out$loopeta) <- glue(" + (bsp{p}[{i}]{rpars}) * {eta}")
   }
 
@@ -2088,9 +2113,10 @@ stan_eta_re <- function(bframe, threads) {
 # Stan code for group-level parameters in special predictor terms
 # @param r data.frame created by frame_re
 # @return a character vector: one element per row of 'r'
-stan_eta_rsp <- function(r) {
+stan_eta_rsp <- function(r, threads) {
   stopifnot(is.reframe(r))
   stopifnot(nrow(r) > 0L, length(unique(r$gtype)) == 1L)
+  n <- stan_nn(threads)
   rpx <- check_prefix(r)
   idp <- paste0(r$id, usc(combine_prefix(rpx)))
   idresp <- paste0(r$id, usc(rpx$resp))
@@ -2099,12 +2125,12 @@ stan_eta_rsp <- function(r) {
     out <- rep("", nrow(r))
     for (i in seq_along(out)) {
       out[i] <- glue(
-        "W_{idresp[i]}_{ng}[n] * r_{idp[i]}_{r$cn[i]}[J_{idresp[i]}_{ng}[n]]",
+        "W_{idresp[i]}_{ng}{n} * r_{idp[i]}_{r$cn[i]}[J_{idresp[i]}_{ng}{n}]",
         collapse = " + "
       )
     }
   } else {
-    out <- glue("r_{idp}_{r$cn}[J_{idresp}[n]]")
+    out <- glue("r_{idp}_{r$cn}[J_{idresp}{n}]")
   }
   out
 }

@@ -61,6 +61,32 @@
   )
 }
 
+.family_xbeta <- function() {
+  list(
+    links = c(
+      "logit", "probit", "probit_approx", "cloglog",
+      "cauchit", "softit", "identity", "log"
+    ),
+    dpars = c("mu", "phi", "kappa"),
+    type = "real",
+    ybounds = c(0, 1),
+    closed = c(TRUE, TRUE),
+    ad = c("weights", "subset", "index"),
+    include = "fun_xbeta.stan",
+    prior = function(dpar, link = "identity", ...) {
+      if (dpar == "kappa") {
+        if (link == "identity") {
+          return("gamma(0.01, 0.01)")
+        } else {
+          return("student_t(3, 0, 2.5)")
+        }
+      }
+      NULL
+    },
+    normalized = ""
+  )
+}
+
 .family_beta_binomial <- function() {
   list(
     links = c(
@@ -108,6 +134,20 @@
     ad = c("weights", "subset", "trials", "index"),
     specials = c("multinomial", "joint_link"),
     include = "fun_multinomial_logit.stan",
+    normalized = ""
+  )
+}
+
+.family_dirichlet_multinomial <- function() {
+  list(
+    links = "logit",
+    dpars = "phi",
+    multi_dpars = "mu",  # size determined by the data
+    type = "int", ybounds = c(-Inf, Inf),
+    closed = c(NA, NA),
+    ad = c("weights", "subset", "trials", "index"),
+    specials = c("multinomial", "joint_link"),
+    include = "fun_dirichlet_multinomial_logit.stan",
     normalized = ""
   )
 }
@@ -183,7 +223,6 @@
     ybounds = c(0, Inf), closed = c(TRUE, NA),
     ad = c("weights", "subset", "cens", "trunc", "rate", "index"),
     specials = "sbi_log",
-    # experimental use of default priors stored in families #1614
     prior = function(dpar, link = "identity", ...) {
       if (dpar == "shape" && link == "identity") {
         return("inv_gamma(0.4, 0.3)")
@@ -351,7 +390,6 @@
     ad = c("weights", "subset", "cens", "trunc", "mi", "index"),
     include = c("fun_tan_half.stan"),
     normalized = "",
-    # experimental use of default priors stored in families #1614
     prior = function(dpar, link = "identity", ...) {
       if (dpar == "mu" && link == "tan_half") {
         return("student_t(1, 0, 1)")
@@ -473,7 +511,13 @@
     ad = c("weights", "subset", "cens", "trunc", "index"),
     include = "fun_hurdle_negbinomial.stan",
     specials = c("sbi_log", "sbi_hu_logit"),
-    normalized = ""
+    normalized = "",
+    prior = function(dpar, link = "identity", ...) {
+      if (dpar == "shape" && link == "identity") {
+        return("inv_gamma(0.4, 0.3)")
+      }
+      NULL
+    }
   )
 }
 
@@ -538,7 +582,13 @@
     ad = c("weights", "subset", "cens", "trunc", "index"),
     include = "fun_zero_inflated_negbinomial.stan",
     specials = c("sbi_log", "sbi_zi_logit"),
-    normalized = ""
+    normalized = "",
+    prior = function(dpar, link = "identity", ...) {
+      if (dpar == "shape" && link == "identity") {
+        return("inv_gamma(0.4, 0.3)")
+      }
+      NULL
+    }
   )
 }
 

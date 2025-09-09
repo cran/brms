@@ -1,3 +1,45 @@
+# brms 2.23
+
+### New Features
+
+* Specify a prior `tag` for use in prior sensitivity analysis
+via `priorsense` thanks to Kallioinen. (#1585)
+* Specify group-level prior weights via argument `pw` in multilevel
+`gr` and `mm` terms thanks to Ben Schneider. (#1719)
+* Fit extended-support Beta models via family `xbeta` 
+thanks to Ioannis Kosmidis. (#1698)
+* Add a `seed` argument to `loo_R2` thanks to Marco Colombo. (#1713)
+* Add family `dirichlet_multinomial` to fit overdispersed 
+multinomial data thanks to Tom Peatman. (#1729)
+* Add the `int_step` R function to match the corresponding Stan 
+function thanks to Daniel Sabanes Bove. (#1734)
+* Add a new global option `brms.cache_folder`, which allows users to define a 
+default directory for saving and loading cached brmsfit objects.
+Thanks to Sermet Pekin. (#1790)
+
+### Bug Fixes
+
+* Avoid the creation of zombie workers when executing `log_lik`
+in parallel thanks to Aki Vehtari and Noa Kallioinen. 
+For now, `log_lik` will use PSOCK clusters if run
+in parallel even on Unix systems. To avoid potential speed loss for small
+models, `log_lik` will not use `option(mc.cores)` anymore.
+These changes may be reverted once the underlying causes of this
+issue have been fixed. (#1658)
+* Align the definition of the R function `step()` with the definition in Stan,
+such that `step(0) == 1` thanks to Daniel Sabanes Bov. (#1734)
+* Make `read_csv_as_stanfit()` store `adapt_delta` and `max_treedepth` values in
+`$control` so rstan can find these values. Thanks to Tristan Mahr (#1767).
+* Enable updating argument `data2` for `brmsfit_multiple` objects. (#1776)
+* Fix several other minor bugs.
+
+### Other Changes
+
+* Improve sampling efficiency of `beta_binomial` models. (#1703)
+* Improve efficiency of non-factorizable log-likelihoods 
+for Student-t models thanks to Seth Axen. (#1820)
+* Improve documentation in several places.
+
 # brms 2.22.0
 
 ### New Features
